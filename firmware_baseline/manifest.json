@@ -1,0 +1,67 @@
+{
+  "captured_at": "2026-11-16T21:18:48.7528707+08:00",
+  "description": "修改前保存的原始编译产物，后续编译不覆盖本目录",
+  "board_read_verification": {
+    "target": "Robin_24G_Car_Flash",
+    "flash_start": "0x4000",
+    "bytes": 34404,
+    "matches_board_read": true,
+    "note": "应用固件已与 BDT 读出内容逐字节比对；启动程序和遥控器固件仅归档，未做实物比对"
+  },
+  "files": [
+    {
+      "target": "Robin_24G_Car_Flash",
+      "file": "Robin_24G_Car_Flash.bin",
+      "bytes": 34404,
+      "sha256": "504042715AF62E84EB8580E35016FF0434992BC0867510C920425424BC9421DF"
+    },
+    {
+      "target": "Robin_24G_Car_Flash",
+      "file": "Robin_24G_Car_Flash.lst",
+      "bytes": 748083,
+      "sha256": "DA52822E7E9CC7EFEEDF2C9E4B1C54F327A513686740AD9F93BBB7F81974D686"
+    },
+    {
+      "target": "Robin_24G_Car_Flash",
+      "file": "TC_PLATFORM_SDK_122X.elf",
+      "bytes": 163836,
+      "sha256": "28A056AEC0B487D8EBA47564F43406C1406B4A7ACBD7AEE982B82EB544ACCDA8"
+    },
+    {
+      "target": "Robin_24G_Bootloader_Flash",
+      "file": "Robin_24G_Bootloader_Flash.bin",
+      "bytes": 12756,
+      "sha256": "46506F44720D2A56C04E6A3E69A54533DC5759F1B2847047359DD9ED13A96D52"
+    },
+    {
+      "target": "Robin_24G_Bootloader_Flash",
+      "file": "Robin_24G_Bootloader_Flash.lst",
+      "bytes": 267753,
+      "sha256": "9315669C8EA701BF8C97F7E3B5A05E429185D7DC197E69FD766881C1D30C6FA0"
+    },
+    {
+      "target": "Robin_24G_Bootloader_Flash",
+      "file": "TC_PLATFORM_SDK_122X.elf",
+      "bytes": 92908,
+      "sha256": "62F77982DA69EAFBD1C400DD038156DDFFC963C806310CBEA0FE2D374BE9B45B"
+    },
+    {
+      "target": "Robin_24G_Remote_Flash",
+      "file": "Robin_24G_Remote_Flash.bin",
+      "bytes": 19908,
+      "sha256": "DDCC427C58DEC67C2BFD25C39BDE0FE0972F8ECCDF21CE2449C77A6D035BAAB4"
+    },
+    {
+      "target": "Robin_24G_Remote_Flash",
+      "file": "Robin_24G_Remote_Flash.lst",
+      "bytes": 425545,
+      "sha256": "8D1D689B0FC66EDB35447BA8033DE7ACBC082311B761C1B5D792F41533E94474"
+    },
+    {
+      "target": "Robin_24G_Remote_Flash",
+      "file": "TC_PLATFORM_SDK_122X.elf",
+      "bytes": 108273,
+      "sha256": "7E9EBECC5BB08DA31C44AB4237541A1F95F4E9B6DF80AD0D21D171A81174C0AD"
+    }
+  ]
+}

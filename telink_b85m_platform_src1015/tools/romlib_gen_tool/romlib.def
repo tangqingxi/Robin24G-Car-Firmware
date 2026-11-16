@@ -1,0 +1,37 @@
+u32 _start_data_;
+u32 _end_data_;
+u32 _start_bss_;
+u32 _end_bss_;
+u32 _dstored_;
+void cpu_wakeup_init(cap_typedef_e cap);
+void clock_init(SYS_CLK_TypeDef SYS_CLK);
+void user_read_efuse_value_calib(void);
+void rf_mode_init(void);
+void rf_set_ble_1M_mode(void);
+void rf_set_ble_1M_NO_PN_mode();
+void rf_set_ble_2M_mode();
+void rf_set_ble_2M_NO_PN_mode();
+void rf_set_pri_250K_mode();
+void rf_set_pri_500K_mode();
+void rf_set_pri_1M_mode();
+void rf_set_pri_2M_mode();
+void rf_set_channel_singletone (signed char chn);
+void rf_set_power_level_index_singletone (RF_PowerTypeDef level);
+void rf_access_code_comm (unsigned int acc);
+void rf_emi_single_tone(RF_PowerTypeDef power_level,signed char rf_chn);
+void rf_emi_stop(void);
+void rf_emi_tx_continue_setup(RF_ModeTypeDef rf_mode,RF_PowerTypeDef power_level,signed char rf_chn,unsigned char pkt_type);
+void rf_continue_mode_run(void);
+void rf_emi_rx(RF_ModeTypeDef mode,signed char rf_chn);
+void rf_emi_rx_loop(void);
+unsigned int rf_emi_get_rxpkt_cnt(void);
+void rf_emi_tx_burst_setup(RF_ModeTypeDef rf_mode,RF_PowerTypeDef power_level,signed char rf_chn,unsigned char pkt_type);
+void rf_emi_tx_burst_loop(RF_ModeTypeDef rf_mode,unsigned char pkt_type);
+void gpio_set_func(GPIO_PinTypeDef pin, gpio_func_e func);
+void gpio_set_input_en(GPIO_PinTypeDef pin, unsigned int value);
+void gpio_set_output_en(GPIO_PinTypeDef pin, unsigned int value);
+void gpio_write(GPIO_PinTypeDef pin, unsigned int value);
+_Bool gpio_read(GPIO_PinTypeDef pin);
+void gpio_setup_up_down_resistor(GPIO_PinTypeDef gpio, GPIO_PullTypeDef up_down);
+
+

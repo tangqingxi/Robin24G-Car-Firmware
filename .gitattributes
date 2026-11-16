@@ -1,0 +1,14 @@
+# 文本自动识别，构建脚本固定使用 LF 换行
+* text=auto
+*.sh text eol=lf
+
+# 二进制资源不做换行转换，原始调试清单保持字节不变
+*.bin binary
+*.elf binary
+*.a binary
+*.exe binary
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
+firmware_baseline/**/*.lst -text

@@ -1,0 +1,972 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?fileVersion 4.0.0?><cproject storage_type_id="org.eclipse.cdt.core.XmlProjectDescriptionStorage">
+	<storageModule moduleId="org.eclipse.cdt.core.settings">
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1014411937">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1014411937" moduleId="org.eclipse.cdt.core.settings" name="driver_tc122x_flash">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactExtension="a" artifactName="${ConfigName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.staticLib" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.staticLib,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1014411937" name="driver_tc122x_flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1014411937." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.2079993858" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1546720737" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1201686151" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.509256831" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.1569392795" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.1203233054" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.166549914" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.1689551302" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.202352808" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_FLASH  -DMCU_CORE_TC122X=1  -DFPGA=0" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.1110555601" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.1016628579" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.1418840751" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.799634288" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.19247363" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1693416766" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.929000719" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Demo}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.528531549" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="DRIVER_LIB_BUILD=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="FLASH_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_DEMO=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.960616833" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.2118685072" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.2051653810" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1557128623" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1953573279" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.1838614740" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1543424316" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libpath.1692508663" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libs.1885191443" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs"/>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.2038820281" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.1111108746" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.1891180539" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.197920094" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.327788810" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1138882139" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.1215193906" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="boot|vendor|drivers/watchdog.c|drivers/uart.c|drivers/timer.c|drivers/random.c|drivers/qdec.c|drivers/printf.c|drivers/gpio.c|drivers/flash.c|drivers/bsp.c|drivers/analog.c|drivers/adc.c|drivers/flash|common|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.740939990">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.740939990" moduleId="org.eclipse.cdt.core.settings" name="driver_tc122x_fpga">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactExtension="a" artifactName="${ConfigName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.staticLib" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.staticLib,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.740939990" name="driver_tc122x_fpga" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.740939990." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.1728971731" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1516455694" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1094256205" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.150338009" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.2096248748" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.210863542" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.18969452" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.1757926067" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.638777763" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM  -DMCU_CORE_TC122X=1 -DFPGA=1" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.1867019810" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.219562991" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.30137160" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.1233512998" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.525577755" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1188620595" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.2131772061" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Demo}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.1146018456" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="DRIVER_LIB_BUILD=1"/>
+									<listOptionValue builtIn="false" value="FPGA=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_DEMO=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.28054931" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.1048160895" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.2017034172" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1026552232" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.2025777799" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.2125939115" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.137576409" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libpath.970067609" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libs.536269929" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs"/>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.562009520" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.889178962" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.2052250542" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1110502602" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.554854080" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.307460055" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.342790423" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="boot|vendor|drivers/watchdog.c|drivers/uart.c|drivers/timer.c|drivers/random.c|drivers/qdec.c|drivers/printf.c|drivers/gpio.c|drivers/flash.c|drivers/bsp.c|drivers/analog.c|drivers/adc.c|drivers/flash|common|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.287589565">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.287589565" moduleId="org.eclipse.cdt.core.settings" name="driver_tc122x_rom">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactExtension="a" artifactName="${ConfigName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.staticLib" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.staticLib,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.287589565" name="driver_tc122x_rom" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.287589565." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.478909498" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.2073617917" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.259774097" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.930224142" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.1540455322" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.185508065" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.2113155167" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.1418461572" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.2048725663" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM -DMCU_CORE_TC122X=1 -DFPGA=0" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.638770895" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.1313622980" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.1480933841" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.166573303" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1463274467" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1148797327" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1271280731" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Demo}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.1492040133" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="DRIVER_LIB_BUILD=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_DEMO=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.1486355085" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.368184348" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.13603965" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.340157104" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.917150994" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.2020461125" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1980899475" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libpath.264584776" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="true" id="com.telink.tc32eclipse.linker.option.libs.1509900959" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs"/>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.1449703557" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.217797192" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.651245722" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1987248815" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1964726788" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1249899291" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.973366890" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="boot|vendor|drivers/watchdog.c|drivers/uart.c|drivers/timer.c|drivers/random.c|drivers/qdec.c|drivers/printf.c|drivers/gpio.c|drivers/flash.c|drivers/bsp.c|drivers/analog.c|drivers/adc.c|drivers/flash|common|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+			<storageModule moduleId="ilg.gnuarmeclipse.managedbuild.packs"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Car_Flash">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476" name="Robin_24G_Car_Flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.921636394" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.863800557" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.596509171" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.171078926" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.228379170" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.942303862" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.583626209" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.2125438175" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.128313150" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_FLASH_APP  -DMCU_CORE_TC122X=1  -DFPGA=0  -DFW_BOOT_ADDR_NON_ZERO=1" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.721005580" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.378057821" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.985640885" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.999789589" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1743760139" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1594773226" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.30577389" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Car}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.2055317230" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="BOOTLOADER_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="FLASH_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_CAR=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.786558187" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.297467949" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1060965298" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1946884781" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1078128340" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.601694033" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1352249152" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1492569048" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.1616536413" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_flash"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.1069898608" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.1875875328" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.393219644" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.4900848" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1898593645" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1809564642" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.957115455" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Remote|vendor/Robin_24G_Demo|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+			<storageModule moduleId="ilg.gnuarmeclipse.managedbuild.packs"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.669648392">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.669648392" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Remote_Flash">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.669648392" name="Robin_24G_Remote_Flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.669648392." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.1535384020" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1564873375" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1307984783" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.970574822" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.1304418220" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.554563674" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.1894952679" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.728490841" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.958107376" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_FLASH_APP  -DMCU_CORE_TC122X=1  -DFPGA=0  -DFW_BOOT_ADDR_NON_ZERO=1" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.335863245" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.1022533540" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.1844478007" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.302176379" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.2032650521" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.2062272820" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1099323661" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Remote}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.2030567230" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="BOOTLOADER_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="FLASH_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_REMOTE=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.1892777958" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.1487792036" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1925380354" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1196169272" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1250222890" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.1465381647" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.154655953" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.964161553" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.1665838820" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_flash"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.1684728095" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.2019314437" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.325016777" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1039110608" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1915965608" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1970549639" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.1114909851" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Demo|vendor/Robin_24G_Car|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+			<storageModule moduleId="ilg.gnuarmeclipse.managedbuild.packs"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.1933643382">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.1933643382" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Remote_ROM">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.1933643382" name="Robin_24G_Remote_ROM" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.1933643382." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.1689643962" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1102805937" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1350366590" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.416619723" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.1452541757" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.466709114" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.14905247" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.1543786432" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.372044840" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM -DMCU_CORE_TC122X=1 -DFPGA=0" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.503299578" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.419719298" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.49333740" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.1781397501" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1602579735" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.342732324" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.827845513" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Remote}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.1094532302" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_REMOTE=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.638948830" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.1518252680" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1127945864" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.339048222" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.194289702" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.506177641" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.307928431" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1209753459" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.1712695889" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_rom"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.257630645" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.423201594" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.243186672" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1065438468" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.605201303" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.700569464" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.1253143816" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Demo|vendor/Robin_24G_Car|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.2004472796">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.2004472796" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Remote_FPGA">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.2004472796" name="Robin_24G_Remote_FPGA" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.2004472796." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.483929878" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.241948540" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1926270522" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.1645650106" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.768711766" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.1566894022" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.1178726693" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.384854973" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.1344121179" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM  -DMCU_CORE_TC122X=1 -DFPGA=1" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.1312842779" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.2020423768" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.1101864831" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.332439127" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1664907766" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1424990368" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1009640973" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Remote}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.933789141" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="FPGA=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_REMOTE=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.268643035" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.1571392219" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1372709261" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1045207748" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.633621037" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.1399290737" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.263771766" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1891418477" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.629814536" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_fpga"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.1722944444" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.483194971" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.1914346674" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1826647580" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1492072625" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.785346086" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.1051469125" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Demo|vendor/Robin_24G_Car|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.775017765">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.775017765" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Car_ROM">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.775017765" name="Robin_24G_Car_ROM" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.1378581477.698574076.775017765." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.407465857" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1585380342" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.661723138" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.290010136" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.682785112" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.252177962" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.907523544" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.1709216064" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.862077839" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM -DMCU_CORE_TC122X=1 -DFPGA=0" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.32069371" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.1051814200" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.1472285439" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.1885903319" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1054004663" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.2113768923" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1218267665" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Car}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.834339778" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_CAR=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.1846066399" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.918266138" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1432711118" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.257537395" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1970353405" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.1283382017" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1185341411" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.312245758" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.416435799" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_rom"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.435363083" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.453534610" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.416075190" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1038966200" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1711867227" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1314465320" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.255437517" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Remote|vendor/Robin_24G_Demo|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.1553107058">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.1553107058" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Car_FPGA">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.1553107058" name="Robin_24G_Car_FPGA" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.350591618.104686751.1553107058." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.1573938912" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1110807537" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.440857052" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.1084954339" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.1867851573" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.987767280" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.294852673" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.472677547" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.1660064006" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_ROM  -DMCU_CORE_TC122X=1 -DFPGA=1" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.2042247412" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.232288494" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.533203294" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.55043876" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1296829206" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.1224253312" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1411066732" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Car}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.766864249" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="FPGA=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_CAR=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.34498048" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.1166065734" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.324890340" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.62230092" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1235159604" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.2014603806" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.590561085" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1165657734" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.230519762" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_fpga"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.350394802" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.614458578" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.1742558214" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1802967178" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.1852352294" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.1392446954" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.323868255" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Bootloader|vendor/Robin_24G_Remote|vendor/Robin_24G_Demo|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+		</cconfiguration>
+		<cconfiguration id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476.1371402708">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476.1371402708" moduleId="org.eclipse.cdt.core.settings" name="Robin_24G_Bootloader_Flash">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.ELF" point="org.eclipse.cdt.core.BinaryParser"/>
+					<extension id="org.eclipse.cdt.core.MakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476.1371402708" name="Robin_24G_Bootloader_Flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476.1371402708." name="/" resourcePath="">
+						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.997337914" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.1122164641" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug.1925862234" name="Generate Extended Listing (Source + generated Assembler)" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objdump.app.debug" useByScannerDiscovery="false"/>
+							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug.353074608" name="Print Size" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.size.app.debug" useByScannerDiscovery="false"/>
+							<targetPlatform binaryParser="org.eclipse.cdt.core.ELF" id="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug.111684414" name="TC32 Cross-Target" superClass="com.telink.tc32eclipse.targetplatform.TC32Win.app.debug"/>
+							<builder arguments="-j4" buildPath="${workspace_loc:/ble_lt_ms/Debug}" command="make" errorParsers="org.eclipse.cdt.core.MakeErrorParser" id="com.telink.tc32eclipse.target.builder.TC32Win.app.debug.887464313" keepEnvironmentInBuildfile="false" managedBuildOn="true" name="GNU Make Builder" superClass="com.telink.tc32eclipse.target.builder.TC32Win.app.debug"/>
+							<tool command="tc32-elf-gcc" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GASErrorParser" id="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug.467814550" name="TC32 CC/Assembler" superClass="com.telink.tc32eclipse.tool.assembler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.assembler.option.debug.level.623242178" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.asm.option.flags.614854924" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_FLASH_APP  -DMCU_CORE_TC122X=1  -DFPGA=0  -DFW_BOOT_ADDR_NON_ZERO=0" valueType="string"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.1413484595" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.850080000" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
+								<inputType id="com.telink.tc32eclipse.tool.assembler.input.231165423" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
+							</tool>
+							<tool command="tc32-elf-gcc -ffunction-sections -fdata-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug.1679789427" name="TC32 Compiler" superClass="com.telink.tc32eclipse.tool.compiler.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.compiler.option.debug.level.687929167" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.2145654490" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.1537605344" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Bootloader}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.744204397" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
+									<listOptionValue builtIn="false" value="BOOTLOADER_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="FPGA=0"/>
+									<listOptionValue builtIn="false" value="FLASH_ENABLE=1"/>
+									<listOptionValue builtIn="false" value="ROBIN_24G_CAR=1"/>
+								</option>
+								<option id="com.telink.tc32eclipse.compiler.option.std.2009148574" name="Language Standard" superClass="com.telink.tc32eclipse.compiler.option.std" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.std.gnu99" valueType="enumerated"/>
+								<option id="com.telink.tc32eclipse.compiler.option.otherflags.2056069662" name="Other flags" superClass="com.telink.tc32eclipse.compiler.option.otherflags" useByScannerDiscovery="false" value="-fshort-wchar -fms-extensions" valueType="string"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.packstruct.1786936780" name="Pack structs (-fpack-struct)" superClass="com.telink.tc32eclipse.compiler.option.optimize.packstruct" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.shortenums.1436445587" name="Short enums (-fshort-enums)" superClass="com.telink.tc32eclipse.compiler.option.optimize.shortenums" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+								<option id="com.telink.tc32eclipse.compiler.option.optimize.other.1668036715" name="Other Optimization Flags" superClass="com.telink.tc32eclipse.compiler.option.optimize.other" useByScannerDiscovery="false" value="-finline-small-functions" valueType="string"/>
+								<inputType id="com.telink.tc32eclipse.compiler.TC32Win.input.1400724970" name="C Source Files" superClass="com.telink.tc32eclipse.compiler.TC32Win.input"/>
+							</tool>
+							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1984847972" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1932342158" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+								</option>
+								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.2010999774" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
+									<listOptionValue builtIn="false" value="driver_tc122x_flash"/>
+								</option>
+								<inputType id="com.telink.tc32eclipse.tool.linker.input.622206569" name="OBJ Files" superClass="com.telink.tc32eclipse.tool.linker.input">
+									<additionalInput kind="additionalinputdependency" paths="$(USER_OBJS)"/>
+									<additionalInput kind="additionalinput" paths="$(LIBS)"/>
+								</inputType>
+							</tool>
+							<tool id="com.telink.tc32eclipse.tool.archiver.TC32Win.base.653109429" name="TC32 Archiver" superClass="com.telink.tc32eclipse.tool.archiver.TC32Win.base"/>
+							<tool command="tc32-elf-objdump" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} &gt;${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug.757000100" name="TC32 Create Extended Listing" superClass="com.telink.tc32eclipse.tool.objdump.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objdump.option.output.1631180484" name="Output Filename" superClass="com.telink.tc32eclipse.objdump.option.output" useByScannerDiscovery="false" value="${ConfigName}.lst" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-objcopy" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS} ${OUTPUT}" errorParsers="" id="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug.621650253" name="TC32 Create Flash image" superClass="com.telink.tc32eclipse.tool.objcopy.flash.TC32Win.app.debug">
+								<option id="com.telink.tc32eclipse.objcopy.flash.option.output.772650728" name="Output Filename" superClass="com.telink.tc32eclipse.objcopy.flash.option.output" useByScannerDiscovery="false" value="${ConfigName}.bin" valueType="string"/>
+							</tool>
+							<tool command="tc32-elf-size" commandLinePattern="${COMMAND} ${FLAGS} ${INPUTS}" errorParsers="" id="com.telink.tc32eclipse.tool.size.TC32Win.app.debug.184362195" name="Print Size" superClass="com.telink.tc32eclipse.tool.size.TC32Win.app.debug"/>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="vendor/Robin_24G_Car|vendor/Robin_24G_Remote|vendor/Robin_24G_Demo|vendor/PKE_Demo|vendor/8278_PKE_Demo|vendor/TRNG_Demo|vendor/8278_USB_Mouse_Demo|vendor/8258_GPIO_Demo|vendor/Flash_Demo|vendor/8278_RF_AOA_Demo|vendor/8258_SPI_Demo|vendor/STIMER_Demo|vendor/8258_Test_Demo|vendor/QDEC_Demo|vendor/ADC_Demo|vendor/8278_ADC_Demo|vendor/8278_USB_Speaker_Demo|vendor/RF_AUTO_Demo|vendor/UART_Demo|vendor/8278_AOA_Tscript_Demo|vendor/8278_AUTO_Test|vendor/TIMER_Demo|vendor/AES_Demo|vendor/DUT_Demo|vendor/8258_RF_Demo|vendor/8278_AES_Demo|vendor/Test_Demo|vendor/8278_Flash_Demo|vendor/8278_TRNG_Demo|drivers/8255|vendor/I2C_Demo|vendor/8278_I2C_Demo|vendor/8255_ble_remote|vendor/8258_LPC_Demo|vendor/8258_USB_Mouse_Demo|vendor/8258_EMI_Demo|vendor/8258_s7816_Demo|vendor/RF_AOA_Demo|vendor/8278_UART_Demo|vendor/8258_USB_Keyboard_Demo|vendor/GPIO_Demo|vendor/8258_RF_AUTO_Demo|vendor/8258_Debug_Demo|vendor/RF_Demo|vendor/8278_BQB_EMI_Demo|vendor/8258_USB_MIC_Demo|vendor/8258_RF_AOA|vendor/8258_RF_AOA_Demo|vendor/8278_MDEC_Demo|vendor/8278_USB_Demo|vendor/IR_LEARN_Demo|vendor/8278_GPIO_Demo|vendor/8278_LPC_Demo|vendor/8258_AUDIO_Demo|vendor/8255_PM_Demo|vendor/AOA_Tscript_Demo|vendor/DUT_Test|vendor/8258_AES_Demo|vendor/SWIRE_Demo|vendor/PM_Demo|vendor/8258_TIMER_Demo|vendor/BQB_EMI_Demo|drivers/8258/shield|vendor/PWM_Demo|vendor/8278_USB_CDC_Demo|vendor/SPI_Demo|vendor/8278_Debug_Demo|vendor/8278_SPI_Demo|vendor/8258_ble_driver_test|vendor/8278_RF_AUTO_Demo|vendor/8258_ADC_Demo|vendor/s7816_Demo|vendor/8278_USB_MIC_Demo|vendor_test/SPI_Demo|vendor/8278_SRAM_Test|vendor/8258_Flash_Demo|vendor/8258_PWM_Demo|vendor/Debug_Demo|vendor/8278_RF_Demo|vendor/8255_driver_test|vendor/8278_s7816_Demo|vendor/Display_Demo|vendor/8255_RF_Demo|vendor/SRAM_Test|vendor/8258_FLASH_Demo|vendor/8278_Test_Demo|vendor/8258_UART_Demo|vendor/8258_USB_MIC_SPK_Demo|vendor/8258_USB_Speaker_Demo|vendor/MultiBin_Demo|vendor/8258_I2C_Demo|vendor/USB_Demo|vendor/OTP_Demo|vendor/8278_USB_Keyboard_Demo|vendor/8258_QDEC_Demo|vendor/8278_AUDIO_Demo|vendor/8278_DUT_Test|vendor/Keyscan_Demo|vendor/8278_QDEC_Demo|vendor/8258_USB_CDC_Demo|vendor/8278_TIMER_Demo|vendor/8278_PWM_Demo|vendor/8258_USB_SPI_Demo" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+			<storageModule moduleId="org.eclipse.cdt.core.language.mapping"/>
+			<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+			<storageModule moduleId="ilg.gnuarmeclipse.managedbuild.packs"/>
+		</cconfiguration>
+	</storageModule>
+	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+		<project id="ble_lt_ms.com.telink.tc32eclipse.project.TC32Win.elf_0.1.0.33823561" name="TC32 Cross Target Application" projectType="com.telink.tc32eclipse.project.TC32Win.elf_0.1.0"/>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
+	<storageModule moduleId="refreshScope" versionNumber="2">
+		<configuration configurationName="driver_tc122x_rom"/>
+		<configuration configurationName="Robin_24G_Car_FPGA">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="UART_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Debug_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Remote_Flash">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Car_ROM">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Demo"/>
+		<configuration configurationName="s7816_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="MultiBin_Demo"/>
+		<configuration configurationName="Robin_Mouse_Demo"/>
+		<configuration configurationName="OTP_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="I2C_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="SWIRE_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="BQB_EMI_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="IR_LEARN_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="GPIO_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="USB_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Car_Flash">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="Timer_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="PWM_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="ADC_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Remote_FPGA">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="RF_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="STIMER_Demo"/>
+		<configuration configurationName="AES_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="QDEC_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Remote_ROM">
+			<resource resourceType="PROJECT" workspacePath="/TC_PLATFORM_SDK_122X"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_ROM"/>
+		<configuration configurationName="SRAM_Test">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_FPGA"/>
+		<configuration configurationName="DUT_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="driver_tc122x_flash"/>
+		<configuration configurationName="SDK_MultiBin_Demo"/>
+		<configuration configurationName="Mouse_Demo"/>
+		<configuration configurationName="DUT_Test">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Test_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="TRNG_Demo"/>
+		<configuration configurationName="Driver_MultiBin_Demo"/>
+		<configuration configurationName="driver_tc122x_fpga"/>
+		<configuration configurationName="PM_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="SPI_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Display_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Robin_24G_Flash"/>
+		<configuration configurationName="FLASH_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+		<configuration configurationName="Keyscan_Demo">
+			<resource resourceType="PROJECT" workspacePath="/B80B_Driver_Demo"/>
+		</configuration>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.internal.ui.text.commentOwnerProjectMappings"/>
+	<storageModule moduleId="scannerConfiguration"/>
+	<storageModule moduleId="org.eclipse.cdt.core.pathentry"/>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets">
+		<buildTargets>
+			<target name="Robin_24G_Demo" path="vendor" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>make</buildCommand>
+				<buildArguments>-j4</buildArguments>
+				<buildTarget>Robin_24G_Demo</buildTarget>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>true</useDefaultCommand>
+				<runAllBuilders>true</runAllBuilders>
+			</target>
+		</buildTargets>
+	</storageModule>
+</cproject>

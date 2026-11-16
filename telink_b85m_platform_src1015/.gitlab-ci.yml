@@ -1,0 +1,226 @@
+stages:
+  - commit_msg_check
+  - oss
+  - scc
+  - genReleaseNote
+  - genLicense
+  - checkLicense
+  - cov
+  - build_tc32
+  - fossid
+  - plainPW_check
+  - misspellChecking
+  - sensitive_word_check
+
+commit_msg_check:
+  stage: commit_msg_check
+  tags:
+    - LINUX
+  script:
+    - git_msg_check.sh
+
+oss:
+  tags:
+    - OSS
+  stage: oss
+  script:
+    - oss_checking .
+  artifacts:
+    when: always
+    paths:
+    - scan_result
+  when: manual
+
+scc:
+  stage: scc 
+  script:
+    - echo "Enter scc stage"
+    - scc | tee scc.txt
+    - bash /usr/bin/scc_calc.sh
+    - echo "The End SCC result:"
+    - cat scc.txt
+  artifacts:
+    paths:
+    - scc.txt
+
+genReleaseNote:
+  stage: genReleaseNote
+  variables:
+    GIT_STRATEGY: clone # clone entire repo instead of reusing workspace
+    GIT_DEPTH: 0 # avoid shallow clone to give cliff all the info it needs
+  tags:
+    - CI1
+  script:
+    - echo "Enter genReleaseNote stage"
+    - hostname
+    - genReleaseNote  "${VERSION}"
+  artifacts:
+    paths:
+    - CI_*.md
+
+genLicense:
+  variables:
+    CODE_COMPILE_ARCH: 'EAGLE_ANDES'
+    COV_PF_CATALOG: 'BLE'
+  stage: genLicense
+  before_script:
+  script:
+    - date
+    - generat_license_list
+    - date
+  artifacts:
+    paths:
+    - "license_list_gen.txt"
+    - "no_license_list_gen.txt"
+    - "mismatch_license_file_gen.txt"
+  when: manual
+
+checkLicense:
+  variables:
+    CODE_COMPILE_ARCH: 'EAGLE_ANDES'
+    COV_PF_CATALOG: 'BLE'
+  stage: checkLicense
+  allow_failure: yes
+  before_script:
+  script:
+    - date
+    - check_license
+    #- generat_license_list # For no license files
+    - date
+
+  artifacts:
+    when: always
+    paths:
+    - "mismatch_license.txt"
+    - "no_license*.txt"
+    - "unknow_type_file.txt"
+    
+build_tc32:
+  stage: build_tc32
+  tags:
+    - LINUX
+    - TC32
+  before_script:
+  script:
+    - which tc32-elf-gcc
+    - date
+    - chmod +x tools/tl_check_fw_tool/tl_check_fw.sh
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/tc122x -cleanBuild TC_PLATFORM_SDK_122X/Debug_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/tc123x -cleanBuild TC_PLATFORM_SDK_123X/Debug_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/TC321X -cleanBuild TC_PLATFORM_SDK_321X/UART_Demo/UART_V1.1/UART_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/TC1211 -cleanBuild TC_PLATFORM_SDK_1211/Debug_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/B80B -cleanBuild B80B_Driver_Demo/UART_Demo/UART_V1.1/UART_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/B80 -cleanBuild B80_Driver_Demo/UART_Demo/UART_V1.0/UART_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/B85 -cleanBuild B85_Driver_Demo/UART_Demo/UART_V1.0/UART_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/B87 -cleanBuild B87_Driver_Demo/UART_Demo/UART_V1.0/UART_Demo
+    - $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS1  -import project/tlsr_tc32/B89 -cleanBuild B89_Driver_Demo/UART_Demo/UART_V1.0/UART_Demo
+    - date
+
+  artifacts:
+    paths:
+    - "project/tlsr_tc32/TC321X/UART_Demo/*.bin"
+    - "project/tlsr_tc32/TC321X/UART_Demo/*.lst"
+    - "project/tlsr_tc32/TC321X/UART_Demo/*.elf"
+    - "project/tlsr_tc32/TC123X/Debug_Demo/*.bin"
+    - "project/tlsr_tc32/TC123X/Debug_Demo/*.lst"
+    - "project/tlsr_tc32/TC123X/Debug_Demo/*.elf"
+    - "project/tlsr_tc32/TC1211/Debug_Demo/*.bin"
+    - "project/tlsr_tc32/TC1211/Debug_Demo/*.lst"
+    - "project/tlsr_tc32/TC1211/Debug_Demo/*.elf"
+    - "project/tlsr_tc32/B80B/UART_Demo/*.bin"
+    - "project/tlsr_tc32/B80B/UART_Demo/*.lst"
+    - "project/tlsr_tc32/B80B/UART_Demo/*.elf"
+    - "project/tlsr_tc32/B80/UART_Demo/*.bin"
+    - "project/tlsr_tc32/B80/UART_Demo/*.lst"
+    - "project/tlsr_tc32/B80/UART_Demo/*.elf"
+    - "project/tlsr_tc32/B85/UART_Demo/*.bin"
+    - "project/tlsr_tc32/B85/UART_Demo/*.lst"
+    - "project/tlsr_tc32/B85/UART_Demo/*.elf"
+    - "project/tlsr_tc32/B87/UART_Demo/*.bin"
+    - "project/tlsr_tc32/B87/UART_Demo/*.lst"
+    - "project/tlsr_tc32/B87/UART_Demo/*.elf"
+    - "project/tlsr_tc32/B89/UART_Demo/*.bin"
+    - "project/tlsr_tc32/B89/UART_Demo/*.lst"
+    - "project/tlsr_tc32/B89/UART_Demo/*.elf"
+    - mm_pretty.csv
+
+# The cov job definition
+cov:
+  variables:
+    CODE_COMPILE_ARCH: 'TC32'
+    COV_PF_CATALOG: 'BLE'
+  stage: cov
+  tags:
+    - COV    
+    - LINUX    
+    - TC32
+  before_script:
+  script:
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/TC321X  -cleanBuild TC_PLATFORM_SDK_321X/UART_Demo    
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/TC123X  -cleanBuild TC_PLATFORM_SDK_123X/Debug_Demo
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/TC1211  -cleanBuild TC_PLATFORM_SDK_1211/Debug_Demo    
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/B80B  -cleanBuild B80B_Driver_Demo/UART_Demo    
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/B80  -cleanBuild B80_Driver_Demo/UART_Demo    
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/B85  -cleanBuild B85_Driver_Demo/UART_Demo  
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/B87  -cleanBuild B87_Driver_Demo/UART_Demo  
+    - $COV_B COV_$CI_PROJECT_NAME $COV_B_TEMPLATE/$CODE_COMPILE_ARCH $TC32_ECLIPSE_BUILD  -data ${CI_PIPELINE_ID}_WS  -import project/tlsr_tc32/B89  -cleanBuild B89_Driver_Demo/UART_Demo  
+    - $COV_A COV_$CI_PROJECT_NAME 
+    - cov_add_commit_steam_project_2_platform.sh
+  when: manual
+
+fossid:
+  tags:
+    - FOSSID
+  stage: fossid
+  script:
+    - fossid_check.sh
+  artifacts:
+    paths:
+    - fossid*.txt
+  when: manual
+
+plainPW_check:
+  stage: plainPW_check 
+  script:
+    - echo "Enter Plain Password checking stage"
+    - check_plain_weak_password | tee result.txt
+    - ls -l result.txt
+    - echo "Error List:"
+    - cat result.txt
+  artifacts:
+    paths:
+    - result.txt
+  when: manual
+
+misspellChecking:
+  stage: misspellChecking
+  tags:
+    - LINUX
+  script:
+    - echo "--------------- Begin ------------------------"
+    - misspell-check
+    - echo "---------------- End -----------------------"
+  artifacts:
+    paths:
+    - misspell_result.txt 
+  
+sensitive_word_check:
+  variables:
+    filter_pattern: ""
+    sensitive_word_pattern: "(esb|nrf|nordic|Shock[ ]*Burst)"
+    result_file: "sensitive_word_check_result.txt"
+    after_filter_result_file: "sensitive_word_check_after_filter_result.txt"
+  stage: sensitive_word_check 
+  tags:
+    - LINUX
+  dependencies: []
+  script:
+    - sensitive_word_check.sh
+  artifacts:
+    name: "sensitive_word_check_result"
+    when: always
+    paths:
+    - $result_file
+    - $after_filter_result_file
+  when: manual 
+  

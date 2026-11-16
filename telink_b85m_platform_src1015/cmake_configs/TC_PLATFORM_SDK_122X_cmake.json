@@ -1,0 +1,771 @@
+{
+  "name": "TC_PLATFORM_SDK_122X",
+  "language": "c",
+  "source_link_order": "legacy",
+  "target_output_layout": "legacy",
+  "toolchain_path": "",
+  "toolchainName": "TC32-GCC Toolchain",
+  "targets": [
+    {
+      "name": "driver_tc122x_flash",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/drivers/lib"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_FLASH",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/Robin_24G_Demo",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DDRIVER_LIB_BUILD=1",
+        "-DFPGA=0",
+        "-DFLASH_ENABLE=1",
+        "-DROBIN_24G_DEMO=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [],
+      "linker_libraries": [],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   driver_tc122x_flash   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "driver_tc122x_fpga",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/drivers/lib"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=1",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/Robin_24G_Demo",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DDRIVER_LIB_BUILD=1",
+        "-DFPGA=1",
+        "-DROBIN_24G_DEMO=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [],
+      "linker_libraries": [],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   driver_tc122x_fpga   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "driver_tc122x_rom",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/drivers/lib"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/vendor/Robin_24G_Demo",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DDRIVER_LIB_BUILD=1",
+        "-DFPGA=0",
+        "-DROBIN_24G_DEMO=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [],
+      "linker_libraries": [],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   driver_tc122x_rom   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Bootloader_Flash",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Bootloader",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_FLASH_APP",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-DFW_BOOT_ADDR_NON_ZERO=0",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Bootloader",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DBOOTLOADER_ENABLE=1",
+        "-DFPGA=0",
+        "-DFLASH_ENABLE=1",
+        "-DROBIN_24G_CAR=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_flash"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Bootloader_Flash   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Car_Flash",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Car",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_FLASH_APP",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-DFW_BOOT_ADDR_NON_ZERO=1",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Car",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DBOOTLOADER_ENABLE=1",
+        "-DFPGA=0",
+        "-DFLASH_ENABLE=1",
+        "-DROBIN_24G_CAR=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_flash"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Car_Flash   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Car_FPGA",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Car",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=1",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Car",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=1",
+        "-DROBIN_24G_CAR=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_fpga"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Car_FPGA   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Car_ROM",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Car",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Car",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-DROBIN_24G_CAR=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_rom"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Car_ROM   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Remote_Flash",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Remote",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_FLASH_APP",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-DFW_BOOT_ADDR_NON_ZERO=1",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Remote",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DBOOTLOADER_ENABLE=1",
+        "-DFPGA=0",
+        "-DFLASH_ENABLE=1",
+        "-DROBIN_24G_REMOTE=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_flash"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Remote_Flash   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Remote_FPGA",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Remote",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=1",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Remote",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=1",
+        "-DROBIN_24G_REMOTE=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_fpga"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Remote_FPGA   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    },
+    {
+      "name": "Robin_24G_Remote_ROM",
+      "path": "./",
+      "toolchain": "TC32-GCC Toolchain",
+      "toolchainVersionName": "TC32-GCC Toolchain",
+      "directories": [
+        "chip/tc122x/boot",
+        "chip/tc122x/drivers",
+        "common",
+        "demo/vendor/Robin_24G_Remote",
+        "demo/vendor/common/common",
+        "demo/vendor/common/tc122x/calibration",
+        "demo/vendor/toy_common"
+      ],
+      "global_options": [],
+      "asm_compile_options": [
+        "-DMCU_STARTUP_ROM",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common"
+      ],
+      "cpp_compile_options": [],
+      "c_compile_options": [
+        "-O2",
+        "-fpack-struct",
+        "-fshort-enums",
+        "-finline-small-functions",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/toy_common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/tc122x/calibration",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/common/common",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/demo/vendor/Robin_24G_Remote",
+        "-I${CMAKE_CURRENT_SOURCE_DIR}/common",
+        "-DMCU_CORE_TC122X=1",
+        "-DFPGA=0",
+        "-DROBIN_24G_REMOTE=1",
+        "-std=gnu99",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fshort-wchar",
+        "-fms-extensions"
+      ],
+      "linker_script": "",
+      "linker_options": [
+        "--gc-sections",
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/boot.link"
+      ],
+      "linker_directories": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/chip/tc122x/drivers/lib"
+      ],
+      "linker_libraries": [
+        "driver_tc122x_rom"
+      ],
+      "cpp_linker_script": "",
+      "cpp_linker_options": [],
+      "cpp_linker_directories": [],
+      "cpp_linker_libraries": [],
+      "pre_build": [],
+      "post_build": [
+        "${CMAKE_CURRENT_SOURCE_DIR}/project/tlsr_tc32/tc122x/../../../tools/tl_check_fw_tool/tl_check_fw.sh   Robin_24G_Remote_ROM   TC_PLATFORM_SDK_122X"
+      ],
+      "print_size": [
+        "-t"
+      ],
+      "obj_copy": [
+        "-O",
+        "binary"
+      ],
+      "obj_dump": [
+        "-x",
+        "-D",
+        "-l",
+        "-S"
+      ],
+      "sub_directories": [],
+      "compiler": "gcc"
+    }
+  ],
+  "toolchainVersionName": "TC32-GCC Toolchain"
+}
