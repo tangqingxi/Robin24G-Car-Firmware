@@ -267,14 +267,18 @@ ATT_CSV_FIELDS = ["recv_s", "recv_epoch", "t_ms", "rdy",
                   "roll_deg", "pitch_deg", "yaw_deg"]
 ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
-                   "up_avg_us", "up_max_us"]
+                   "up_avg_us", "up_max_us",
+                   # 400Hz 验收追加（旧固件的 STA 没有这些字段，留空）
+                   "cyc_avg_us", "cyc_max_us", "miss", "skip", "euler_ok"]
 
 _ATT_LINE_RE = re.compile(
     r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+r=([+-]?\d+\.\d+)\s+p=([+-]?\d+\.\d+)"
     r"\s+y=([+-]?\d+\.\d+)\s*$")
+# 基础字段（旧固件）+ 可选扩展字段（400Hz 验收：整拍耗时/超期/跳拍/更新次数）
 _STA_LINE_RE = re.compile(
     r"^STA\s+n=(\d+)\s+f=(\d+)\s+g=(\d+)\s+dt=(\d+)/(\d+)\s+"
-    r"rd=(\d+)/(\d+)\s+up=(\d+)/(\d+)\s*$")
+    r"rd=(\d+)/(\d+)\s+up=(\d+)/(\d+)"
+    r"(?:\s+cyc=(\d+)/(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+eul=(\d+))?\s*$")
 
 
 def attitude_state_of(line):
@@ -319,13 +323,23 @@ def parse_attitude_line(line):
         })
     m = _STA_LINE_RE.match(line)
     if m:
-        g = [int(x) for x in m.groups()]
-        return ("sta", {
+        # 扩展字段是可选的：缺失时保持 None，界面/CSV 里不显示
+        g = [int(x) if x is not None else None for x in m.groups()]
+        stat = {
             "valid": g[0], "fail": g[1], "gap": g[2],
             "dt_min_us": g[3], "dt_max_us": g[4],
             "rd_avg_us": g[5], "rd_max_us": g[6],
             "up_avg_us": g[7], "up_max_us": g[8],
-        })
+            # 旧固件没有扩展字段：保持 None，界面上不显示
+            "cyc_avg_us": None, "cyc_max_us": None,
+            "miss": None, "skip": None, "euler_ok": None,
+        }
+        if g[9] is not None:
+            stat.update({
+                "cyc_avg_us": g[9], "cyc_max_us": g[10],
+                "miss": g[11], "skip": g[12], "euler_ok": g[13],
+            })
+        return ("sta", stat)
     if attitude_state_of(line):
         return ("status", line)
     return None
@@ -382,8 +396,9 @@ class SimAttitudeSource:
                 self._next_sta = now + 1.0
                 self.n_sta += 1
                 valid = self.n_att
-                self._push(f"STA n={valid} f=0 g=0 dt=4995/5005 "
-                           f"rd=210/260 up=35/48")
+                # 与 400Hz 固件的扩展 STA 一致（含整拍/超期/跳拍/更新次数）
+                self._push(f"STA n={valid} f=0 g=0 dt=2499/2501 "
+                           f"rd=110/130 up=30/42 cyc=620/780 miss=0 skip=0 eul={valid}")
 
     def read(self):
         self._fill()
@@ -468,11 +483,21 @@ class AttitudeWorker(threading.Thread):
                 "rd_max_us": payload["rd_max_us"],
                 "up_avg_us": payload["up_avg_us"],
                 "up_max_us": payload["up_max_us"],
+                "cyc_avg_us": "" if payload["cyc_avg_us"] is None else payload["cyc_avg_us"],
+                "cyc_max_us": "" if payload["cyc_max_us"] is None else payload["cyc_max_us"],
+                "miss": "" if payload["miss"] is None else payload["miss"],
+                "skip": "" if payload["skip"] is None else payload["skip"],
+                "euler_ok": "" if payload["euler_ok"] is None else payload["euler_ok"],
             })
-            print(f"[统计] 有效{payload['valid']} 读失败{payload['fail']} "
-                  f"长间断{payload['gap']} dt {payload['dt_min_us']}~{payload['dt_max_us']}us "
-                  f"rd {payload['rd_avg_us']}/{payload['rd_max_us']}us "
-                  f"up {payload['up_avg_us']}/{payload['up_max_us']}us", flush=True)
+            line = (f"[统计] 有效{payload['valid']} 读失败{payload['fail']} "
+                    f"长间断{payload['gap']} dt {payload['dt_min_us']}~{payload['dt_max_us']}us "
+                    f"rd {payload['rd_avg_us']}/{payload['rd_max_us']}us "
+                    f"up {payload['up_avg_us']}/{payload['up_max_us']}us")
+            if payload["cyc_max_us"] is not None:
+                line += (f" 整拍 {payload['cyc_avg_us']}/{payload['cyc_max_us']}us "
+                         f"超期{payload['miss']} 跳拍{payload['skip']} "
+                         f"姿态更新{payload['euler_ok']}")
+            print(line, flush=True)
             return
 
         # 状态行
@@ -914,6 +939,9 @@ class SensorMonitor:
                     f" dt {s['dt_min_us']}~{s['dt_max_us']}us"
                     f" rd {s['rd_avg_us']}/{s['rd_max_us']}us"
                     f" up {s['up_avg_us']}/{s['up_max_us']}us")
+            if s["cyc_max_us"] is not None:
+                msg += (f" 整拍 {s['cyc_avg_us']}/{s['cyc_max_us']}us"
+                        f" 超期 {s['miss']} 跳拍 {s['skip']} 更新 {s['euler_ok']}")
         else:
             msg += " | 等待统计…"
         msg += " | F 跟随 / Q 退出"

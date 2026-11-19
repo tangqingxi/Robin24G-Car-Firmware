@@ -1053,18 +1053,15 @@ void RxdFunction_loop(void)
 // 实测校准参数（来源：data/imu_axis_map_frd.json、data/accel_cal.json、data/gyro_bias_frd.json）
 //   轴映射：v_frd = R × v_sensor（X=+X_s、Y=-Y_s、Z=-Z_s，行列式 +1）
 //   加速度：FRD 零偏 LSB、比例 Q14；陀螺：FRD 零偏 LSB
-static const s32 s_bench_axis_map[3][3] = {
-	{  1,  0,  0 },
-	{  0, -1,  0 },
-	{  0,  0, -1 },
-};
+// 轴映射（data/imu_axis_map_frd.json）：X_frd=+X_s、Y_frd=-Y_s、Z_frd=-Z_s
+// 采集时按这个符号置换直接重排变号，不再做通用矩阵乘法
 static const s32 s_bench_acc_off_lsb[3]     = { -3, -8, -29 };
 static const s32 s_bench_acc_scale_q14[3]   = { 16436, 16429, 16357 };
 static const s32 s_bench_gyro_bias_lsb[3]   = { -1, -3, -1 };
 
 #define BENCH_MG_PER_LSB        1000        // 1g = 2048 LSB → mg = lsb*1000/2048
 #define BENCH_LSB_PER_G         2048
-#define BENCH_GYRO_Q10_PER_LSB  10896       // 1 LSB = 1.0896 (Q10 rad/s)
+#define BENCH_GYRO_Q10_NUM      17852       // 1.0896 × 16384：LSB → Q10 rad/s 的乘移系数
 
 static u8   s_bench_inited;
 static u32  s_bench_retry_tick;
@@ -1085,12 +1082,20 @@ static u32  s_bench_tx_tick;
 static u32  s_bench_stat_tick;
 
 static struct {
-	u32 valid, fail, gap;
-	u16 dt_min_us, dt_max_us;
-	u16 rd_min_us, rd_max_us;
-	u16 up_min_us, up_max_us;
-	u32 rd_sum_us, up_sum_us;
+	u32 valid, fail, gap;              // 有效样本 / I2C 读失败 / >100ms 长间断
+	u16 dt_min_us, dt_max_us;          // 相邻有效样本间隔（原始时钟差换算）
+	u16 rd_min_us, rd_max_us;          // I2C 读取耗时
+	u16 up_min_us, up_max_us;          // 预处理 + 姿态更新耗时
+	u16 cyc_min_us, cyc_max_us;        // 整拍耗时（含本拍串口格式化与提交 DMA）
+	u32 rd_sum_us, up_sum_us, cyc_sum_us;
+	u32 miss;                          // 整拍超过标称采样周期（截止超期）次数
+	u32 skip;                          // 调度落后时跳过的采样节拍数
+	u32 euler_ok;                      // Euler_Update 成功次数
 } s_bench_stat;
+
+// 加速度一阶低通系数缓存（Q15）：α 只与 dt 有关，dt 变化超过 50us 才重算
+static att_i32 s_bench_lpf_alpha;
+static u32     s_bench_lpf_alpha_dt_us;
 
 // 文本格式化（不用 printf / 浮点）
 static char *bench_put_str(char *p, const char *s)
@@ -1196,6 +1201,12 @@ static void BenchAtt_Init(void)
 	s_bench_stat.dt_min_us = 0xFFFF; s_bench_stat.dt_max_us = 0;
 	s_bench_stat.rd_min_us = 0xFFFF; s_bench_stat.rd_max_us = 0; s_bench_stat.rd_sum_us = 0;
 	s_bench_stat.up_min_us = 0xFFFF; s_bench_stat.up_max_us = 0; s_bench_stat.up_sum_us = 0;
+	s_bench_stat.cyc_min_us = 0xFFFF; s_bench_stat.cyc_max_us = 0; s_bench_stat.cyc_sum_us = 0;
+	s_bench_stat.miss = 0;
+	s_bench_stat.skip = 0;
+	s_bench_stat.euler_ok = 0;
+	s_bench_lpf_alpha = 0;
+	s_bench_lpf_alpha_dt_us = 0;
 
 	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	s_bench_inited = 1;
@@ -1260,7 +1271,7 @@ static void BenchAtt_Process(void)
 	u32 dt_ticks = 0;
 	att_i32 dt_100us = 0;
 	u8 st;
-	u32 t_read0, t_read1, t_up0, t_up1;
+	u32 t_read0, t_read1, t_up0, t_up1, t_cyc0;
 	int i;
 
 	if (!s_bench_inited) {
@@ -1274,11 +1285,15 @@ static void BenchAtt_Process(void)
 	}
 	s_bench_next_tick += BENCH_SAMPLE_TICKS;
 	if ((s32)(clock_time() - s_bench_next_tick) > 0) {
+		// 落后了：算清跳过了几个采样节拍再重排下一拍
+		u32 late_ticks = clock_time() - s_bench_next_tick;
+		s_bench_stat.skip += late_ticks / BENCH_SAMPLE_TICKS + 1;
 		s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	}
 
-	// ---- 1) 一次连续读 12 字节 ----
+	// ---- 1) 一次连续读 12 字节（整拍计时从读之前开始）----
 	t_read0 = clock_time();
+	t_cyc0 = t_read0;
 	st = t3488_read_6axis(raw_acc, raw_gyr);
 	t_read1 = clock_time();
 	{
@@ -1296,21 +1311,22 @@ static void BenchAtt_Process(void)
 	// ---- 2) 预处理 + 姿态更新（计时）----
 	t_up0 = clock_time();
 
-	// 映射到机体 FRD，再做校准
-	for (i = 0; i < 3; i++) {
-		acc_frd[i] = s_bench_axis_map[i][0] * (att_i32)raw_acc[0]
-		           + s_bench_axis_map[i][1] * (att_i32)raw_acc[1]
-		           + s_bench_axis_map[i][2] * (att_i32)raw_acc[2];
-		gyr_frd[i] = s_bench_axis_map[i][0] * (att_i32)raw_gyr[0]
-		           + s_bench_axis_map[i][1] * (att_i32)raw_gyr[1]
-		           + s_bench_axis_map[i][2] * (att_i32)raw_gyr[2];
-	}
+	// 映射到机体 FRD：实测映射就是符号置换（X_frd=+X_s、Y_frd=-Y_s、Z_frd=-Z_s），
+	// 直接重排变号，省掉每拍 18 次乘加
+	acc_frd[0] =  (att_i32)raw_acc[0];
+	acc_frd[1] = -(att_i32)raw_acc[1];
+	acc_frd[2] = -(att_i32)raw_acc[2];
+	gyr_frd[0] =  (att_i32)raw_gyr[0];
+	gyr_frd[1] = -(att_i32)raw_gyr[1];
+	gyr_frd[2] = -(att_i32)raw_gyr[2];
 	for (i = 0; i < 3; i++) {
 		att_i32 lsb = (acc_frd[i] - s_bench_acc_off_lsb[i]) * s_bench_acc_scale_q14[i] >> 14;
-		acc_mg[i] = lsb * BENCH_MG_PER_LSB / BENCH_LSB_PER_G;
+		// LSB → mg：1000/2048 = 125/256，用乘移代替整除
+		acc_mg[i] = (lsb * 125) >> 8;
 
 		lsb = gyr_frd[i] - s_bench_gyro_bias_lsb[i];
-		gyr_q10[i] = (lsb * BENCH_GYRO_Q10_PER_LSB) / 10000;
+		// LSB → Q10 rad/s：1.0896 ≈ 17852/16384，同样用乘移代替整除
+		gyr_q10[i] = (lsb * BENCH_GYRO_Q10_NUM) >> 14;
 	}
 
 	// ---- 3) 时间差（u32 相减，天然处理回绕）----
@@ -1353,7 +1369,15 @@ static void BenchAtt_Process(void)
 		s_bench_lpf_ok = 1;
 	} else if (C_ACC_LPF_EN && dt_ticks > 0) {
 		u32 dt_us = (dt_ticks + BENCH_TICKS_PER_US / 2) / BENCH_TICKS_PER_US;
-		att_i32 alpha = (att_i32)((dt_us * 32768) / (C_ACC_LPF_TAU_US + dt_us));   // Q15
+		att_i32 alpha;
+
+		// α 只跟 dt 有关：变化超过 50us 才重算，正常节拍下不用每拍做除法
+		if (dt_us + 50 < s_bench_lpf_alpha_dt_us
+		 || dt_us > s_bench_lpf_alpha_dt_us + 50) {
+			s_bench_lpf_alpha = (att_i32)((dt_us * 32768) / (C_ACC_LPF_TAU_US + dt_us));
+			s_bench_lpf_alpha_dt_us = dt_us;
+		}
+		alpha = s_bench_lpf_alpha;
 		for (i = 0; i < 3; i++) {
 			s_bench_lpf[i] += (alpha * (acc_mg[i] - s_bench_lpf[i])) >> 15;
 		}
@@ -1381,8 +1405,10 @@ static void BenchAtt_Process(void)
 			bench_send(buf, (int)(q - buf));
 		}
 	} else if (dt_100us > 0) {
-		Euler_Update(&s_bench_att, s_bench_lpf, gyr_q10, dt_100us,
-		             t_read1 / BENCH_TICKS_PER_MS);
+		if (Euler_Update(&s_bench_att, s_bench_lpf, gyr_q10, dt_100us,
+		                 t_read1 / BENCH_TICKS_PER_MS)) {
+			s_bench_stat.euler_ok++;          // 实际完成四元数更新的次数
+		}
 	}
 
 	t_up1 = clock_time();
@@ -1420,7 +1446,7 @@ static void BenchAtt_Process(void)
 	}
 
 	if ((u32)(now - s_bench_stat_tick) >= BENCH_STAT_TICKS) {
-		char buf[128];
+		char buf[160];
 		char *q;
 
 		s_bench_stat_tick = now;
@@ -1443,8 +1469,32 @@ static void BenchAtt_Process(void)
 		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.up_sum_us / s_bench_stat.valid) : 0);
 		*q++ = '/';
 		q = bench_put_u32(q, s_bench_stat.up_max_us);
+		// 以下为 400Hz 验收追加：整拍耗时 / 截止超期 / 跳过节拍 / 姿态更新次数
+		q = bench_put_str(q, " cyc=");
+		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.cyc_sum_us / s_bench_stat.valid) : 0);
+		*q++ = '/';
+		q = bench_put_u32(q, s_bench_stat.cyc_max_us);
+		q = bench_put_str(q, " miss=");
+		q = bench_put_u32(q, s_bench_stat.miss);
+		q = bench_put_str(q, " skip=");
+		q = bench_put_u32(q, s_bench_stat.skip);
+		q = bench_put_str(q, " eul=");
+		q = bench_put_u32(q, s_bench_stat.euler_ok);
 		*q++ = '\n';
 		bench_send(buf, (int)(q - buf));
+	}
+
+	// ---- 7) 整拍耗时：从本次读取前到本拍串口格式化与提交 DMA 之后 ----
+	{
+		u32 t_cyc1 = clock_time();
+		u16 us = (u16)((t_cyc1 - t_cyc0) / BENCH_TICKS_PER_US);
+
+		if (us < s_bench_stat.cyc_min_us) s_bench_stat.cyc_min_us = us;
+		if (us > s_bench_stat.cyc_max_us) s_bench_stat.cyc_max_us = us;
+		s_bench_stat.cyc_sum_us += us;
+		if (us > C_ATT_SAMPLE_US) {
+			s_bench_stat.miss++;        // 整拍超过标称采样周期：截止超期
+		}
 	}
 }
 

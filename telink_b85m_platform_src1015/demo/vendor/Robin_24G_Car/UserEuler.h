@@ -24,7 +24,8 @@
 #define C_ATT_BENCH_EN            1
 
 // ---- 采样与串口 ----
-#define C_ATT_SAMPLE_HZ           200       // MCU 读取率；后续可改 400 做台架测量
+#define C_ATT_SAMPLE_HZ           400       // MCU 读取率（台架实测目标 400Hz）
+#define C_ATT_SAMPLE_US           (1000000 / C_ATT_SAMPLE_HZ)   // 标称采样周期 2500us
 #define C_ATT_TX_HZ               14        // 姿态文本频率
 #define C_ATT_STAT_HZ             1         // 统计文本频率
 

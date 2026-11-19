@@ -214,7 +214,19 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	n2 = (att_u32)(acc_mg[0] * acc_mg[0] + acc_mg[1] * acc_mg[1] + acc_mg[2] * acc_mg[2]);
 	n = (att_i32)euler_isqrt(n2);
 
-	if (n >= 50) {
+	// 先按模长算纠偏权重：权重为 0（自由落体/剧烈运动）时跳过归一化与叉积，
+	// 只保留陀螺积分，省掉每拍 3 次整数除法
+	trust = 0;
+	if (n >= C_ATT_TRUST_FULL_LO_MG && n <= C_ATT_TRUST_FULL_HI_MG) {
+		trust = ATT_Q15_ONE;
+	} else if (n > C_ATT_TRUST_MIN_MG && n < C_ATT_TRUST_FULL_LO_MG) {
+		trust = (att_i32)(((n - C_ATT_TRUST_MIN_MG) * ATT_Q15_ONE)
+		                  / (C_ATT_TRUST_FULL_LO_MG - C_ATT_TRUST_MIN_MG));
+	} else if (n > C_ATT_TRUST_FULL_HI_MG && n < C_ATT_TRUST_MAX_MG) {
+		trust = (att_i32)(((C_ATT_TRUST_MAX_MG - n) * ATT_Q15_ONE)
+		                  / (C_ATT_TRUST_MAX_MG - C_ATT_TRUST_FULL_HI_MG));
+	}
+	if (trust > 0) {
 		att_i32 ax, ay, az;
 
 		ax = (att_i32)(((att_i32)acc_mg[0] * ATT_Q15_ONE) / n);
@@ -225,18 +237,6 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 		ex = (att_i32)((((att_i32)ay * vz - (att_i32)az * vy)) >> 15);
 		ey = (att_i32)((((att_i32)az * vx - (att_i32)ax * vz)) >> 15);
 		ez = (att_i32)((((att_i32)ax * vy - (att_i32)ay * vx)) >> 15);
-
-		// 模长明显偏离 1g：线性降低/暂停纠偏
-		trust = 0;
-		if (n >= C_ATT_TRUST_FULL_LO_MG && n <= C_ATT_TRUST_FULL_HI_MG) {
-			trust = ATT_Q15_ONE;
-		} else if (n > C_ATT_TRUST_MIN_MG && n < C_ATT_TRUST_FULL_LO_MG) {
-			trust = (att_i32)(((n - C_ATT_TRUST_MIN_MG) * ATT_Q15_ONE)
-			                  / (C_ATT_TRUST_FULL_LO_MG - C_ATT_TRUST_MIN_MG));
-		} else if (n > C_ATT_TRUST_FULL_HI_MG && n < C_ATT_TRUST_MAX_MG) {
-			trust = (att_i32)(((C_ATT_TRUST_MAX_MG - n) * ATT_Q15_ONE)
-			                  / (C_ATT_TRUST_MAX_MG - C_ATT_TRUST_FULL_HI_MG));
-		}
 		kp = (att_i32)(((att_i32)C_MAHONY_KP_Q15 * trust) >> 15);
 	}
 
