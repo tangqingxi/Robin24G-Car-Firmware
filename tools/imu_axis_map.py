@@ -10,14 +10,15 @@ T-3488 传感器轴 → 机体系 FRD 的安装映射确认工具（单向 UART�
 静止时加速度计测的是"比力"，方向指向上方。把机体某个轴摆成朝下时，该 FRD 轴的
 期望读数是 -1g。例如：机体 +X 朝下时传感器 +Y 读数约 +1g，则 X_frd = -Y_sensor。
 
-工具按固定顺序提示 6 个实体姿态（3 个正面 + 3 个反面复核），用户摆好后在电脑上
+工具按固定顺序提示 6 个"朝下"姿态：+Z、+Y、+X、-Z、-Y、-X
+（正放 / 右侧朝下 / 机头朝下 / 倒放 / 左侧朝下 / 机尾朝下），用户摆好后在电脑上
 按 Enter，工具采一小段静止数据求均值、识别主轴与符号，最后解出 3×3 映射矩阵：
 
     v_frd = R_sensor_to_frd × v_sensor
     R 的行按 FRD 的 X/Y/Z，列按传感器的 X/Y/Z
 
-校验：每个 FRD 轴在正/反两个姿态必须落在同一传感器轴上且符号相反；
-三行三列各只有一个非零元素，元素只能是 0/±1，行列式必须为 +1（右手系）。
+校验：每个 FRD 轴在两个相反姿态（如 +Z 朝下 与 -Z 朝下）必须落在同一传感器轴上
+且符号相反；三行三列各只有一个非零元素，元素只能是 0/±1，行列式必须为 +1（右手系）。
 任何一项不通过都会提示复核对应摆法，且不输出映射文件。
 
 本工具只做轴映射，不读取 accel_cal.json，也不计算零偏/比例系数
@@ -59,25 +60,29 @@ CONFIG = {
 
 FLAG_ARMED = 0x08               # 固件 0x269A 的 flags bit3：已解锁
 
-# 六个实体姿态：body = 机体轴，down = +1 表示该轴朝下，-1 表示朝上
+# 六个实体姿态：标题统一为"机体 ±轴朝下"。
+# 注意：id 与 JSON 字段沿用旧命名，保持兼容——
+#   Z_down = +Z 朝下（正放）    Y_down = +Y 朝下（右侧朝下）  X_down = +X 朝下（机头朝下）
+#   Z_up   = -Z 朝下（倒放）    Y_up   = -Y 朝下（左侧朝下）  X_up   = -X 朝下（机尾朝下）
+# body 为轴字母；down=+1 表示 +轴朝下，-1 表示 +轴朝上（等价于 -轴朝下）。
 POSES = [
     {"id": "Z_down", "body": "Z", "down": 1,
-     "title": "机体 +Z 朝下（飞机正常正放）",
+     "title": "机体 +Z 朝下（正放）",
      "hint": "机腹朝下，机头朝前，平放在桌面/垫块上"},
     {"id": "Y_down", "body": "Y", "down": 1,
-     "title": "机体 +Y 朝下（飞机右侧朝下）",
-     "hint": "右侧机翼朝下，机身侧立，机头仍朝前"},
+     "title": "机体 +Y 朝下（右侧朝下）",
+     "hint": "右机翼朝下，机身侧立，机头仍朝前"},
     {"id": "X_down", "body": "X", "down": 1,
      "title": "机体 +X 朝下（机头朝下）",
      "hint": "机头垂直朝下，机尾朝上"},
     {"id": "Z_up", "body": "Z", "down": -1,
-     "title": "机体 +Z 朝上（飞机倒放）",
+     "title": "机体 -Z 朝下（倒放）",
      "hint": "机腹朝上，机背朝下，机头仍朝前"},
     {"id": "Y_up", "body": "Y", "down": -1,
-     "title": "机体 +Y 朝上（飞机右侧朝上）",
-     "hint": "右侧机翼朝上，机身侧立"},
+     "title": "机体 -Y 朝下（左侧朝下）",
+     "hint": "左机翼朝下，机身侧立，机头仍朝前"},
     {"id": "X_up", "body": "X", "down": -1,
-     "title": "机体 +X 朝上（机头朝上）",
+     "title": "机体 -X 朝下（机尾朝下）",
      "hint": "机头垂直朝上，机尾朝下"},
 ]
 
@@ -264,7 +269,7 @@ def build_mapping(records):
       problems 列表，元素为 (说明, 需要重采的 pose_id 列表)
     """
     problems = []
-    # 每个机体轴：正/反两个姿态必须同轴反号
+    # 每个机体轴：+轴朝下 与 -轴朝下 两个姿态必须同轴反号
     col = {}
     for body in "XYZ":
         down = records.get(body + "_down")
@@ -273,13 +278,14 @@ def build_mapping(records):
             problems.append((f"机体 {body} 轴缺少姿态数据", [body + "_down", body + "_up"]))
             continue
         if down["axis"] != up["axis"]:
-            problems.append((f"机体 {body} 轴正/反检测到的传感器轴不一致"
-                             f"（朝下 {down['axis']}，朝上 {up['axis']}）",
+            problems.append((f"机体 {body} 轴：+{body} 朝下 与 -{body} 朝下 检测到的传感器轴"
+                             f"不一致（{down['axis']} / {up['axis']}）",
                              [body + "_down", body + "_up"]))
             continue
         if down["sign"] == up["sign"]:
-            problems.append((f"机体 {body} 轴正/反符号相同（都 {down['sign']:+d}），"
-                             f"说明有一面摆反了", [body + "_down", body + "_up"]))
+            problems.append((f"机体 {body} 轴：+{body} 朝下 与 -{body} 朝下 的符号相同"
+                             f"（都 {down['sign']:+d}），说明有一面摆反了",
+                             [body + "_down", body + "_up"]))
             continue
         col[body] = down["axis"]
 
@@ -457,6 +463,8 @@ def write_json(path, records, matrix, mapping, det):
             "只做坐标轴映射，不含零偏/比例系数（用 accel_six_face_cal.py）",
             "加速度计与陀螺仪校准完成后共用本映射：v_frd = R * v_calibrated",
             "六个姿态的读数均为静止时三轴均值（g），仅用于轴/符号判定",
+            "姿态 id 沿用旧命名：Z_up=-Z 朝下（倒放）、Y_up=-Y 朝下（左侧朝下）、"
+            "X_up=-X 朝下（机尾朝下）；body_axis 为轴字母，axis_down 表示 +轴朝下",
         ],
     }
     for pose in POSES:
@@ -517,7 +525,7 @@ def run(args):
     print("  机体系：+X 向前，+Y 向右，+Z 向下（右手 FRD）")
     print("  只接收 UART，不向飞机发送任何指令")
     print("  请先关闭串口监视器释放 COM 口；电机断开、飞控保持上锁")
-    print("  接下来按提示摆 6 个姿态：3 个正面 + 3 个反面复核")
+    print("  接下来按提示摆 6 个姿态：+Z、+Y、+X、-Z、-Y、-X 依次朝下")
     print("=" * 70)
 
     src = SerialSource(port, args.baud)
