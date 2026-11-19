@@ -1,0 +1,821 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Robin_24G_Car 六轴传感器串口监视器（配合固件 0x26 0x9A 波形帧）
+
+线程模型（把"接收"和"界面"彻底分开）：
+  ┌ 采集线程 ─────────────────────────────────────────────┐
+  │ 串口读取 → 组帧校验 → 逐帧写 CSV → 帧对象放入有界队列 │
+  └───────────────────────────────────────────────────────┘
+  ┌ 主线程（Tk 事件循环）─────────────────────────────────┐
+  │ 定时器每 100ms 取走队列里所有帧 → 追加到绘图环形缓冲   │
+  │ 约 10Hz 重画一次曲线；拖动/缩放期间只收数据不重画      │
+  └───────────────────────────────────────────────────────┘
+  * CSV 由采集线程直接写，不经过界面，因此界面再忙也不会丢 100Hz 数据；
+  * 队列有上限，界面消费不及时时丢弃的是"绘图用"的旧帧，不影响 CSV。
+
+帧格式（27 字节，多字节字段大端，详见固件 UserUart.c / FlightCtrl.h 7.12）：
+  偏移  长度  内容
+   0     1    0x26 帧头1
+   1     1    0x9A 帧头2
+   2     1    seq        帧序号
+   3     4    上电毫秒   u32
+   7     6    ax ay az   s16，16g 量程 → 2048 LSB/g
+  13     6    gx gy gz   s16，2000dps 量程 → 16.4 LSB/dps
+  19     6    bx by bz   s16，陀螺零偏（原始 LSB）
+  25     1    flags      位0=已中值滤波 位1=已扣零偏 位2=零偏已标定 位3=已解锁
+  26     1    校验和 = sum(byte[2..25]) & 0xFF
+
+快捷键：F 切换"跟随最新数据"，Q 关闭窗口并结束采集。
+
+依赖：pyserial、numpy、matplotlib（只记录 CSV 时可加 --no-plot）
+用法示例：
+  python uart_sensor_monitor.py --list
+  python uart_sensor_monitor.py --port COM3
+  python uart_sensor_monitor.py --port COM3 --csv bench.csv --window 20
+  python uart_sensor_monitor.py --port COM3 --no-plot --duration 60
+  python uart_sensor_monitor.py --simulate --duration 10     # 无硬件自测
+"""
+
+import argparse
+import csv
+import datetime
+import math
+import queue
+import struct
+import sys
+import threading
+import time
+from collections import deque
+
+import numpy as np
+
+try:
+    import serial
+    import serial.tools.list_ports
+except ImportError:
+    sys.exit("缺少 pyserial：请先执行  python -m pip install pyserial")
+
+# ----------------------------------------------------------------------------
+# 协议常量
+# ----------------------------------------------------------------------------
+FRAME_HEAD = b"\x26\x9a"
+FRAME_LEN = 27
+
+# 传感器量程（与固件 my_t3488.c 的配置一致：±16g / ±2000dps）
+DEFAULT_ACC_LSB_PER_G = 2048.0
+DEFAULT_GYRO_LSB_PER_DPS = 16.4
+
+# flags 位定义（与 FlightCtrl.h 一致）
+FLAG_FILTERED = 0x01
+FLAG_BIAS_APPLIED = 0x02
+FLAG_CALIBRATED = 0x04
+FLAG_ARMED = 0x08
+
+# 界面刷新周期：100ms → 约 10Hz（数据仍按 100Hz 全量接收并写盘）
+PLOT_PERIOD_MS = 80
+
+CSV_FIELDS = [
+    "t_ms", "seq",
+    "ax_lsb", "ay_lsb", "az_lsb",
+    "gx_lsb", "gy_lsb", "gz_lsb",
+    "bx_lsb", "by_lsb", "bz_lsb",
+    "ax_g", "ay_g", "az_g",
+    "gx_dps", "gy_dps", "gz_dps",
+    "gx_c_dps", "gy_c_dps", "gz_c_dps",
+    "flags",
+]
+
+
+# ----------------------------------------------------------------------------
+# 串口 / 模拟数据源
+# ----------------------------------------------------------------------------
+def list_ports():
+    """打印本机串口，供 --list 使用"""
+    ports = sorted(serial.tools.list_ports.comports(), key=lambda p: p.device)
+    if not ports:
+        print("未发现任何串口设备")
+        return
+    print("可用串口：")
+    for p in ports:
+        print(f"  {p.device:<8} {p.description}")
+        if p.hwid:
+            print(f"           {p.hwid}")
+
+
+def pick_port(explicit_port):
+    """
+    未指定 --port 时自动挑选：
+      优先 USB 转串口芯片（CH340/CP210/FT232/PL2303 等），
+      否则仅当只有一个串口时直接使用，多于一个则报错让用户指定。
+    """
+    if explicit_port:
+        return explicit_port
+
+    ports = list(serial.tools.list_ports.comports())
+    if not ports:
+        sys.exit("未发现串口，请检查 USB-TTL 是否插好，或用 --port 指定")
+
+    keywords = ("CH340", "CH341", "CP210", "FT232", "FTDI", "PL2303",
+                "USB-SERIAL", "USB SERIAL", "USB 串行", "Silicon Labs")
+    for p in ports:
+        text = f"{p.description} {p.manufacturer or ''} {p.hwid or ''}".upper()
+        if any(k.upper() in text for k in keywords):
+            print(f"自动选择串口：{p.device} ({p.description})")
+            return p.device
+
+    if len(ports) == 1:
+        print(f"自动选择串口：{ports[0].device} ({ports[0].description})")
+        return ports[0].device
+
+    print("检测到多个串口，请用 --port 指定：")
+    for p in ports:
+        print(f"  {p.device:<8} {p.description}")
+    sys.exit(1)
+
+
+class SerialSource:
+    """真实串口数据源：只负责按块读出原始字节"""
+
+    def __init__(self, port, baud):
+        self.port = port
+        try:
+            self.ser = serial.Serial(port, baud, timeout=0.05)
+        except serial.SerialException as exc:
+            sys.exit(f"打开串口 {port} 失败：{exc}")
+
+    def read(self):
+        return self.ser.read(4096)
+
+    def close(self):
+        try:
+            self.ser.close()
+        except Exception:
+            pass
+
+
+def build_frame(seq, t_ms, ax, ay, az, gx, gy, gz, bx, by, bz, flags):
+    """按固件格式组一个 27 字节帧（自测用）"""
+    body = bytes([seq & 0xFF]) + t_ms.to_bytes(4, "big") + \
+        struct.pack(">hhhhhhhhh", ax, ay, az, gx, gy, gz, bx, by, bz) + \
+        bytes([flags])
+    return FRAME_HEAD + body + bytes([sum(body) & 0xFF])
+
+
+class SimSource:
+    """
+    无硬件模拟源：按 100Hz 生成六轴帧（正弦 + 噪声 + 固定零偏），
+    用于验证界面响应、退出流程和 CSV 完整性。
+    """
+
+    def __init__(self, hz=100.0, silent=False):
+        self.dt = 1.0 / hz
+        self.silent = silent          # True 时一帧都不发，用于测试"无数据"时的界面响应
+        self.t0 = time.time()
+        self.n = 0
+        self.t_ms0 = int(time.time() * 1000) & 0xFFFFFFFF
+
+    def read(self):
+        if self.silent:
+            time.sleep(0.02)
+            return b""
+        now = time.time()
+        target = int((now - self.t0) / self.dt)
+        if target <= self.n:
+            time.sleep(self.dt / 2)
+            return b""
+        out = []
+        while self.n < target:
+            t = self.n * self.dt
+            out.append(build_frame(
+                self.n % 256,
+                (self.t_ms0 + int(t * 1000)) & 0xFFFFFFFF,
+                int(0.05 * np.sin(2 * np.pi * 0.7 * t) * 2048 + np.random.normal(0, 6)),
+                int(0.04 * np.sin(2 * np.pi * 0.9 * t + 1) * 2048 + np.random.normal(0, 6)),
+                int((1.0 + 0.02 * np.sin(2 * np.pi * 0.3 * t)) * 2048 + np.random.normal(0, 6)),
+                int((3.0 * np.sin(2 * np.pi * 0.5 * t) + 0.6) * 16.4 + np.random.normal(0, 2)),
+                int((2.0 * np.sin(2 * np.pi * 0.35 * t + 2) - 0.4) * 16.4 + np.random.normal(0, 2)),
+                int((1.0 * np.sin(2 * np.pi * 0.2 * t) + 0.2) * 16.4 + np.random.normal(0, 2)),
+                12, -7, 3, FLAG_FILTERED))
+            self.n += 1
+        return b"".join(out)
+
+    def close(self):
+        pass
+
+
+# ----------------------------------------------------------------------------
+# 组帧解析
+# ----------------------------------------------------------------------------
+class FrameParser:
+    """字节流 → 六轴帧；校验失败时滑动 1 字节重新同步"""
+
+    def __init__(self):
+        self.buf = bytearray()
+        self.good = 0        # 校验通过的帧数
+        self.bad = 0         # 校验失败的帧数
+        self.t_ms_wrap = 0   # 设备毫秒计数回绕补偿
+        self._last_t = None  # 上一帧的设备毫秒（用于判断回绕）
+
+    def feed(self, data):
+        self.buf += data
+        frames = []
+        while True:
+            pos = self.buf.find(FRAME_HEAD)
+            if pos < 0:
+                # 没有帧头：只保留最后 1 字节，避免 0x26 被切到下一批数据
+                if len(self.buf) > 1:
+                    del self.buf[:-1]
+                break
+            if pos > 0:
+                del self.buf[:pos]
+            if len(self.buf) < FRAME_LEN:
+                break
+
+            raw = bytes(self.buf[:FRAME_LEN])
+            if (sum(raw[2:26]) & 0xFF) != raw[26]:
+                self.bad += 1
+                del self.buf[0]          # 不是真帧头，滑一个字节再找
+                continue
+
+            del self.buf[:FRAME_LEN]
+            self.good += 1
+            frames.append(self._parse(raw))
+        return frames
+
+    def _parse(self, raw):
+        seq = raw[2]
+        t_ms = int.from_bytes(raw[3:7], "big")
+
+        # 设备侧毫秒是 u32（约 49.7 天回绕），这里做一次展开保证时间轴单调
+        if self._last_t is not None and t_ms < self._last_t - (1 << 31):
+            self.t_ms_wrap += 1 << 32
+        self._last_t = t_ms
+        t_ms += self.t_ms_wrap
+
+        ax, ay, az, gx, gy, gz, bx, by, bz = struct.unpack(">hhhhhhhhh", raw[7:25])
+        return {
+            "t_ms": t_ms,
+            "seq": seq,
+            "ax": ax, "ay": ay, "az": az,
+            "gx": gx, "gy": gy, "gz": gz,
+            "bx": bx, "by": by, "bz": bz,
+            "flags": raw[25],
+        }
+
+
+def _nice_bounds(lo, hi):
+    """把区间上下界取整到 1/2/2.5/5×10ⁿ 的"好看刻度"上"""
+    span = max(hi - lo, 1e-9)
+    base = 10.0 ** math.floor(math.log10(span / 4.0))
+    step = 10.0 * base
+    for m in (1.0, 2.0, 2.5, 5.0, 10.0):
+        if span / 4.0 <= m * base:
+            step = m * base
+            break
+    return math.floor(lo / step) * step, math.ceil(hi / step) * step
+
+
+def flags_text(flags):
+    """把 flags 翻译成人能看懂的说明"""
+    items = ["已滤波" if flags & FLAG_FILTERED else "未滤波",
+             "已扣零偏" if flags & FLAG_BIAS_APPLIED else "未扣零偏",
+             "零偏已标定" if flags & FLAG_CALIBRATED else "零偏未标定"]
+    if flags & FLAG_ARMED:
+        items.append("已解锁")
+    return " / ".join(items)
+
+
+def frame_to_row(fr, acc_scale, gyro_scale):
+    """帧 → CSV 行（同时给出原始 LSB 与换算后的物理量）"""
+    ax = fr["ax"] / acc_scale
+    ay = fr["ay"] / acc_scale
+    az = fr["az"] / acc_scale
+    gx = fr["gx"] / gyro_scale
+    gy = fr["gy"] / gyro_scale
+    gz = fr["gz"] / gyro_scale
+    return {
+        "t_ms": fr["t_ms"], "seq": fr["seq"],
+        "ax_lsb": fr["ax"], "ay_lsb": fr["ay"], "az_lsb": fr["az"],
+        "gx_lsb": fr["gx"], "gy_lsb": fr["gy"], "gz_lsb": fr["gz"],
+        "bx_lsb": fr["bx"], "by_lsb": fr["by"], "bz_lsb": fr["bz"],
+        "ax_g": f"{ax:.4f}", "ay_g": f"{ay:.4f}", "az_g": f"{az:.4f}",
+        "gx_dps": f"{gx:.3f}", "gy_dps": f"{gy:.3f}", "gz_dps": f"{gz:.3f}",
+        "gx_c_dps": f"{(fr['gx'] - fr['bx']) / gyro_scale:.3f}",
+        "gy_c_dps": f"{(fr['gy'] - fr['by']) / gyro_scale:.3f}",
+        "gz_c_dps": f"{(fr['gz'] - fr['bz']) / gyro_scale:.3f}",
+        "flags": fr["flags"],
+    }
+
+
+# ----------------------------------------------------------------------------
+# 采集线程：串口 → 解析 → CSV → 队列（界面只从队列取）
+# ----------------------------------------------------------------------------
+class SensorWorker(threading.Thread):
+    def __init__(self, source, csv_path, frame_queue, acc_scale, gyro_scale):
+        super().__init__(daemon=True)
+        self.source = source
+        self.csv_path = csv_path
+        self.queue = frame_queue
+        self.acc_scale = acc_scale
+        self.gyro_scale = gyro_scale
+        self.parser = FrameParser()
+        self.stop_event = threading.Event()
+
+        # 供界面读取的统计量（整数赋值是原子的，不做锁）
+        self.frames = 0
+        self.bad = 0
+        self.lost = 0
+        self.error = ""
+        self._last_seq = None
+
+    def stop(self):
+        self.stop_event.set()
+
+    def run(self):
+        try:
+            with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp:
+                writer = csv.DictWriter(fp, fieldnames=CSV_FIELDS)
+                writer.writeheader()
+                while not self.stop_event.is_set():
+                    data = self.source.read()
+                    if not data:
+                        continue
+                    for fr in self.parser.feed(data):
+                        self.frames += 1
+                        self.bad = self.parser.bad
+                        # 序号连续性统计（只提示，不丢数据）
+                        if self._last_seq is not None:
+                            step = (fr["seq"] - self._last_seq) & 0xFF
+                            if step != 1:
+                                self.lost += (step - 1) & 0xFF
+                        self._last_seq = fr["seq"]
+
+                        writer.writerow(frame_to_row(fr, self.acc_scale, self.gyro_scale))
+
+                        # 队列满时丢最旧的一帧：只影响绘图，CSV 已经落盘
+                        while True:
+                            try:
+                                self.queue.put_nowait(fr)
+                                break
+                            except queue.Full:
+                                try:
+                                    self.queue.get_nowait()
+                                except queue.Empty:
+                                    pass
+                    # 约每 200 帧（2 秒）落一次盘，异常退出时最多丢 2 秒
+                    if self.frames and self.frames % 200 == 0:
+                        fp.flush()
+        except Exception as exc:                  # 串口掉线等：记录后让界面提示
+            self.error = str(exc)
+        finally:
+            self.bad = self.parser.bad
+            try:
+                self.source.close()
+            except Exception:
+                pass
+
+
+# ----------------------------------------------------------------------------
+# 界面：主线程运行，只做"取队列 + 画图"
+# ----------------------------------------------------------------------------
+class SensorMonitor:
+    def __init__(self, worker, csv_path, window=10.0, duration=0):
+        self.worker = worker
+        self.csv_path = csv_path
+        self.window = window
+        self.duration = duration
+
+        self.follow = True          # 是否自动跟随最新数据
+        self.fig = None
+        self.axes = []
+        self.lines = []
+        self.text = None
+        self.timer = None
+        self.toolbar = None
+        self._ticks = 0             # 定时器回调次数（自测用）
+        self._last_text = ""        # 状态栏缓存，文字没变就不重画
+        self.t0 = 0                 # 首帧的设备毫秒（时间轴零点）
+        self._bg = None             # blit 用的背景位图（整图）
+        self._ax_bgs = None         # 每个子图的背景位图
+        self._text_ts = 0.0         # 状态栏上次刷新的时间
+        self._dirty = False         # 有新数据待绘制
+
+        # 绘图用的环形缓冲（按窗口时长和 100Hz 估算容量）
+        self.cap = int(max(200, window * 150))
+        self.hist_t = deque(maxlen=self.cap)
+        self.hist = [deque(maxlen=self.cap) for _ in range(3)]   # 加速度 g
+        self.hist_gyro = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺原始 dps
+        self.hist_gyro_c = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺扣零偏 dps
+        self.bias = (0, 0, 0)
+        self.flags = 0
+
+    # ---------------- 界面搭建 ----------------
+    def build(self):
+        import matplotlib
+        matplotlib.use("TkAgg")
+        import matplotlib.pyplot as plt
+        self.plt = plt
+
+        # 中文字体：雅黑/黑体，避免坐标轴和状态栏出现方块
+        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei",
+                                           "Noto Sans CJK SC", "DejaVu Sans"]
+        plt.rcParams["axes.unicode_minus"] = False
+
+        self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 8))
+        self.fig.canvas.manager.set_window_title("Robin_24G_Car 六轴传感器监视器")
+        self.axes = list(axes)
+
+        titles = ["加速度 (g)", "陀螺原始值 (dps)", "陀螺扣零偏 (dps)"]
+        labels = [("ax", "ay", "az"), ("gx", "gy", "gz"), ("gx-c", "gy-c", "gz-c")]
+        colors = ["#d62728", "#2ca02c", "#1f77b4"]
+        for ax_obj, title, lab in zip(self.axes, titles, labels):
+            ax_obj.grid(True, alpha=0.3)
+            ax_obj.set_ylabel(title)
+            lines = [ax_obj.plot([], [], color=c, lw=0.9, label=l)[0]
+                     for c, l in zip(colors, lab)]
+            # 曲线设为 animated：全量重画时不画曲线，背景位图才干净，
+            # 之后每次 blit 只把曲线补上去，不会留残影
+            for line in lines:
+                line.set_animated(True)
+            self.lines.append(lines)
+        self.axes[-1].set_xlabel("时间 (s，0 = 当前)")
+        for ax_obj in self.axes:
+            # 图例放到坐标框上方（框外）：曲线被裁剪在框内，永远不会压到图例，
+            # 这样 blit 时不必每帧重画图例，也不会出现"曲线盖图例"的残影
+            ax_obj.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0),
+                          ncol=3, fontsize=8, frameon=False, borderaxespad=0.2)
+            # x 轴固定 [-window, 0]：数据整体左移实现滚动，坐标轴刻度不动，
+            # 这样平时只需重画曲线（blit），拖动/缩放才走全量重画
+            ax_obj.set_xlim(-self.window, 0)
+
+        # 状态栏用默认无衬线中文字体（不要用 monospace，否则中文是方块）
+        self.text = self.fig.text(0.01, 0.005, "等待数据…", fontsize=9)
+        self.text.set_animated(True)      # 同曲线，避免文字变短时留残影
+        self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08)
+
+        self.toolbar = self.fig.canvas.toolbar
+        self.fig.canvas.mpl_connect("close_event", self._on_close)
+        self.fig.canvas.mpl_connect("key_press_event", self._on_key)
+        self.fig.canvas.mpl_connect("button_press_event", self._on_mouse)
+        self.fig.canvas.mpl_connect("scroll_event", self._on_mouse)
+        self.fig.canvas.mpl_connect("draw_event", self._on_draw)
+
+        # 定时器驱动：即使一帧数据都没有，Tk 事件循环也照常响应
+        self.timer = self.fig.canvas.new_timer(interval=PLOT_PERIOD_MS)
+        self.timer.add_callback(self._on_timer)
+        self.timer.start()
+
+        if self.duration > 0:
+            self.fig.canvas.get_tk_widget().after(
+                int(self.duration * 1000), lambda: self.plt.close(self.fig))
+
+    # ---------------- 事件 ----------------
+    def _on_close(self, _event):
+        """关窗即停：先停定时器，再通知采集线程收尾"""
+        self.timer.stop()
+        self.worker.stop()
+
+    def _on_key(self, event):
+        if event.key in ("q", "Q"):
+            self.plt.close(self.fig)
+        elif event.key in ("f", "F"):
+            self.follow = not self.follow
+            self._dirty = True              # 恢复跟随时立即重画
+            self._refresh()
+
+    def _on_mouse(self, _event):
+        """用工具栏平移/缩放鼠标滚轮时，自动退出"跟随"以免和用户抢视野"""
+        mode = getattr(self.toolbar, "mode", "")
+        if mode or (_event.name == "scroll_event"):
+            self.follow = False
+
+    def _busy(self):
+        """工具栏处于平移/缩放状态时只收数据不重画，保证拖动顺滑"""
+        return bool(getattr(self.toolbar, "mode", ""))
+
+    # ---------------- 周期刷新 ----------------
+    def _on_timer(self):
+        self._ticks += 1
+        self._drain()
+        if self._busy():
+            return                      # 用户正在拖拽/缩放：跳过本次重画
+        self._refresh()
+
+    def _drain(self):
+        """把队列里的帧全部取出（100Hz 数据、10Hz 刷新 → 每次约 10 帧）"""
+        while True:
+            try:
+                fr = self.worker.queue.get_nowait()
+            except queue.Empty:
+                break
+            self._append(fr)
+
+    def _append(self, fr):
+        # 关掉"跟随"（用户正在缩放/平移查看）时不追加新点，画面冻结便于观察
+        if not self.follow:
+            return
+        if not self.hist_t:
+            self.t0 = fr["t_ms"]
+        t = (fr["t_ms"] - self.t0) / 1000.0
+        self.hist_t.append(t)
+        acc = (fr["ax"] / self.worker.acc_scale,
+               fr["ay"] / self.worker.acc_scale,
+               fr["az"] / self.worker.acc_scale)
+        gyr = (fr["gx"] / self.worker.gyro_scale,
+               fr["gy"] / self.worker.gyro_scale,
+               fr["gz"] / self.worker.gyro_scale)
+        gyr_c = ((fr["gx"] - fr["bx"]) / self.worker.gyro_scale,
+                 (fr["gy"] - fr["by"]) / self.worker.gyro_scale,
+                 (fr["gz"] - fr["bz"]) / self.worker.gyro_scale)
+        for arr, val in zip(self.hist, acc):
+            arr.append(val)
+        for arr, val in zip(self.hist_gyro, gyr):
+            arr.append(val)
+        for arr, val in zip(self.hist_gyro_c, gyr_c):
+            arr.append(val)
+        self.bias = (fr["bx"], fr["by"], fr["bz"])
+        self.flags = fr["flags"]
+        self._dirty = True
+
+    def _status(self):
+        if not self.hist_t:
+            return f"等待数据…（已收 {self.worker.frames} 帧，校验错 {self.worker.bad}）"
+        span = self.hist_t[-1] - self.hist_t[max(0, len(self.hist_t) - 101)]
+        rate = 100.0 / span if span > 0.01 else 0.0
+        state = "跟随开" if self.follow else "跟随关"
+        msg = (f"{state} | 帧 {self.worker.frames} 速率≈{rate:.1f}Hz "
+               f"校验错 {self.worker.bad} 丢帧≈{self.worker.lost} | "
+               f"零偏({self.bias[0]},{self.bias[1]},{self.bias[2]}) "
+               f"{flags_text(self.flags)} | F 跟随 / Q 退出")
+        if self.worker.error:
+            msg += f" | 串口错误：{self.worker.error}"
+        return msg
+
+    def _refresh(self):
+        if not self.hist_t:
+            # 没有数据时只更新一次状态栏，避免空转重画拖慢窗口
+            msg = self._status()
+            if msg != self._last_text:
+                self._last_text = msg
+                self.text.set_text(msg)
+                self._blit_dynamic(True)
+            return
+
+        # 没有新数据（例如已冻结）且状态栏没变：什么都不用画，事件循环保持空闲
+        if not self._dirty:
+            msg = self._status()
+            if msg == self._last_text:
+                return
+            now = time.time()
+            if now - self._text_ts < 1.0:   # 状态栏也限到 1Hz，冻结时不影响操作
+                return
+            self._text_ts = now
+            self._last_text = msg
+            self.text.set_text(msg)
+            self._blit_dynamic(True)
+            return
+        self._dirty = False
+
+        # 只保留窗口内的点，超出即从左侧丢弃
+        t_end = self.hist_t[-1]
+        t_min = t_end - self.window
+        while self.hist_t and self.hist_t[0] < t_min:
+            self.hist_t.popleft()
+            for series in (self.hist, self.hist_gyro, self.hist_gyro_c):
+                for arr in series:
+                    arr.popleft()
+
+        # x = 相对当前时刻（最新点在 0），配合固定 xlim 实现"数据左移"的滚动
+        xs = np.fromiter((t - t_end for t in self.hist_t),
+                         dtype=float, count=len(self.hist_t))
+        for series, line_set in ((self.hist, self.lines[0]),
+                                 (self.hist_gyro, self.lines[1]),
+                                 (self.hist_gyro_c, self.lines[2])):
+            for arr, line in zip(series, line_set):
+                line.set_data(xs, np.fromiter(arr, dtype=float, count=len(arr)))
+
+        # 只有量程真的变了才重画对应子图；否则 blit，10Hz 刷新几乎不占事件循环
+        changed_axes = self._auto_ylim() if self.follow else []
+        self._last_text = self._status()
+        self.text.set_text(self._last_text)
+
+        now = time.time()
+        if self._bg is None or changed_axes:
+            # 量程/布局变化：整图静态重绘 + 重新缓存干净背景 + 补画动态内容
+            self._redraw_static()
+        elif now - self._text_ts >= 1.0:
+            # 状态栏约 1Hz 刷新一次（draw_text 一次要 6~12ms），必须整图恢复背景，
+            # 这样文字变短时旧字也会被清掉
+            self._text_ts = now
+            self._blit_dynamic(True)
+        else:
+            self._blit_lines()
+
+    def _auto_ylim(self):
+        """
+        自动量程：按当前窗口数据取整到"好看的刻度"（1/2/2.5/5×10ⁿ），
+        只有整档变化时才改；返回需要重画的子图下标列表。
+        """
+        changed = []
+        series = (self.hist, self.hist_gyro, self.hist_gyro_c)
+        for i, ax_obj in enumerate(self.axes):
+            lo = min(min(a) for a in series[i])
+            hi = max(max(a) for a in series[i])
+            if hi - lo < 1e-6:
+                hi = lo + 1.0
+            margin = (hi - lo) * 0.15
+            lo_n, hi_n = _nice_bounds(lo - margin, hi + margin)
+            cur_lo, cur_hi = ax_obj.get_ylim()
+            if abs(lo_n - cur_lo) > 1e-9 or abs(hi_n - cur_hi) > 1e-9:
+                ax_obj.set_ylim(lo_n, hi_n)
+                changed.append(i)
+        return changed
+
+    # ---------------- 绘图（blit）----------------
+    def _ax_bbox(self, ax_obj):
+        """
+        子图区域外扩 2 像素：既覆盖坐标轴/刻度/图例，也能盖住曲线在
+        坐标框边界上的抗锯齿像素，避免边缘留残影。
+        """
+        from matplotlib.transforms import Bbox
+        b = ax_obj.bbox
+        return Bbox.from_extents(b.x0 - 2, b.y0 - 2, b.x1 + 2, b.y1 + 2)
+
+    def _on_draw(self, _event):
+        """
+        整图重画（首次 / 量程变化 / 窗口缩放 / 布局变化）后缓存背景。
+        曲线和状态栏都是 animated，正常重画不会画进画布，所以这里拿到的是
+        **不含动态内容的干净背景**。
+        注意：绝不能在补画曲线之后再缓存背景，否则下一帧恢复出来的背景
+        会带上旧曲线，形成重影。
+        """
+        try:
+            self._bg = self.fig.canvas.copy_from_bbox(self.fig.bbox)
+            self._ax_bgs = [self.fig.canvas.copy_from_bbox(self._ax_bbox(ax))
+                            for ax in self.axes]
+        except Exception:
+            self._bg = None
+            self._ax_bgs = None
+        self._text_ts = 0.0     # 重画后状态栏是空的，下一次刷新要补上
+        self._dirty = True      # 重画后曲线也不在画面上，逼下一次刷新补画
+
+    def _draw_dynamic_artists(self, ax_obj, line_set):
+        """补画 9 条曲线（图例在坐标框外，曲线不会压到它，无需重画）"""
+        for line in line_set:
+            ax_obj.draw_artist(line)
+
+    def _blit_lines(self):
+        """只补画 9 条曲线：恢复各子图背景 → 画曲线 → blit 子图区域（不碰状态栏）"""
+        if self._ax_bgs is None:
+            self._redraw_static()
+            return
+        try:
+            for ax_obj, line_set, bg_ax in zip(self.axes, self.lines, self._ax_bgs):
+                self.fig.canvas.restore_region(bg_ax)
+                self._draw_dynamic_artists(ax_obj, line_set)
+                self.fig.canvas.blit(self._ax_bbox(ax_obj))
+        except Exception:
+            # 个别后端不支持 blit：退化为整图重画
+            self._bg = None
+            self._ax_bgs = None
+            self.fig.canvas.draw()
+
+    def _blit_dynamic(self, show_text=True):
+        """恢复干净背景 → 补画曲线 → 补画状态栏 → 整图 blit"""
+        if self._bg is None:
+            self._redraw_static()
+            return
+        try:
+            self.fig.canvas.restore_region(self._bg)
+            for ax_obj, line_set in zip(self.axes, self.lines):
+                self._draw_dynamic_artists(ax_obj, line_set)
+            if show_text:
+                self.text.draw(self.fig.canvas.get_renderer())
+            self.fig.canvas.blit(self.fig.bbox)
+        except Exception:
+            self._bg = None
+            self.fig.canvas.draw()
+
+    def _redraw_static(self):
+        """
+        量程 / 窗口尺寸 / 布局变化后的完整重绘：
+          ① 整图静态重画（曲线与状态栏是 animated，不参与，画面只剩坐标轴）；
+          ② draw_event 里重新缓存干净背景；
+          ③ 立即补画曲线与状态栏，避免闪一下空白。
+        整图重画会把坐标框外的旧刻度、旧轴标签一起清掉，不会留残影。
+        """
+        self.fig.canvas.draw()
+        if self._bg is not None:
+            self._blit_dynamic(True)
+        self._text_ts = time.time()
+
+    # ---------------- 运行 ----------------
+    def show(self):
+        """进入 Tk 事件循环，直到窗口关闭（调用前需已 build）"""
+        try:
+            self.plt.show()
+        finally:
+            try:
+                self.timer.stop()
+            except Exception:
+                pass
+            self.worker.stop()
+            self.worker.join(timeout=2.0)
+
+    def run(self):
+        self.build()
+        self.show()
+
+
+# ----------------------------------------------------------------------------
+# 主流程
+# ----------------------------------------------------------------------------
+def make_csv_path(explicit):
+    """默认文件名：uart_sensor_年月日_时分秒.csv"""
+    if explicit:
+        return explicit
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"uart_sensor_{stamp}.csv"
+
+
+def run_no_plot(worker, duration):
+    """无界面模式：只采集 + 写 CSV"""
+    worker.start()
+    start = time.time()
+    last = 0.0
+    try:
+        while worker.is_alive():
+            time.sleep(0.2)
+            now = time.time()
+            if now - last > 2.0:
+                last = now
+                print(f"帧 {worker.frames} 校验错 {worker.bad} 丢帧≈{worker.lost}", flush=True)
+            if duration and (now - start) >= duration:
+                break
+            if worker.error:
+                print(f"串口错误：{worker.error}")
+                break
+    except KeyboardInterrupt:
+        print("\n用户中断")
+    finally:
+        worker.stop()
+        worker.join(timeout=2.0)
+
+
+def run(args):
+    if args.simulate:
+        source = SimSource()
+        port_name = "模拟数据源"
+    else:
+        port_name = pick_port(args.port)
+        source = SerialSource(port_name, args.baud)
+
+    csv_path = make_csv_path(args.csv)
+    frame_queue = queue.Queue(maxsize=2000)
+    worker = SensorWorker(source, csv_path, frame_queue,
+                          args.acc_lsb_per_g, args.gyro_lsb_per_dps)
+    print(f"数据源：{port_name}    保存：{csv_path}")
+
+    if args.no_plot:
+        run_no_plot(worker, args.duration)
+        print(f"CSV 已保存：{csv_path}（帧 {worker.frames}，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+        return
+
+    worker.start()
+    monitor = SensorMonitor(worker, csv_path, args.window, args.duration)
+    try:
+        monitor.run()
+    except KeyboardInterrupt:
+        print("\n用户中断")
+    finally:
+        worker.stop()
+        worker.join(timeout=2.0)
+    print(f"CSV 已保存：{csv_path}（帧 {worker.frames}，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Robin_24G_Car 六轴传感器串口监视器")
+    ap.add_argument("--list", action="store_true", help="列出所有串口后退出")
+    ap.add_argument("--port", help="串口号，例如 COM3；不填则自动选择")
+    ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
+    ap.add_argument("--csv", help="CSV 保存路径；默认按时间戳生成")
+    ap.add_argument("--window", type=float, default=10.0, help="曲线显示窗口秒数（默认 10s）")
+    ap.add_argument("--no-plot", action="store_true", help="不画图，只写 CSV")
+    ap.add_argument("--duration", type=float, default=0, help="采集时长秒，0=一直采")
+    ap.add_argument("--simulate", action="store_true",
+                    help="用模拟数据源代替串口（无硬件自测界面/退出/CSV）")
+    ap.add_argument("--acc-lsb-per-g", type=float, default=DEFAULT_ACC_LSB_PER_G,
+                    help="加速度灵敏度（默认 2048 LSB/g，±16g）")
+    ap.add_argument("--gyro-lsb-per-dps", type=float, default=DEFAULT_GYRO_LSB_PER_DPS,
+                    help="陀螺灵敏度（默认 16.4 LSB/dps，±2000dps）")
+    args = ap.parse_args()
+
+    if args.list:
+        list_ports()
+        return
+    run(args)
+
+
+if __name__ == "__main__":
+    main()

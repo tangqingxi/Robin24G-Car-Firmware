@@ -1243,6 +1243,40 @@ void FlightCtrl_Tick(void)
 	//usart1_report_EulerDat();
 
 	//--------------------------------------------------------------------------
+	// ①.5 ★v35 六轴波形帧（协议见 FlightCtrl.h 7.12）
+	//	不受解锁/飞行状态限制：电机断开、不接遥控器也能连续观察
+	//	每 FC_SENSOR_DBG_DIV 拍发 1 帧；黑匣子 UART 读出期间暂停
+	//	（两者共用 TX 缓冲，混发会污染读出流）
+	//--------------------------------------------------------------------------
+#if (FC_SENSOR_DBG_EN)
+	{
+		static u8 s_sensor_div;
+
+		s_sensor_div++;
+		if((s_sensor_div >= FC_SENSOR_DBG_DIV) && (bb_state != FC_BB_ST_DUMP))
+		{
+			s16	bias[3];
+			u8	flags = FC_SENSOR_FLAG_FILTERED;	// 本帧数据已过 5 点中值滤波
+
+			s_sensor_div = 0;
+			bias[0] = g_gyro_offset_x;
+			bias[1] = g_gyro_offset_y;
+			bias[2] = g_gyro_offset_z;
+			// 零偏非全 0 才认为标定过（不接遥控器时 get_GyroSensor_offset 不会被调用）
+			if((bias[0] != 0) || (bias[1] != 0) || (bias[2] != 0))
+			{
+				flags |= FC_SENSOR_FLAG_CALIBRATED;
+			}
+			if(FlightCtrl_Unlocked != 0)
+			{
+				flags |= FC_SENSOR_FLAG_ARMED;
+			}
+			UartSensorFrameSend(accel, gyro, bias, flags);
+		}
+	}
+#endif
+
+	//--------------------------------------------------------------------------
 	// ② 气压采样 → 高度/升降速度
 	//--------------------------------------------------------------------------
 	if(u8PresNewFlag != pres_last_flag)

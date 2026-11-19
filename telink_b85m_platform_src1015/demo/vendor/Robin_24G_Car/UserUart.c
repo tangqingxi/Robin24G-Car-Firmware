@@ -207,6 +207,84 @@ void UartBBSendFlash(unsigned long addr, unsigned char len)	// flash 块直读�
 }
 
 //********************************************************************
+// 六轴波形帧（0x26 0x9A，固定 27 字节）
+//	帧结构（多字节字段一律大端）：
+//	  偏移  长度  内容
+//	   0     1    0x26      帧头1
+//	   1     1    0x9A      帧头2
+//	   2     1    seq       帧序号（0~255 循环，掉帧时可见跳变）
+//	   3     4    上电毫秒  u32，自 clock_time() 累计换算（约 49.7 天回绕）
+//	   7     6    ax ay az  s16，16g 量程 → 2048 LSB/g
+//	  13     6    gx gy gz  s16，2000dps 量程 → 16.4 LSB/dps
+//	  19     6    bx by bz  s16，陀螺零偏（原始 LSB，未从 gx/gy/gz 扣除）
+//	  25     1    flags     FC_SENSOR_FLAG_*（见 FlightCtrl.h 7.12）
+//	  26     1    chk       校验和 = sum(byte[2..25]) 低 8 位
+//	发送走 UartDbgSend：与 0x2699 高速调试帧共用 TX 缓冲，两者不可同时开。
+//	时间戳用"余数累加"而不是 64 位除法：TC32 工程的链接命令不带 libgcc，
+//	一旦引入 64 位除/乘就会链接失败（__aeabi_uldivmod 未定义）。
+//********************************************************************
+#define SENSOR_TICKS_PER_MS		(CLOCK_SYS_CLOCK_HZ / 1000)	// 24MHz → 24000
+
+static unsigned int		s_sensor_tick_last;		// 上次 tick（初值 0 → 从上电开始累计）
+static unsigned int		s_sensor_tick_frac;		// 不足 1mS 的 tick 余数（< 24000）
+static unsigned int		s_sensor_ms;			// 上电毫秒（u32，约 49.7 天回绕）
+static unsigned char	s_sensor_seq;			// 帧序号
+
+void UartSensorFrameSend(const s16 acc[3], const s16 gyr[3], const s16 bias[3], u8 flags)
+{
+	unsigned char	pk[UART_SENSOR_FRAME_LEN];
+	unsigned int	t  = clock_time();
+	unsigned int	dt = t - s_sensor_tick_last;	// u32 相减，天然处理 32 位 tick 回绕
+	unsigned char	i, sum;
+
+	s_sensor_tick_last = t;
+
+	// dt 超过 2^31 tick（约 89S）说明中间停发过很久，32 位 tick 已回绕丢失，
+	// 此时不累加（时间戳原地停住），避免余数溢出把毫秒算飞
+	if(dt < 0x80000000u)
+	{
+		s_sensor_tick_frac += dt;					// < 24000 + 10mS 的 240000
+		s_sensor_ms += s_sensor_tick_frac / SENSOR_TICKS_PER_MS;
+		s_sensor_tick_frac %= SENSOR_TICKS_PER_MS;
+	}
+
+	pk[0] = 0x26;
+	pk[1] = 0x9A;
+	pk[2] = s_sensor_seq++;
+
+	pk[3] = (unsigned char)(s_sensor_ms >> 24);
+	pk[4] = (unsigned char)(s_sensor_ms >> 16);
+	pk[5] = (unsigned char)(s_sensor_ms >> 8);
+	pk[6] = (unsigned char)s_sensor_ms;
+
+	for(i = 0; i < 3; i++)				// 加速度
+	{
+		pk[7 + i * 2] = (unsigned char)(acc[i] >> 8);
+		pk[8 + i * 2] = (unsigned char)acc[i];
+	}
+	for(i = 0; i < 3; i++)				// 角速度
+	{
+		pk[13 + i * 2] = (unsigned char)(gyr[i] >> 8);
+		pk[14 + i * 2] = (unsigned char)gyr[i];
+	}
+	for(i = 0; i < 3; i++)				// 陀螺零偏
+	{
+		pk[19 + i * 2] = (unsigned char)(bias[i] >> 8);
+		pk[20 + i * 2] = (unsigned char)bias[i];
+	}
+
+	pk[25] = flags;
+	sum = 0;
+	for(i = 2; i < 26; i++)
+	{
+		sum += pk[i];
+	}
+	pk[26] = sum;
+
+	UartDbgSend(pk, UART_SENSOR_FRAME_LEN);
+}
+
+//********************************************************************
 #if 0
 //********************************************************************
 //;Uart 通讯协议：
