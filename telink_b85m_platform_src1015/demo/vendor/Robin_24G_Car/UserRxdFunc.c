@@ -22,7 +22,6 @@
 #include "User_IIC.h"
 #include "UserAdc.h"
 #include "PressSen_Lpc2623.h"
-#include "AttBench.h"        // 台架姿态估计入口（C_ATT_BENCH_EN）
 #include "FlightCtrl.h"
 #include "PerfMeas.h"
 
@@ -138,7 +137,7 @@ void User_hw_init(void)
 	iic_pin_init();
 	sleep_ms(10);
 #if (C_ATT_BENCH_EN)
-	// 台架姿态估计：传感器由 AttBench 自己初始化（含陀螺片内低通），
+	// 台架姿态估计：传感器由 BenchAtt 自己初始化（含陀螺片内低通），
 	// 这里跳过旧陀螺初始化与气压计初始化，避免重复复位和占用 I2C
 #else
 	t3488_gyro_init();
@@ -634,7 +633,9 @@ void car_work(void)
 		if(link_ok_flag == 0)
 		{
 			link_ok_flag=1;
-			get_GyroSensor_offset();		//获取Gyro传感器零偏
+#if (!C_ATT_BENCH_EN)
+			get_GyroSensor_offset();		//获取Gyro传感器零偏（旧控制链，台架模式不调用）
+#endif
 			// ★v22: 黑匣子自动擦除已取消（v20/v21 擦除阻塞丢 RF 包致无法解锁），
 			//   录制区改由用户烧录后用 BDT 手动擦除。
 			return;
@@ -1037,6 +1038,417 @@ void RxdFunction_loop(void)
 }
 
 //**************************************************************
+// 台架姿态估计（原独立模块已合入本文件）
+//   T-3488 直读 → FRD 映射与校准 → 加计一阶低通 → 四元数姿态 → 串口文本
+//   不进入旧遥控/控制/混控/气压路径，电机保持停转
+//**************************************************************
+#define BENCH_TICKS_PER_US      (CLOCK_SYS_CLOCK_HZ / 1000000u)
+#define BENCH_TICKS_PER_MS      (CLOCK_SYS_CLOCK_HZ / 1000u)
+#define BENCH_TICKS_PER_100US   (CLOCK_SYS_CLOCK_HZ / 10000u)
+#define BENCH_SAMPLE_TICKS      (CLOCK_SYS_CLOCK_HZ / C_ATT_SAMPLE_HZ)
+#define BENCH_TX_TICKS          (CLOCK_SYS_CLOCK_HZ / C_ATT_TX_HZ)
+#define BENCH_STAT_TICKS        (CLOCK_SYS_CLOCK_HZ / C_ATT_STAT_HZ)
+#define BENCH_INIT_STILL_TICKS  ((u32)C_ATT_INIT_STILL_US * (CLOCK_SYS_CLOCK_HZ / 1000000u))
+
+// 实测校准参数（来源：data/imu_axis_map_frd.json、data/accel_cal.json、data/gyro_bias_frd.json）
+//   轴映射：v_frd = R × v_sensor（X=+X_s、Y=-Y_s、Z=-Z_s，行列式 +1）
+//   加速度：FRD 零偏 LSB、比例 Q14；陀螺：FRD 零偏 LSB
+static const s32 s_bench_axis_map[3][3] = {
+	{  1,  0,  0 },
+	{  0, -1,  0 },
+	{  0,  0, -1 },
+};
+static const s32 s_bench_acc_off_lsb[3]     = { -3, -8, -29 };
+static const s32 s_bench_acc_scale_q14[3]   = { 16436, 16429, 16357 };
+static const s32 s_bench_gyro_bias_lsb[3]   = { -1, -3, -1 };
+
+#define BENCH_MG_PER_LSB        1000        // 1g = 2048 LSB → mg = lsb*1000/2048
+#define BENCH_LSB_PER_G         2048
+#define BENCH_GYRO_Q10_PER_LSB  10896       // 1 LSB = 1.0896 (Q10 rad/s)
+
+static u8   s_bench_inited;
+static u32  s_bench_retry_tick;
+static u32  s_bench_next_tick;
+static u32  s_bench_last_ts;
+static u8   s_bench_have_ts;
+static u32  s_bench_dt_rem;             // tick 余数：0.1ms 换算不累积截断误差
+static euler_q_t s_bench_att;
+static s32  s_bench_lpf[3];
+static u8   s_bench_lpf_ok;
+static u32  s_bench_still_ticks;        // 启动判稳：已连续静止的 tick
+static s32  s_bench_still_sum[3];
+static u32  s_bench_still_n;
+static s32  s_bench_prev_acc[3];
+static u8   s_bench_prev_ok;
+static u32  s_bench_wait_tick;
+static u32  s_bench_tx_tick;
+static u32  s_bench_stat_tick;
+
+static struct {
+	u32 valid, fail, gap;
+	u16 dt_min_us, dt_max_us;
+	u16 rd_min_us, rd_max_us;
+	u16 up_min_us, up_max_us;
+	u32 rd_sum_us, up_sum_us;
+} s_bench_stat;
+
+// 文本格式化（不用 printf / 浮点）
+static char *bench_put_str(char *p, const char *s)
+{
+	while (*s) *p++ = *s++;
+	return p;
+}
+
+static char *bench_put_u32(char *p, u32 v)
+{
+	char tmp[10];
+	u8 n = 0;
+
+	if (v == 0) {
+		*p++ = '0';
+		return p;
+	}
+	while (v && n < sizeof(tmp)) {
+		tmp[n++] = (char)('0' + (v % 10));
+		v /= 10;
+	}
+	while (n) *p++ = tmp[--n];
+	return p;
+}
+
+// 输出带符号定点数：v 的单位是 0.01
+static char *bench_put_fixed2(char *p, s32 v)
+{
+	u32 a;
+
+	if (v < 0) {
+		*p++ = '-';
+		a = (u32)(-v);
+	} else {
+		*p++ = '+';
+		a = (u32)v;
+	}
+	p = bench_put_u32(p, a / 100);
+	*p++ = '.';
+	*p++ = (char)('0' + ((a % 100) / 10));
+	*p++ = (char)('0' + (a % 10));
+	return p;
+}
+
+// 先在独立缓冲里拼好，再由 UartTrySend 在确认空闲后复制到 DMA 缓冲
+static void bench_send(char *buf, int len)
+{
+	(void)UartTrySend((unsigned char *)buf, (u8)len);
+}
+
+static void bench_still_reset(void)
+{
+	s_bench_still_ticks = 0;
+	s_bench_still_n = 0;
+	s_bench_still_sum[0] = 0;
+	s_bench_still_sum[1] = 0;
+	s_bench_still_sum[2] = 0;
+}
+
+// 传感器初始化（含陀螺片内低通写后回读）
+static void BenchAtt_Init(void)
+{
+	u32 now = clock_time();
+	u8 lpf_rb = 0;
+	u8 st;
+	char buf[160];
+	char *q;
+
+	if ((s32)(now - s_bench_retry_tick) < 0) {
+		return;
+	}
+	s_bench_retry_tick = now + CLOCK_SYS_CLOCK_HZ;      // 失败后 1s 重试
+
+	st = t3488_bench_init(C_GYRO_LPF_SEL, &lpf_rb);
+	if (st) {
+		q = buf;
+		q = bench_put_str(q, "ATT init fail st=");
+		q = bench_put_u32(q, st);
+		q = bench_put_str(q, " lpf_rb=");
+		q = bench_put_u32(q, lpf_rb);
+		*q++ = '\n';
+		bench_send(buf, (int)(q - buf));
+		return;
+	}
+
+	q = buf;
+	q = bench_put_str(q, "ATT init ok: T3488 16g/2000dps 800Hz, gyro_lpf_sel=");
+	q = bench_put_u32(q, C_GYRO_LPF_SEL);
+	q = bench_put_str(q, " (ODR/16, ~");
+	q = bench_put_u32(q, C_GYRO_LPF_HZ_NOMINAL);
+	q = bench_put_str(q, "Hz), readback=");
+	q = bench_put_u32(q, lpf_rb);
+	*q++ = '\n';
+	bench_send(buf, (int)(q - buf));
+
+	Euler_Reset(&s_bench_att);
+	s_bench_lpf_ok = 0;
+	s_bench_have_ts = 0;
+	s_bench_dt_rem = 0;
+	s_bench_prev_ok = 0;
+	bench_still_reset();
+	s_bench_stat.valid = s_bench_stat.fail = s_bench_stat.gap = 0;
+	s_bench_stat.dt_min_us = 0xFFFF; s_bench_stat.dt_max_us = 0;
+	s_bench_stat.rd_min_us = 0xFFFF; s_bench_stat.rd_max_us = 0; s_bench_stat.rd_sum_us = 0;
+	s_bench_stat.up_min_us = 0xFFFF; s_bench_stat.up_max_us = 0; s_bench_stat.up_sum_us = 0;
+
+	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
+	s_bench_inited = 1;
+}
+
+// 启动阶段：用一段连续静止样本的平均加速度定姿（移动/间断就重开窗口）
+static void BenchAtt_Startup(att_i32 acc_mg[3], att_i32 gyr_q10[3], u32 dt_ticks, u32 ts)
+{
+	u8 still;
+	int i;
+
+	still = Euler_IsStill(acc_mg, gyr_q10, s_bench_prev_acc, s_bench_prev_ok);
+
+	if (!still) {
+		bench_still_reset();
+	} else {
+		s_bench_still_sum[0] += acc_mg[0];
+		s_bench_still_sum[1] += acc_mg[1];
+		s_bench_still_sum[2] += acc_mg[2];
+		s_bench_still_n++;
+		s_bench_still_ticks += dt_ticks;
+
+		if (s_bench_still_ticks >= BENCH_INIT_STILL_TICKS && s_bench_still_n > 0) {
+			att_i32 avg[3];
+			avg[0] = s_bench_still_sum[0] / (att_i32)s_bench_still_n;
+			avg[1] = s_bench_still_sum[1] / (att_i32)s_bench_still_n;
+			avg[2] = s_bench_still_sum[2] / (att_i32)s_bench_still_n;
+			if (Euler_InitFromAccel(&s_bench_att, avg, ts / BENCH_TICKS_PER_MS)) {
+				att_i32 r, p, y;
+				char buf[96];
+				char *q;
+
+				Euler_GetEulerDeg100(&s_bench_att, &r, &p, &y);
+				q = buf;
+				q = bench_put_str(q, "ATT ready: r=");
+				q = bench_put_fixed2(q, r);
+				q = bench_put_str(q, " p=");
+				q = bench_put_fixed2(q, p);
+				q = bench_put_str(q, " (still ");
+				q = bench_put_u32(q, s_bench_still_ticks / BENCH_TICKS_PER_MS);
+				q = bench_put_str(q, "ms)\n");
+				bench_send(buf, (int)(q - buf));
+			} else {
+				bench_still_reset();
+			}
+		}
+	}
+
+	for (i = 0; i < 3; i++) {
+		s_bench_prev_acc[i] = acc_mg[i];
+	}
+	s_bench_prev_ok = 1;
+}
+
+// 台架主处理：主循环每圈调用一次，内部按 200Hz 采样
+static void BenchAtt_Process(void)
+{
+	u32 now;
+	int16_t raw_acc[3], raw_gyr[3];
+	att_i32 acc_mg[3], gyr_q10[3];
+	att_i32 acc_frd[3], gyr_frd[3];
+	u32 dt_ticks = 0;
+	att_i32 dt_100us = 0;
+	u8 st;
+	u32 t_read0, t_read1, t_up0, t_up1;
+	int i;
+
+	if (!s_bench_inited) {
+		BenchAtt_Init();
+		return;
+	}
+
+	now = clock_time();
+	if ((s32)(now - s_bench_next_tick) < 0) {
+		return;
+	}
+	s_bench_next_tick += BENCH_SAMPLE_TICKS;
+	if ((s32)(clock_time() - s_bench_next_tick) > 0) {
+		s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
+	}
+
+	// ---- 1) 一次连续读 12 字节 ----
+	t_read0 = clock_time();
+	st = t3488_read_6axis(raw_acc, raw_gyr);
+	t_read1 = clock_time();
+	{
+		u16 us = (u16)((t_read1 - t_read0) / BENCH_TICKS_PER_US);
+		if (us < s_bench_stat.rd_min_us) s_bench_stat.rd_min_us = us;
+		if (us > s_bench_stat.rd_max_us) s_bench_stat.rd_max_us = us;
+		s_bench_stat.rd_sum_us += us;
+	}
+	if (st) {
+		// 读失败：不发布零值、不更新估计，只累加错误计数
+		s_bench_stat.fail++;
+		return;
+	}
+
+	// ---- 2) 预处理 + 姿态更新（计时）----
+	t_up0 = clock_time();
+
+	// 映射到机体 FRD，再做校准
+	for (i = 0; i < 3; i++) {
+		acc_frd[i] = s_bench_axis_map[i][0] * (att_i32)raw_acc[0]
+		           + s_bench_axis_map[i][1] * (att_i32)raw_acc[1]
+		           + s_bench_axis_map[i][2] * (att_i32)raw_acc[2];
+		gyr_frd[i] = s_bench_axis_map[i][0] * (att_i32)raw_gyr[0]
+		           + s_bench_axis_map[i][1] * (att_i32)raw_gyr[1]
+		           + s_bench_axis_map[i][2] * (att_i32)raw_gyr[2];
+	}
+	for (i = 0; i < 3; i++) {
+		att_i32 lsb = (acc_frd[i] - s_bench_acc_off_lsb[i]) * s_bench_acc_scale_q14[i] >> 14;
+		acc_mg[i] = lsb * BENCH_MG_PER_LSB / BENCH_LSB_PER_G;
+
+		lsb = gyr_frd[i] - s_bench_gyro_bias_lsb[i];
+		gyr_q10[i] = (lsb * BENCH_GYRO_Q10_PER_LSB) / 10000;
+	}
+
+	// ---- 3) 时间差（u32 相减，天然处理回绕）----
+	if (!s_bench_have_ts) {
+		s_bench_last_ts = t_read1;
+		s_bench_have_ts = 1;
+		dt_ticks = 0;
+	} else {
+		dt_ticks = t_read1 - s_bench_last_ts;
+		s_bench_last_ts = t_read1;
+	}
+	if (dt_ticks) {
+		// STA 用原始时钟差直接换算成 µs（四舍五入），不做 100µs 截断
+		u16 us = (u16)((dt_ticks + BENCH_TICKS_PER_US / 2) / BENCH_TICKS_PER_US);
+		if (us < s_bench_stat.dt_min_us) s_bench_stat.dt_min_us = us;
+		if (us > s_bench_stat.dt_max_us) s_bench_stat.dt_max_us = us;
+	}
+
+	if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * BENCH_TICKS_PER_100US) {
+		// 长间断：重建积分端点，不补算缺失区间
+		s_bench_stat.gap++;
+		s_bench_dt_rem = 0;
+		s_bench_att.have_prev = 0;
+		bench_still_reset();
+		dt_ticks = 0;
+	}
+
+	if (dt_ticks) {
+		// 积分用的 dt：0.1ms 为单位，tick 余数留到下一拍，避免每拍向下截断
+		s_bench_dt_rem += dt_ticks;
+		dt_100us = (att_i32)(s_bench_dt_rem / BENCH_TICKS_PER_100US);
+		s_bench_dt_rem -= (u32)dt_100us * BENCH_TICKS_PER_100US;
+	}
+
+	// ---- 4) 加速度一阶低通（FRD 校准之后）----
+	if (!s_bench_lpf_ok) {
+		s_bench_lpf[0] = acc_mg[0];
+		s_bench_lpf[1] = acc_mg[1];
+		s_bench_lpf[2] = acc_mg[2];
+		s_bench_lpf_ok = 1;
+	} else if (C_ACC_LPF_EN && dt_ticks > 0) {
+		u32 dt_us = (dt_ticks + BENCH_TICKS_PER_US / 2) / BENCH_TICKS_PER_US;
+		att_i32 alpha = (att_i32)((dt_us * 32768) / (C_ACC_LPF_TAU_US + dt_us));   // Q15
+		for (i = 0; i < 3; i++) {
+			s_bench_lpf[i] += (alpha * (acc_mg[i] - s_bench_lpf[i])) >> 15;
+		}
+	} else if (!C_ACC_LPF_EN) {
+		s_bench_lpf[0] = acc_mg[0];
+		s_bench_lpf[1] = acc_mg[1];
+		s_bench_lpf[2] = acc_mg[2];
+	}
+
+	// ---- 5) 启动判稳 / 姿态更新 ----
+	if (!s_bench_att.ready) {
+		BenchAtt_Startup(s_bench_lpf, gyr_q10, dt_ticks, t_read1);
+
+		if ((u32)(now - s_bench_wait_tick) >= BENCH_TICKS_PER_MS * 500) {
+			char buf[96];
+			char *q;
+
+			s_bench_wait_tick = now;
+			q = buf;
+			q = bench_put_str(q, "ATT wait still ");
+			q = bench_put_fixed2(q, (att_i32)(s_bench_still_ticks / (CLOCK_SYS_CLOCK_HZ / 100)));
+			q = bench_put_str(q, "/");
+			q = bench_put_fixed2(q, (att_i32)(C_ATT_INIT_STILL_US / 10000));
+			q = bench_put_str(q, "s\n");
+			bench_send(buf, (int)(q - buf));
+		}
+	} else if (dt_100us > 0) {
+		Euler_Update(&s_bench_att, s_bench_lpf, gyr_q10, dt_100us,
+		             t_read1 / BENCH_TICKS_PER_MS);
+	}
+
+	t_up1 = clock_time();
+	{
+		u16 us = (u16)((t_up1 - t_up0) / BENCH_TICKS_PER_US);
+		if (us < s_bench_stat.up_min_us) s_bench_stat.up_min_us = us;
+		if (us > s_bench_stat.up_max_us) s_bench_stat.up_max_us = us;
+		s_bench_stat.up_sum_us += us;
+	}
+	s_bench_stat.valid++;
+
+	// ---- 6) 串口输出（在估计更新之外，先拼到独立缓冲）----
+	now = clock_time();
+	if (s_bench_att.ready && (u32)(now - s_bench_tx_tick) >= BENCH_TX_TICKS) {
+		char buf[96];
+		char *q;
+		att_i32 roll, pitch, yaw;
+
+		s_bench_tx_tick = now;
+		Euler_GetEulerDeg100(&s_bench_att, &roll, &pitch, &yaw);
+
+		q = buf;
+		q = bench_put_str(q, "ATT t=");
+		q = bench_put_u32(q, now / BENCH_TICKS_PER_MS);
+		q = bench_put_str(q, " rdy=");
+		q = bench_put_u32(q, s_bench_att.ready);
+		q = bench_put_str(q, " r=");
+		q = bench_put_fixed2(q, roll);
+		q = bench_put_str(q, " p=");
+		q = bench_put_fixed2(q, pitch);
+		q = bench_put_str(q, " y=");
+		q = bench_put_fixed2(q, yaw);
+		*q++ = '\n';
+		bench_send(buf, (int)(q - buf));
+	}
+
+	if ((u32)(now - s_bench_stat_tick) >= BENCH_STAT_TICKS) {
+		char buf[128];
+		char *q;
+
+		s_bench_stat_tick = now;
+		q = buf;
+		q = bench_put_str(q, "STA n=");
+		q = bench_put_u32(q, s_bench_stat.valid);
+		q = bench_put_str(q, " f=");
+		q = bench_put_u32(q, s_bench_stat.fail);
+		q = bench_put_str(q, " g=");
+		q = bench_put_u32(q, s_bench_stat.gap);
+		q = bench_put_str(q, " dt=");
+		q = bench_put_u32(q, s_bench_stat.dt_min_us == 0xFFFF ? 0 : s_bench_stat.dt_min_us);
+		*q++ = '/';
+		q = bench_put_u32(q, s_bench_stat.dt_max_us);
+		q = bench_put_str(q, " rd=");
+		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.rd_sum_us / s_bench_stat.valid) : 0);
+		*q++ = '/';
+		q = bench_put_u32(q, s_bench_stat.rd_max_us);
+		q = bench_put_str(q, " up=");
+		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.up_sum_us / s_bench_stat.valid) : 0);
+		*q++ = '/';
+		q = bench_put_u32(q, s_bench_stat.up_max_us);
+		*q++ = '\n';
+		bench_send(buf, (int)(q - buf));
+	}
+}
+
+//**************************************************************
 void User_main_loop_process(void)
 {
 	wd_32k_feed();
@@ -1044,7 +1456,7 @@ void User_main_loop_process(void)
 #if (C_ATT_BENCH_EN)
 	// 台架姿态估计入口：只读 T-3488 + 串口文本输出
 	// 不进入旧遥控解码、姿态控制、混控、气压高度等路径（电机保持停转）
-	AttBench_Process();
+	BenchAtt_Process();
 	return;
 #endif
 
