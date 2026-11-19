@@ -36,6 +36,10 @@ JSON（格式见 README / 本文件 write_result）：
   python accel_six_face_cal.py --list
   python accel_six_face_cal.py --port COM3 --out accel_cal.json
 
+  # 带 FRD 轴映射：界面、完成列表、--face 都用"机体 ±X/±Y/±Z 朝下"
+  python accel_six_face_cal.py --port COM3 --axis-map ..\data\imu_axis_map_frd.json \
+         --out ..\data\accel_cal.json
+
   # 单面补测：加载已有六面结果，只重采一面，其余五面保留
   python accel_six_face_cal.py --port COM3 --resume ..\data\accel_cal.json \
          --face=-Z --out ..\data\accel_cal_retest.json
@@ -43,8 +47,9 @@ JSON（格式见 README / 本文件 write_result）：
   python accel_six_face_cal.py --port COM3 --resume ..\data\accel_cal.json \
          --face=-Z --replace
   注意负号面要写成 --face=-Z（等号形式），否则 argparse 会把它当成选项。
-  这里的面是"UART 原始读数"的面：-Z 表示传感器 az 约为 -1g（本机倒放）。
-  FRD 轴映射由 imu_axis_map.py 单独给出，本工具不读取它。
+  不带 --axis-map 时，面名/--face 是"传感器面"（原始读数：-Z 表示 az≈-1g）；
+  带 --axis-map 时，面名/--face 是"机体摆法"（-Z 表示机体 -Z 朝下，即倒放）。
+  FRD 轴映射与加速度校准是两个独立文件，本工具只读映射、分别输出两套参数。
 """
 
 import argparse
@@ -111,12 +116,6 @@ FACE_PROMPT = {
 def face_axis(face):
     """'+X' → ('X', +1)；'-Y' → ('Y', -1)"""
     return face[1], (1 if face[0] == "+" else -1)
-
-
-def missing_text(done):
-    """还缺哪些面"""
-    left = [f for f in FACES if f not in done]
-    return "、".join(left) if left else "无"
 
 
 def classify(ax_g, ay_g, az_g, cfg):
@@ -192,10 +191,120 @@ def solve_faces(faces, cfg):
 
 
 # ----------------------------------------------------------------------------
+# 可选的 FRD 轴映射：把"传感器面"与"机体摆法"互相转换
+# ----------------------------------------------------------------------------
+MAP_FORMAT = "robin24g_imu_axis_map_frd"
+
+# 机体摆法的物理提示（用于补测横幅和完成提示）
+BODY_HINT = {
+    "+X": "机头朝下", "-X": "机尾朝下",
+    "+Y": "右侧朝下", "-Y": "左侧朝下",
+    "+Z": "正放，机腹朝下", "-Z": "倒放，机腹朝上",
+}
+
+
+def load_axis_map(path):
+    """
+    读取 imu_axis_map_frd.json（传感器 → FRD），校验方向与矩阵性质。
+    返回 (matrix 3×3, 原始 JSON)；不合法直接退出。
+    """
+    if not os.path.exists(path):
+        sys.exit(f"找不到轴映射文件：{path}\n  请先用 imu_axis_map.py 生成")
+    try:
+        with open(path, encoding="utf-8") as fp:
+            data = json.load(fp)
+    except json.JSONDecodeError as exc:
+        sys.exit(f"轴映射文件不是合法 JSON：{path}\n  原因：{exc}")
+
+    def bad(msg):
+        sys.exit(f"轴映射文件不可用：{path}\n  原因：{msg}")
+
+    if data.get("format") != MAP_FORMAT:
+        bad(f"format 应为 {MAP_FORMAT!r}，实际 {data.get('format')!r}")
+    if (data.get("target_frame") or {}).get("name") != "FRD":
+        bad("target_frame.name 应为 'FRD'")
+    if data.get("matrix_convention", "").find("v_frd = R * v_sensor") < 0:
+        bad("matrix_convention 不是“传感器 → FRD”方向（应写 v_frd = R * v_sensor）")
+
+    matrix = data.get("matrix_sensor_to_frd")
+    if not isinstance(matrix, list) or len(matrix) != 3 or any(
+            not isinstance(row, list) or len(row) != 3 for row in matrix):
+        bad("matrix_sensor_to_frd 必须是 3×3 数组")
+    for r in range(3):
+        nz = [v for v in matrix[r] if v != 0]
+        if len(nz) != 1 or abs(nz[0]) != 1:
+            bad(f"矩阵第 {r+1} 行不满足“恰好一个 ±1”")
+    for c in range(3):
+        nz = [matrix[r][c] for r in range(3) if matrix[r][c] != 0]
+        if len(nz) != 1 or abs(nz[0]) != 1:
+            bad(f"矩阵第 {c+1} 列不满足“恰好一个 ±1”")
+    det = (matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+           - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+           + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]))
+    if det != 1:
+        bad(f"矩阵行列式为 {det:+d}，必须是 +1（右手系）")
+    return matrix, data
+
+
+def face_unit(face):
+    """'+X' → [1,0,0]；'-Z' → [0,0,-1]"""
+    v = [0.0, 0.0, 0.0]
+    v[AXIS_INDEX[face[1]]] = 1.0 if face[0] == "+" else -1.0
+    return v
+
+
+def face_of_vec(vec):
+    """取绝对值最大的分量 → 面名"""
+    k = max(range(3), key=lambda i: abs(vec[i]))
+    return ("+" if vec[k] > 0 else "-") + "XYZ"[k]
+
+
+def body_to_sensor_face(matrix, body_face):
+    """
+    机体某轴朝下 → 传感器读数落在哪个面。
+    静止时比力（加速度读数）指向“上”，方向与朝下的轴相反：
+        a_frd = -b（b 是朝下的机体轴），a_sensor = R^T · a_frd
+    """
+    b = face_unit(body_face)
+    a_frd = [-x for x in b]
+    a_sensor = [sum(matrix[r][c] * a_frd[r] for r in range(3)) for c in range(3)]  # R^T
+    return face_of_vec(a_sensor)
+
+
+def sensor_to_body_face(matrix, sensor_face):
+    """传感器读数落在某面 → 机体哪个轴朝下：a_frd = R·a_sensor，朝下轴 = -a_frd"""
+    a_sensor = face_unit(sensor_face)
+    a_frd = [sum(matrix[r][c] * a_sensor[c] for c in range(3)) for r in range(3)]
+    return face_of_vec([-x for x in a_frd])
+
+
+def frd_params(sensor_cal, matrix):
+    """
+    传感器系参数 → FRD 系参数：
+      零偏按映射重排并变号（o_frd = R·o_sensor）
+      比例系数只重排（不取反）
+    """
+    res = {}
+    for r, axis in enumerate("XYZ"):
+        c = next(j for j in range(3) if matrix[r][j] != 0)
+        sign = matrix[r][c]
+        src = "XYZ"[c]
+        s = sensor_cal[src]
+        res[axis] = {
+            "offset_lsb": sign * s["offset_lsb"],
+            "scale": s["scale"],
+            "span_lsb": s["span_lsb"],
+            "from_sensor_axis": src,
+            "sign": sign,
+        }
+    return res
+
+
+# ----------------------------------------------------------------------------
 # 校准状态机（不依赖串口，方便用模拟数据测试）
 # ----------------------------------------------------------------------------
 class Calibrator:
-    def __init__(self, cfg=None, only_face=None, preset_faces=None):
+    def __init__(self, cfg=None, only_face=None, preset_faces=None, face_name=None):
         self.cfg = dict(CONFIG)
         if cfg:
             self.cfg.update(cfg)
@@ -204,6 +313,8 @@ class Calibrator:
         # 补测模式：preset_faces 是先加载的另外五面，only_face 是本次要重采的面
         self.only_face = only_face
         self.faces = dict(preset_faces) if preset_faces else {}
+        # 显示名：默认就是传感器面名；带轴映射时换成机体摆法名
+        self.face_name = face_name or (lambda f: f)
 
         self.state = "wait"      # wait / sample
         self.target = None       # 正在采样的面
@@ -221,6 +332,14 @@ class Calibrator:
         self.cur = None          # 最近一帧 (t, face, ax, ay, az)，状态行用
         self.done = False
 
+    # ---------------- 显示名（带轴映射时显示机体摆法） ----------------
+    def _name(self, face):
+        return self.face_name(face) if face else face
+
+    def _missing(self):
+        left = [f for f in FACES if f not in self.faces]
+        return "、".join(self._name(f) for f in left) if left else "无"
+
     # ---------------- 对外接口 ----------------
     def feed(self, fr):
         """喂一帧六轴数据，返回要打印的提示列表"""
@@ -236,7 +355,7 @@ class Calibrator:
             step = (fr["seq"] - self.last_seq) & 0xFF
             if gap > cfg["max_gap_s"] or step != 1:
                 if self.state == "sample":
-                    msgs.append(f"检测到丢帧/时间跳变（间隔 {gap*1000:.0f}ms），{self.target} 重新采")
+                    msgs.append(f"检测到丢帧/时间跳变（间隔 {gap*1000:.0f}ms），{self._name(self.target)} 重新采")
                     self._restart_face()
                 self.skipped += 1
         self.last_t = t
@@ -271,17 +390,17 @@ class Calibrator:
         if self.state == "sample":
             t = self.cur[0] if self.cur else 0.0
             done_s = max(0.0, t - (self.sample_start or t))
-            state = f"正在采样 {self.target} {done_s:.1f}/{self.cfg['sample_sec']:.0f}s"
+            state = f"正在采样 {self._name(self.target)} {done_s:.1f}/{self.cfg['sample_sec']:.0f}s"
         elif face:
             stable = (self.window[-1][0] - self.window[0][0]) if len(self.window) >= 2 else 0.0
             state = (f"请停稳 {min(stable, self.cfg['stable_sec']):.1f}/"
                      f"{self.cfg['stable_sec']:.1f}s")
         else:
             state = self.pending_hint or "请把机身摆到某个面"
-        head = (f"目标 {self.only_face} | 当前 {face or '--'}" if self.only_face
-                else f"姿态 {face or '--'}")
+        head = (f"目标 {self._name(self.only_face)} | 当前 {self._name(face) or '--'}" if self.only_face
+                else f"姿态 {self._name(face) or '--'}")
         return (f"{head} | a=({ax:+.2f},{ay:+.2f},{az:+.2f})g | {cross_text(ax, ay, az)} | "
-                f"{state} | 还缺: {missing_text(self.faces)}")
+                f"{state} | 还缺: {self._missing()}")
 
     # ---------------- 内部：等待/采样 ----------------
     def _reset_window(self):
@@ -307,14 +426,14 @@ class Calibrator:
         if self.only_face and face != self.only_face:
             if self.wrong_face != face:
                 self.wrong_face = face
-                return [f"当前是 {face}，本工具只补测 {self.only_face}；请调整摆放"]
+                return [f"当前是 {self._name(face)}，本工具只补测 {self._name(self.only_face)}；请调整摆放"]
             self._reset_window()
             return []
         self.wrong_face = None
         if face in self.faces:
             if self.hint_face != face:
                 self.hint_face = face
-                return [f"{face} 已完成，请翻到未完成的面：{missing_text(self.faces)}"]
+                return [f"{self._name(face)} 已完成，请翻到未完成的面：{self._missing()}"]
             self._reset_window()
             return []
         self.hint_face = None
@@ -334,7 +453,7 @@ class Calibrator:
             self.target = face
             self.samples = []
             self.sample_start = t
-            return [f"{face} 已停稳，开始采样 {cfg['sample_sec']:.0f}s …"]
+            return [f"{self._name(face)} 已停稳，开始采样 {cfg['sample_sec']:.0f}s …"]
         return []
 
     def _is_stable(self):
@@ -368,14 +487,14 @@ class Calibrator:
             target = self.target
             self.aborted += 1
             self._restart_face()
-            return [f"姿态改变（{target} → {face or '未识别'}），本面重新采"]
+            return [f"姿态改变（{self._name(target)} → {self._name(face) or '未识别'}），本面重新采"]
 
         # 采样中仍要求静止：角速度超限说明在转动/晃动，本面作废
         if max(abs(gx), abs(gy), abs(gz)) > cfg["gyro_max_dps"]:
             target = self.target
             self.aborted += 1
             self._restart_face()
-            return [f"{target} 采样中检测到转动/晃动，本面重新采"]
+            return [f"{self._name(target)} 采样中检测到转动/晃动，本面重新采"]
 
         self.samples.append((ax, ay, az))
         if len(self.samples) >= cfg["min_samples"] and (t - self.sample_start) >= cfg["sample_sec"]:
@@ -399,7 +518,7 @@ class Calibrator:
         if worst > cfg["accel_std_max_g"]:
             self.aborted += 1
             self._restart_face()
-            return [f"{face} 采样段波动过大（最大 {worst:.4f}g > "
+            return [f"{self._name(face)} 采样段波动过大（最大 {worst:.4f}g > "
                     f"{cfg['accel_std_max_g']:.3f}g），本面重新采"]
 
         self.faces[face] = {
@@ -410,12 +529,12 @@ class Calibrator:
         }
         self._restart_face()
 
-        msg = [f"{face} 完成：均值({means[0]:+.1f},{means[1]:+.1f},{means[2]:+.1f}) LSB，"
+        msg = [f"{self._name(face)} 完成：均值({means[0]:+.1f},{means[1]:+.1f},{means[2]:+.1f}) LSB，"
                f"波动(±{stds[0]:.1f},±{stds[1]:.1f},±{stds[2]:.1f})，{n} 点 / {dur:.1f}s"]
         if len(self.faces) == len(FACES):
             msg += self._finish_all()
         else:
-            msg.append(f"还缺：{missing_text(self.faces)}")
+            msg.append(f"还缺：{self._missing()}")
         return msg
 
     # ---------------- 六面齐全后的求解与检查 ----------------
@@ -431,14 +550,14 @@ class Calibrator:
                 self.faces.pop(self.only_face, None)
                 self.state = "wait"
                 return [f"跨度检查不通过（{'、'.join(bad)}）；请重新补测 "
-                        f"{self.only_face}（其余面保留不动）"]
+                        f"{self._name(self.only_face)}（其余面保留不动）"]
             # 六面模式：把该轴的正负面作废，要求重采
             for axis in bad:
                 self.faces.pop("+" + axis, None)
                 self.faces.pop("-" + axis, None)
             self.state = "wait"
             return [f"跨度检查不通过（{'、'.join(bad)}），请重采这些轴的正负面："
-                    f"{missing_text(self.faces)}"]
+                    f"{self._missing()}"]
         self.result = res
         self.done = True
         return ["六个面全部完成，校准参数已求解"]
@@ -583,7 +702,11 @@ def load_calibration(path, cfg):
     return faces, data, old_result
 
 
-def write_result(path, cal, build_id=None):
+def write_result(path, cal, build_id=None, axis_map=None, body_faces=None):
+    """
+    axis_map: {"source": 路径, "matrix": 3×3}，给了就同时写 FRD 参数；
+    body_faces: {机体面: 传感器面}，说明 --face 用的机体摆法怎么对应原始面。
+    """
     cfg = cal.cfg
     data = {
         "format": CAL_FORMAT,
@@ -620,6 +743,26 @@ def write_result(path, cal, build_id=None):
             "positive_mean_lsb": round(c["positive_mean_lsb"], 3),
             "negative_mean_lsb": round(c["negative_mean_lsb"], 3),
         }
+    # 明确标出 calibration 用的是传感器坐标（旧文件没有这个键，读取时按传感器处理）
+    data["calibration_frame"] = "sensor"
+    if axis_map:
+        data["axis_map"] = {
+            "source": os.path.abspath(axis_map["source"]),
+            "matrix_sensor_to_frd": axis_map["matrix"],
+            "convention": "v_frd = R * v_sensor（行=FRD X/Y/Z，列=传感器 X/Y/Z）",
+        }
+        data["faces_frame"] = "sensor"
+        data["body_faces"] = dict(body_faces or {})
+        frd = frd_params(cal.result, axis_map["matrix"])
+        data["calibration_frd"] = {
+            axis: {
+                "offset_lsb": round(frd[axis]["offset_lsb"], 3),
+                "scale": round(frd[axis]["scale"], 6),
+                "span_lsb": round(frd[axis]["span_lsb"], 3),
+                "from_sensor_axis": frd[axis]["from_sensor_axis"],
+                "sign": frd[axis]["sign"],
+            } for axis in "XYZ"
+        }
     data["checks"] = {
         "span_min_lsb": cfg["span_min_lsb"],
         "span_max_lsb": cfg["span_max_lsb"],
@@ -638,13 +781,22 @@ def write_result(path, cal, build_id=None):
 
 
 def print_summary(cal, data):
-    """校准结果与"修正前 / 修正后"读数摘要"""
+    """校准结果与"修正前 / 修正后"读数摘要（传感器坐标 + 可选的 FRD 坐标）"""
     cfg = cal.cfg
     print("\n================ 六面校准结果 ================")
-    print(f"{'轴':<3}{'offset(LSB)':>14}{'scale':>12}{'跨度(LSB)':>12}")
+    print("传感器坐标（calibration，原始读数所在坐标系）：")
+    print(f"  {'轴':<3}{'offset(LSB)':>14}{'scale':>12}{'跨度(LSB)':>12}")
     for axis in "XYZ":
         c = data["calibration"][axis]
-        print(f"{axis:<3}{c['offset_lsb']:>14.1f}{c['scale']:>12.5f}{c['span_lsb']:>12.1f}")
+        print(f"  {axis:<3}{c['offset_lsb']:>14.1f}{c['scale']:>12.5f}{c['span_lsb']:>12.1f}")
+
+    if "calibration_frd" in data:
+        print("\n机体 FRD 坐标（calibration_frd，R × 传感器；零偏随映射变号，比例只重排）：")
+        print(f"  {'轴':<3}{'offset(LSB)':>14}{'scale':>12}{'来源':>10}")
+        for axis in "XYZ":
+            c = data["calibration_frd"][axis]
+            print(f"  {axis:<3}{c['offset_lsb']:>14.1f}{c['scale']:>12.5f}"
+                  f"{c['sign']:+d}*{c['from_sensor_axis']:>4}")
 
     print("\n各面修正前后的加速度模长（应为 1.000 g）：")
     for face in FACES:
@@ -660,7 +812,7 @@ def print_summary(cal, data):
     print("      若明显偏离，说明某个面没摆正或采样时晃动，重采对应面即可。")
 
 
-def print_retest_summary(old_faces, cal, old_result, face):
+def print_retest_summary(old_faces, cal, old_result, face, axis_map=None):
     """单面补测：打印目标面的旧/新均值、标准差，以及受影响轴的旧/新参数"""
     axis = face[1]
     o, n = old_faces[face], cal.faces[face]
@@ -672,23 +824,31 @@ def print_retest_summary(old_faces, cal, old_result, face):
                 f"{rec['samples']} 点 / {rec['duration_s']:.2f}s")
 
     print("\n============ 单面补测结果 ============")
-    print(f"目标面 {face}：{FACE_PROMPT[face]}")
+    print(f"传感器面 {face}：{FACE_PROMPT[face]}")
     print(f"  旧：{fmt(o)}")
     print(f"  新：{fmt(n)}")
 
     oc, nc = old_result[axis], cal.result[axis]
-    print(f"\n{axis} 轴（受本次补测影响）：")
+    print(f"\n传感器 {axis} 轴（受本次补测影响）：")
     print(f"  offset  {oc['offset_lsb']:+9.2f} → {nc['offset_lsb']:+9.2f} LSB")
     print(f"  跨度    {oc['span_lsb']:9.1f} → {nc['span_lsb']:9.1f} LSB")
     print(f"  scale   {oc['scale']:9.6f} → {nc['scale']:9.6f}")
 
-    print("\n其余两轴（应保持不变）：")
+    print("\n传感器其余两轴（应保持不变）：")
     for other in "XYZ":
         if other == axis:
             continue
         a, b = old_result[other], cal.result[other]
         print(f"  {other} 轴 offset {a['offset_lsb']:+9.2f} → {b['offset_lsb']:+9.2f} LSB，"
               f"scale {a['scale']:.6f} → {b['scale']:.6f}")
+
+    if axis_map:
+        of = frd_params(old_result, axis_map["matrix"])
+        nf = frd_params(cal.result, axis_map["matrix"])
+        print("\n机体 FRD 参数（同样受影响的是补测面对应的 FRD 轴）：")
+        for a in "XYZ":
+            print(f"  {a} 轴 offset {of[a]['offset_lsb']:+9.2f} → {nf[a]['offset_lsb']:+9.2f} LSB，"
+                  f"scale {of[a]['scale']:.6f} → {nf[a]['scale']:.6f}")
 
     print("\n说明：以上都是拟合用数据（六个面同时参与），换一面后自然吻合，不能当作精度指标；")
     print("      最终精度请另外摆几种静止斜放姿态，用修正后的三轴读数算模长验证"
@@ -711,6 +871,20 @@ def run(args):
     if args.acc_lsb_per_g is not None:
         cfg["lsb_per_g"] = args.acc_lsb_per_g
 
+    # ---- 可选的 FRD 轴映射：给了就全程用"机体摆法" ---
+    axis_map = None
+    body_to_sensor = {}
+    sensor_to_body = {}
+    names = {}
+    if args.axis_map:
+        matrix, _map_json = load_axis_map(args.axis_map)
+        body_to_sensor = {b: body_to_sensor_face(matrix, b) for b in FACES}
+        if len(set(body_to_sensor.values())) != len(FACES):
+            sys.exit("轴映射不合法：六个机体摆法没有一一对应到六个传感器面")
+        sensor_to_body = {sf: bf for bf, sf in body_to_sensor.items()}
+        names = {sf: f"机体 {bf} 朝下" for sf, bf in sensor_to_body.items()}
+        axis_map = {"source": args.axis_map, "matrix": matrix}
+
     # ---- 单面补测的参数检查与加载：全部在打开串口之前完成 ----
     retest = bool(args.resume)
     if retest != bool(args.face):
@@ -724,39 +898,61 @@ def run(args):
     old_faces = old_result = None
     preset = None
     target = None
+    target_body = None
     if retest:
         if args.face not in FACES:
             sys.exit(f"--face 只能是 {'、'.join(FACES)}；负号面请写成 --face=-Z")
-        target = args.face
-        old_faces, _old_json, old_result = load_calibration(args.resume, cfg)
+        target_body = args.face
+        # 带映射时 --face 是机体摆法；按映射换算出旧文件里对应的传感器面
+        target = body_to_sensor[target_body] if axis_map else target_body
+        old_faces, old_json, old_result = load_calibration(args.resume, cfg)
+        if axis_map and "axis_map" in old_json:
+            old_matrix = (old_json["axis_map"] or {}).get("matrix_sensor_to_frd")
+            if old_matrix and old_matrix != axis_map["matrix"]:
+                print("注意：已有结果文件记录的映射与本次 --axis-map 不同；"
+                      "faces 仍按传感器面替换，FRD 参数按本次映射重算")
         preset = {f: r for f, r in old_faces.items() if f != target}
 
     port = pick_port(args.port)
     if retest:
-        print("=" * 64)
-        print(f"T-3488 加速度计单面补测：{target}")
+        title = names.get(target, target) if axis_map else target
+        print("=" * 68)
+        print(f"T-3488 加速度计单面补测：{title}")
+        if axis_map:
+            print(f"  --face 坐标系：机体 FRD（经 {os.path.basename(args.axis_map)} 映射）")
+            print(f"  机体摆法：{title}（{BODY_HINT[target_body]}）")
+            print(f"  对应传感器面：{target}（{FACE_PROMPT[target]}）")
+        else:
+            print("  --face 坐标系：传感器（原始计数）")
+            print(f"  面提示：{FACE_PROMPT[target]}")
         print(f"  已有结果：{os.path.abspath(args.resume)}")
         print("  只重采这一面，其余五面沿用原值")
-        print(f"  面提示：{FACE_PROMPT[target]}")
         print("  1) 请先关闭串口监视器，释放 COM 口")
         print("  2) 电机断开，飞控保持上锁（不要解锁）")
-        print(f"  3) 摆到 {target} 面停稳，稳定 {cfg['stable_sec']:.1f}s 后"
-              f"采样 {cfg['sample_sec']:.0f}s")
+        print(f"  3) 摆好后停稳 {cfg['stable_sec']:.1f}s 再采样 {cfg['sample_sec']:.0f}s")
         if args.replace:
             print(f"  校验通过后直接覆盖：{os.path.abspath(args.resume)}")
-        print("=" * 64)
+        print("=" * 68)
     else:
-        print("=" * 64)
+        print("=" * 68)
         print("T-3488 加速度计六面校准")
+        if axis_map:
+            print(f"  轴映射：{os.path.abspath(args.axis_map)}")
+            print(f"  矩阵  ：{axis_map['matrix']}（v_frd = R × v_sensor）")
+            print("  面名都是机体摆法：" + "、".join(
+                f"{b}={BODY_HINT[b]}" for b in ("+Z", "-Z", "+X", "-X", "+Y", "-Y")))
+        else:
+            print("  --face / 面名使用传感器坐标（不加 --axis-map 时的默认）")
         print("  1) 请先关闭串口监视器，释放 COM 口")
         print("  2) 电机断开，飞控保持上锁（不要解锁）")
         print("  3) 依次把飞机摆到 6 个面，每个面停稳后保持不动")
         print(f"  4) 顺序随意；每面需稳定 {cfg['stable_sec']:.1f}s，再采样 {cfg['sample_sec']:.0f}s")
-        print("=" * 64)
+        print("=" * 68)
 
     src = SerialSource(port, args.baud)
     parser = FrameParser()
-    cal = Calibrator(cfg, only_face=target, preset_faces=preset)
+    cal = Calibrator(cfg, only_face=target, preset_faces=preset,
+                     face_name=(lambda f: names.get(f, f)) if axis_map else None)
     last_status = 0.0
     last_print = 0.0
     last_perf = None
@@ -804,10 +1000,11 @@ def run(args):
     else:
         out_path = unique_path(args.out or
                                f"accel_cal_{datetime.datetime.now():%Y%m%d_%H%M%S}.json")
-    data = write_result(out_path, cal, build_id)
+    data = write_result(out_path, cal, build_id, axis_map=axis_map,
+                        body_faces=body_to_sensor if axis_map else None)
     print()
     if retest:
-        print_retest_summary(old_faces, cal, old_result, target)
+        print_retest_summary(old_faces, cal, old_result, target, axis_map)
     print_summary(cal, data)
     if retest and args.replace:
         print(f"\n已覆盖原校准文件：{os.path.abspath(out_path)}")
@@ -815,8 +1012,8 @@ def run(args):
         print(f"\n校准文件：{os.path.abspath(out_path)}")
         if retest:
             print(f"原文件未改动：{os.path.abspath(args.resume)}")
-    print("后续：把 calibration 里的 offset_lsb / scale 写进固件参数加载即可"
-          "（本次只交付校准文件，固件接入属于后续任务）。")
+    print("后续：把 calibration（传感器）或 calibration_frd（机体 FRD）里的参数"
+          "写进固件即可；固件接入属于后续任务。")
     return 0
 
 
@@ -831,7 +1028,10 @@ def main():
     ap.add_argument("--acc-lsb-per-g", type=float, help="加速度灵敏度（默认 2048）")
     ap.add_argument("--resume", help="已有六面校准 JSON（单面补测用，需与 --face 同时给出）")
     ap.add_argument("--face",
-                    help="要重采的传感器面：+X/-X/+Y/-Y/+Z/-Z；负号面必须写 --face=-Z")
+                    help="要重采的面：+X/-X/+Y/-Y/+Z/-Z；负号面必须写 --face=-Z"
+                         "（带 --axis-map 时按机体摆法解释，否则按传感器面）")
+    ap.add_argument("--axis-map",
+                    help="传感器→FRD 映射 JSON；给了以后面名与 --face 都用机体摆法")
     ap.add_argument("--replace", action="store_true",
                     help="单面补测时校验通过后直接覆盖 --resume 指定的文件（与 --out 互斥）")
     args = ap.parse_args()

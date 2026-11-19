@@ -233,7 +233,9 @@ class Session:
         return (f"[{self._phase_cn()}] {min(done, need):.1f}/{need:.0f}s "
                 f"({len(self.seg)} 帧) | g_frd=({g[0]:+.0f},{g[1]:+.0f},{g[2]:+.0f}) LSB "
                 f"=({gd[0]:+.2f},{gd[1]:+.2f},{gd[2]:+.2f}) dps | "
-                f"a=({a[0]/2048:+.2f},{a[1]/2048:+.2f},{a[2]/2048:+.2f})g")
+                f"a=({a[0]/self.cfg['acc_lsb_per_g']:+.2f},"
+                f"{a[1]/self.cfg['acc_lsb_per_g']:+.2f},"
+                f"{a[2]/self.cfg['acc_lsb_per_g']:+.2f})g")
 
     # ---------------- 内部 ----------------
     def _phase_cn(self):
@@ -566,12 +568,14 @@ def run(args):
     print("=" * 68)
 
     port = pick_port(args.port)
+    # 先打开串口：端口不对时立刻报错，不用先按 Enter
+    src = SerialSource(port, args.baud)
     ans = input("摆好后按 Enter 开始（q 退出）：").strip().lower()
     if ans == "q":
+        src.close()
         print("已退出")
         return 1
 
-    src = SerialSource(port, args.baud)
     parser = FrameParser()
     session = Session(cfg, matrix)
     last_status = 0.0

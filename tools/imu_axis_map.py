@@ -28,7 +28,7 @@ T-3488 传感器轴 → 机体系 FRD 的安装映射确认工具（单向 UART�
 用法
 ----
   python imu_axis_map.py --list
-  python imu_axis_map.py --port COM12 --out "..\imu_axis_map_frd.json"
+  python imu_axis_map.py --port COM12 --out "..\data\imu_axis_map_frd.json"
 """
 
 import argparse
@@ -566,7 +566,8 @@ def run(args):
         src.close()
 
     print_result(records, matrix, mapping, det)
-    out_path = unique_path(args.out or "imu_axis_map_frd.json")
+    out_path = unique_path(args.out or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "data", "imu_axis_map_frd.json"))
     data = write_json(out_path, records, matrix, mapping, det)
     print()
     print(f"映射文件：{os.path.abspath(out_path)}")
@@ -580,7 +581,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="列出串口后退出")
     ap.add_argument("--port", help="串口号，例如 COM12；不填则自动选择")
     ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
-    ap.add_argument("--out", help="映射 JSON 路径（默认 imu_axis_map_frd.json）")
+    ap.add_argument("--out", help="映射 JSON 路径（默认 ../data/imu_axis_map_frd.json，同名不覆盖）")
     ap.add_argument("--window", type=float, help="每个姿态的采样时长秒（默认 1.2）")
     ap.add_argument("--acc-lsb-per-g", type=float, help="加速度灵敏度（默认 2048）")
     args = ap.parse_args()
