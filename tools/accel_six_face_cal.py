@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 T-3488 加速度计六面校准工具（命令行交互，第一版）
 
 用途
@@ -35,6 +35,13 @@ JSON（格式见 README / 本文件 write_result）：
 ----
   python accel_six_face_cal.py --list
   python accel_six_face_cal.py --port COM3 --out accel_cal.json
+
+  # 单面补测：加载已有六面结果，只重采一面，其余五面保留
+  python accel_six_face_cal.py --port COM3 --resume ..\data\accel_cal.json \
+         --face=-Z --out ..\data\accel_cal_retest.json
+  注意负号面要写成 --face=-Z（等号形式），否则 argparse 会把它当成选项。
+  这里的面是"UART 原始读数"的面：-Z 表示传感器 az 约为 -1g（本机倒放）。
+  FRD 轴映射由 imu_axis_map.py 单独给出，本工具不读取它。
 """
 
 import argparse
@@ -75,8 +82,24 @@ CONFIG = {
 # flags 位定义（固件 FlightCtrl.h 7.12）：bit3 = 已解锁
 FLAG_ARMED = 0x08
 
+# 校准文件的格式标识（单面补测加载时校验）
+CAL_FORMAT = "robin24g_accel_six_face_cal"
+CAL_VERSION = 1
+CAL_MODEL = "T-3488"
+CAL_RANGE_G = 16
+
 FACES = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
 AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
+
+# 补测时给用户的面提示：这里的"面"指 UART 原始读数的主轴与符号
+FACE_PROMPT = {
+    "+X": "传感器 +X 读数约 +1g（ax ≈ +2048）",
+    "-X": "传感器 -X 读数约 -1g（ax ≈ -2048）",
+    "+Y": "传感器 +Y 读数约 +1g（ay ≈ +2048）",
+    "-Y": "传感器 -Y 读数约 -1g（ay ≈ -2048）",
+    "+Z": "传感器 +Z 读数约 +1g（az ≈ +2048）",
+    "-Z": "传感器 -Z 读数约 -1g（az ≈ -2048，本机倒放）",
+}
 
 
 # ----------------------------------------------------------------------------
@@ -114,6 +137,14 @@ def classify(ax_g, ay_g, az_g, cfg):
     return name, ""
 
 
+def cross_text(ax_g, ay_g, az_g):
+    """显示两条横向分量（除主轴外的两轴），便于用户把面摆正"""
+    v = (ax_g, ay_g, az_g)
+    k = max(range(3), key=lambda i: abs(v[i]))
+    names = ("ax", "ay", "az")
+    return "横向 " + " ".join(f"{names[i]}={v[i]:+.2f}" for i in range(3) if i != k)
+
+
 def mean_std(vals):
     """均值与总体标准差（纯标准库，避免引入 numpy）"""
     n = len(vals)
@@ -124,16 +155,53 @@ def mean_std(vals):
     return m, math.sqrt(var)
 
 
+def solve_faces(faces, cfg):
+    """
+    用六个面的均值求解三轴零偏与比例：
+        offset_lsb = (P + N) / 2
+        scale      = 2 * lsb_per_g / (P - N)
+    只取该轴在正/负面对应分量的均值；跨度超出合理范围记入 bad（需要重采该轴）。
+    返回 (结果 dict, 需要重采的轴列表)。六面模式与单面补测共用。
+    """
+    res = {}
+    bad = []
+    for axis in "XYZ":
+        p = faces.get("+" + axis)
+        n = faces.get("-" + axis)
+        if not p or not n:
+            bad.append(axis)
+            continue
+        i = AXIS_INDEX[axis]
+        pv = p["mean_lsb"][i]
+        nv = n["mean_lsb"][i]
+        span = pv - nv
+        if not (cfg["span_min_lsb"] <= span <= cfg["span_max_lsb"]):
+            bad.append(axis)
+            continue
+        res[axis] = {
+            "offset_lsb": (pv + nv) / 2.0,
+            "scale": (2.0 * cfg["lsb_per_g"]) / span,
+            "span_lsb": span,
+            "positive_mean_lsb": pv,
+            "negative_mean_lsb": nv,
+        }
+    return res, bad
+
+
 # ----------------------------------------------------------------------------
 # 校准状态机（不依赖串口，方便用模拟数据测试）
 # ----------------------------------------------------------------------------
 class Calibrator:
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, only_face=None, preset_faces=None):
         self.cfg = dict(CONFIG)
         if cfg:
             self.cfg.update(cfg)
 
-        self.faces = {}          # 面名 -> {mean_lsb, std_lsb, samples, duration_s}
+        # 六面模式：只有 only_face 为空、preset_faces 为空
+        # 补测模式：preset_faces 是先加载的另外五面，only_face 是本次要重采的面
+        self.only_face = only_face
+        self.faces = dict(preset_faces) if preset_faces else {}
+
         self.state = "wait"      # wait / sample
         self.target = None       # 正在采样的面
         self.samples = []        # 采样中的加速度读数 [(ax,ay,az) 单位 g]
@@ -143,8 +211,9 @@ class Calibrator:
         self.last_t = None
         self.last_seq = None
         self.skipped = 0         # 因丢帧/跳变作废的次数
-        self.aborted = 0         # 因晃动/姿态改变作废的次数
+        self.aborted = 0         # 因晃动/姿态改变/波动过大作废的次数
         self.hint_face = None    # 已完成面的提示去重
+        self.wrong_face = None   # 补测时"摆错面"的提示去重
         self.pending_hint = ""   # 上一次的不合格原因（状态行显示）
         self.cur = None          # 最近一帧 (t, face, ax, ay, az)，状态行用
         self.done = False
@@ -170,11 +239,12 @@ class Calibrator:
         self.last_t = t
         self.last_seq = fr["seq"]
 
-        # 已解锁：拒绝采样（电机可能转起来，数据也不能用）
+        # 已解锁：拒绝采样（电机可能转起来，数据也不能用）。
+        # 注意要连采样窗口一起清掉：解锁前采的数据不能再接着用。
         if fr["flags"] & FLAG_ARMED:
-            if self.state == "sample":
-                msgs.append("检测到已解锁，停止采样；请保持飞控上锁、电机断开")
-            self._reset_window()
+            if self.state == "sample" or self.samples:
+                msgs.append("检测到已解锁，已清空本面采样窗口；请保持飞控上锁、电机断开")
+            self._restart_face()
             return msgs
 
         ax = fr["ax"] / cfg["lsb_per_g"]
@@ -205,8 +275,10 @@ class Calibrator:
                      f"{self.cfg['stable_sec']:.1f}s")
         else:
             state = self.pending_hint or "请把机身摆到某个面"
-        return (f"姿态 {face or '--'} | a=({ax:+.2f},{ay:+.2f},{az:+.2f})g | {state} | "
-                f"还缺: {missing_text(self.faces)}")
+        head = (f"目标 {self.only_face} | 当前 {face or '--'}" if self.only_face
+                else f"姿态 {face or '--'}")
+        return (f"{head} | a=({ax:+.2f},{ay:+.2f},{az:+.2f})g | {cross_text(ax, ay, az)} | "
+                f"{state} | 还缺: {missing_text(self.faces)}")
 
     # ---------------- 内部：等待/采样 ----------------
     def _reset_window(self):
@@ -228,6 +300,14 @@ class Calibrator:
             # 姿态不合格：窗口作废，状态行显示具体原因
             self._reset_window()
             return []
+        # 补测模式：只接受目标面，摆到其他面时提示调整（提示去重）
+        if self.only_face and face != self.only_face:
+            if self.wrong_face != face:
+                self.wrong_face = face
+                return [f"当前是 {face}，本工具只补测 {self.only_face}；请调整摆放"]
+            self._reset_window()
+            return []
+        self.wrong_face = None
         if face in self.faces:
             if self.hint_face != face:
                 self.hint_face = face
@@ -310,6 +390,15 @@ class Calibrator:
             means.append(m * cfg["lsb_per_g"])       # 记录成 LSB
             stds.append(sd * cfg["lsb_per_g"])
         dur = t - self.sample_start
+
+        # 结束前再检查整段采样的波动：判稳只看窗口，仍可能整段缓慢漂移
+        worst = max(stds) / cfg["lsb_per_g"]
+        if worst > cfg["accel_std_max_g"]:
+            self.aborted += 1
+            self._restart_face()
+            return [f"{face} 采样段波动过大（最大 {worst:.4f}g > "
+                    f"{cfg['accel_std_max_g']:.3f}g），本面重新采"]
+
         self.faces[face] = {
             "mean_lsb": means,
             "std_lsb": stds,
@@ -329,35 +418,18 @@ class Calibrator:
     # ---------------- 六面齐全后的求解与检查 ----------------
     def solve(self):
         """按 (P+N)/2 与 2*2048/(P-N) 求解；返回 (结果 dict, 需要重采的轴列表)"""
-        cfg = self.cfg
-        res = {}
-        bad = []
-        for axis in "XYZ":
-            p = self.faces.get("+" + axis)
-            n = self.faces.get("-" + axis)
-            if not p or not n:
-                bad.append(axis)
-                continue
-            i = AXIS_INDEX[axis]
-            pv = p["mean_lsb"][i]
-            nv = n["mean_lsb"][i]
-            span = pv - nv
-            if not (cfg["span_min_lsb"] <= span <= cfg["span_max_lsb"]):
-                bad.append(axis)
-                continue
-            res[axis] = {
-                "offset_lsb": (pv + nv) / 2.0,
-                "scale": (2.0 * cfg["lsb_per_g"]) / span,
-                "span_lsb": span,
-                "positive_mean_lsb": pv,
-                "negative_mean_lsb": nv,
-            }
-        return res, bad
+        return solve_faces(self.faces, self.cfg)
 
     def _finish_all(self):
         res, bad = self.solve()
         if bad:
-            # 跨度异常：把该轴的正负面作废，要求重采
+            if self.only_face:
+                # 补测模式：只重新采目标面，其余已加载的面原样保留
+                self.faces.pop(self.only_face, None)
+                self.state = "wait"
+                return [f"跨度检查不通过（{'、'.join(bad)}）；请重新补测 "
+                        f"{self.only_face}（其余面保留不动）"]
+            # 六面模式：把该轴的正负面作废，要求重采
             for axis in bad:
                 self.faces.pop("+" + axis, None)
                 self.faces.pop("-" + axis, None)
@@ -448,15 +520,75 @@ def unique_path(path):
     return f"{root}_{i}{ext}"
 
 
+def load_calibration(path, cfg):
+    """
+    读取已有的六面校准 JSON，校验格式版本、型号、量程、LSB/g 和六面记录。
+    任何不兼容都在这里直接退出（发生在打开串口之前），不会写任何文件。
+    返回 (faces, 原始 JSON, 旧的三轴结果)。
+    """
+    if not os.path.exists(path):
+        sys.exit(f"找不到校准文件：{path}")
+    try:
+        with open(path, encoding="utf-8") as fp:
+            data = json.load(fp)
+    except json.JSONDecodeError as exc:
+        sys.exit(f"校准文件不是合法 JSON：{path}\n  原因：{exc}")
+
+    def bad(msg):
+        sys.exit(f"校准文件不可用：{path}\n  原因：{msg}")
+
+    if data.get("format") != CAL_FORMAT:
+        bad(f"format 应为 {CAL_FORMAT!r}，实际 {data.get('format')!r}")
+    if data.get("version") != CAL_VERSION:
+        bad(f"版本应为 {CAL_VERSION}，实际 {data.get('version')!r}")
+    sensor = data.get("sensor") or {}
+    if sensor.get("model") != CAL_MODEL:
+        bad(f"传感器型号应为 {CAL_MODEL!r}，实际 {sensor.get('model')!r}")
+    if sensor.get("range_g") != CAL_RANGE_G:
+        bad(f"量程应为 ±{CAL_RANGE_G}g，实际 {sensor.get('range_g')!r}")
+    lsb = sensor.get("lsb_per_g")
+    if not isinstance(lsb, (int, float)) or abs(float(lsb) - cfg["lsb_per_g"]) > 0.5:
+        bad(f"LSB/g 应为 {cfg['lsb_per_g']}，实际 {lsb!r}（确实不同请用 --acc-lsb-per-g 指定）")
+
+    faces_raw = data.get("faces")
+    if not isinstance(faces_raw, dict):
+        bad("缺少 faces 记录")
+    missing = [f for f in FACES if f not in faces_raw]
+    if missing:
+        bad(f"缺少面记录：{'、'.join(missing)}")
+    faces = {}
+    for face in FACES:
+        rec = faces_raw[face]
+        try:
+            mean = [float(v) for v in rec["mean_lsb"]]
+            std = [float(v) for v in rec["std_lsb"]]
+            samples = int(rec["samples"])
+            dur = float(rec["duration_s"])
+        except (KeyError, TypeError, ValueError):
+            bad(f"{face} 面记录不完整（需要 mean_lsb/std_lsb/samples/duration_s）")
+        if len(mean) != 3 or len(std) != 3:
+            bad(f"{face} 面的三轴数据不是 3 个分量")
+        if samples <= 0 or dur <= 0:
+            bad(f"{face} 面的样本数或时长无效（{samples}, {dur}）")
+        faces[face] = {"mean_lsb": mean, "std_lsb": std,
+                       "samples": samples, "duration_s": dur}
+
+    # 用已有数据先解一遍，跨度不合理说明原文件本身就有问题
+    old_result, bad_axes = solve_faces(faces, cfg)
+    if bad_axes:
+        bad(f"已有数据的跨度不合理（{'、'.join(bad_axes)}），请先用完整六面模式重测")
+    return faces, data, old_result
+
+
 def write_result(path, cal, build_id=None):
     cfg = cal.cfg
     data = {
-        "format": "robin24g_accel_six_face_cal",
-        "version": 1,
+        "format": CAL_FORMAT,
+        "version": CAL_VERSION,
         "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "sensor": {
-            "model": "T-3488",
-            "range_g": 16,
+            "model": CAL_MODEL,
+            "range_g": CAL_RANGE_G,
             "lsb_per_g": cfg["lsb_per_g"],
         },
         "gravity": {
@@ -522,6 +654,41 @@ def print_summary(cal, data):
     print("      若明显偏离，说明某个面没摆正或采样时晃动，重采对应面即可。")
 
 
+def print_retest_summary(old_faces, cal, old_result, face):
+    """单面补测：打印目标面的旧/新均值、标准差，以及受影响轴的旧/新参数"""
+    axis = face[1]
+    o, n = old_faces[face], cal.faces[face]
+
+    def fmt(rec):
+        m, s = rec["mean_lsb"], rec["std_lsb"]
+        return (f"均值({m[0]:+.1f},{m[1]:+.1f},{m[2]:+.1f}) LSB  "
+                f"标准差(±{s[0]:.1f},±{s[1]:.1f},±{s[2]:.1f})  "
+                f"{rec['samples']} 点 / {rec['duration_s']:.2f}s")
+
+    print("\n============ 单面补测结果 ============")
+    print(f"目标面 {face}：{FACE_PROMPT[face]}")
+    print(f"  旧：{fmt(o)}")
+    print(f"  新：{fmt(n)}")
+
+    oc, nc = old_result[axis], cal.result[axis]
+    print(f"\n{axis} 轴（受本次补测影响）：")
+    print(f"  offset  {oc['offset_lsb']:+9.2f} → {nc['offset_lsb']:+9.2f} LSB")
+    print(f"  跨度    {oc['span_lsb']:9.1f} → {nc['span_lsb']:9.1f} LSB")
+    print(f"  scale   {oc['scale']:9.6f} → {nc['scale']:9.6f}")
+
+    print("\n其余两轴（应保持不变）：")
+    for other in "XYZ":
+        if other == axis:
+            continue
+        a, b = old_result[other], cal.result[other]
+        print(f"  {other} 轴 offset {a['offset_lsb']:+9.2f} → {b['offset_lsb']:+9.2f} LSB，"
+              f"scale {a['scale']:.6f} → {b['scale']:.6f}")
+
+    print("\n说明：以上都是拟合用数据（六个面同时参与），换一面后自然吻合，不能当作精度指标；")
+    print("      最终精度请另外摆几种静止斜放姿态，用修正后的三轴读数算模长验证"
+          "（应在 1.000±0.005 g 内）。")
+
+
 # ----------------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------------
@@ -538,18 +705,45 @@ def run(args):
     if args.acc_lsb_per_g is not None:
         cfg["lsb_per_g"] = args.acc_lsb_per_g
 
+    # ---- 单面补测的参数检查与加载：全部在打开串口之前完成 ----
+    retest = bool(args.resume)
+    if retest != bool(args.face):
+        sys.exit("--resume 与 --face 必须同时使用：--resume 指定已有校准文件，"
+                 "--face 指定要重采的面（负号面写 --face=-Z）")
+    old_faces = old_result = None
+    preset = None
+    target = None
+    if retest:
+        if args.face not in FACES:
+            sys.exit(f"--face 只能是 {'、'.join(FACES)}；负号面请写成 --face=-Z")
+        target = args.face
+        old_faces, _old_json, old_result = load_calibration(args.resume, cfg)
+        preset = {f: r for f, r in old_faces.items() if f != target}
+
     port = pick_port(args.port)
-    print("=" * 64)
-    print("T-3488 加速度计六面校准")
-    print("  1) 请先关闭串口监视器，释放 COM 口")
-    print("  2) 电机断开，飞控保持上锁（不要解锁）")
-    print("  3) 依次把飞机摆到 6 个面，每个面停稳后保持不动")
-    print(f"  4) 顺序随意；每面需稳定 {cfg['stable_sec']:.1f}s，再采样 {cfg['sample_sec']:.0f}s")
-    print("=" * 64)
+    if retest:
+        print("=" * 64)
+        print(f"T-3488 加速度计单面补测：{target}")
+        print(f"  已有结果：{os.path.abspath(args.resume)}")
+        print("  只重采这一面，其余五面沿用原值")
+        print(f"  面提示：{FACE_PROMPT[target]}")
+        print("  1) 请先关闭串口监视器，释放 COM 口")
+        print("  2) 电机断开，飞控保持上锁（不要解锁）")
+        print(f"  3) 摆到 {target} 面停稳，稳定 {cfg['stable_sec']:.1f}s 后"
+              f"采样 {cfg['sample_sec']:.0f}s")
+        print("=" * 64)
+    else:
+        print("=" * 64)
+        print("T-3488 加速度计六面校准")
+        print("  1) 请先关闭串口监视器，释放 COM 口")
+        print("  2) 电机断开，飞控保持上锁（不要解锁）")
+        print("  3) 依次把飞机摆到 6 个面，每个面停稳后保持不动")
+        print(f"  4) 顺序随意；每面需稳定 {cfg['stable_sec']:.1f}s，再采样 {cfg['sample_sec']:.0f}s")
+        print("=" * 64)
 
     src = SerialSource(port, args.baud)
     parser = FrameParser()
-    cal = Calibrator(cfg)
+    cal = Calibrator(cfg, only_face=target, preset_faces=preset)
     last_status = 0.0
     last_print = 0.0
     last_perf = None
@@ -576,7 +770,10 @@ def run(args):
                     last_print = now
                     print(line, flush=True)
     except KeyboardInterrupt:
-        print("\n已中断，未生成校准文件（已完成的面不会保存）")
+        if retest:
+            print("\n已中断，未生成新文件；原校准文件未改动")
+        else:
+            print("\n已中断，未生成校准文件（已完成的面不会保存）")
         return 1
     finally:
         src.close()
@@ -585,12 +782,20 @@ def run(args):
         return 1
 
     build_id = last_perf["build_id"] if last_perf else None
-    out_path = unique_path(args.out or
-                           f"accel_cal_{datetime.datetime.now():%Y%m%d_%H%M%S}.json")
+    if retest:
+        out_path = unique_path(args.out or
+                               f"accel_cal_retest_{datetime.datetime.now():%Y%m%d_%H%M%S}.json")
+    else:
+        out_path = unique_path(args.out or
+                               f"accel_cal_{datetime.datetime.now():%Y%m%d_%H%M%S}.json")
     data = write_result(out_path, cal, build_id)
     print()
+    if retest:
+        print_retest_summary(old_faces, cal, old_result, target)
     print_summary(cal, data)
     print(f"\n校准文件：{os.path.abspath(out_path)}")
+    if retest:
+        print(f"原文件未改动：{os.path.abspath(args.resume)}")
     print("后续：把 calibration 里的 offset_lsb / scale 写进固件参数加载即可"
           "（本次只交付校准文件，固件接入属于后续任务）。")
     return 0
@@ -605,6 +810,9 @@ def main():
     ap.add_argument("--stable", type=float, help="静止判定时长秒（默认 1.5）")
     ap.add_argument("--sample", type=float, help="每面采样时长秒（默认 5.0）")
     ap.add_argument("--acc-lsb-per-g", type=float, help="加速度灵敏度（默认 2048）")
+    ap.add_argument("--resume", help="已有六面校准 JSON（单面补测用，需与 --face 同时给出）")
+    ap.add_argument("--face",
+                    help="要重采的传感器面：+X/-X/+Y/-Y/+Z/-Z；负号面必须写 --face=-Z")
     args = ap.parse_args()
     sys.exit(run(args))
 
