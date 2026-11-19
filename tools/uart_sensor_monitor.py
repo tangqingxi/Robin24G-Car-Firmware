@@ -35,6 +35,12 @@ Robin_24G_Car 六轴传感器串口监视器（配合固件 0x26 0x9A 波形帧�
   python uart_sensor_monitor.py --port COM3 --csv bench.csv --window 20
   python uart_sensor_monitor.py --port COM3 --no-plot --duration 60
   python uart_sensor_monitor.py --simulate --duration 10     # 无硬件自测
+
+台架姿态估计固件（文本协议，--attitude）：
+  python uart_sensor_monitor.py --port COM3 --attitude
+  python uart_sensor_monitor.py --port COM3 --attitude --duration 120 --csv att.csv
+  * 文本行形如 ATT t=... rdy=1 r=+12.34 p=-45.67 y=+120.15 与 STA n=...，
+    r/p/y 已经是度；--attitude 下不解析 0x269A/0x269B 二进制帧。
 """
 
 import argparse
@@ -43,6 +49,7 @@ import datetime
 import math
 import os
 import queue
+import re
 import struct
 import sys
 import threading
@@ -247,6 +254,265 @@ class SimSource:
 # ----------------------------------------------------------------------------
 # 组帧解析
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# 台架固件文本协议（--attitude 模式，按当前 UserRxdFunc.c 的实际输出解析）
+#   ATT init ok: T3488 16g/2000dps 800Hz, gyro_lpf_sel=3 (...), readback=3
+#   ATT init fail st=N lpf_rb=M
+#   ATT wait still 0.32/0.50s
+#   ATT ready: r=+0.00 p=+0.00 (still 500ms)
+#   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 姿态样本，字段已是度
+#   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48
+# ----------------------------------------------------------------------------
+ATT_CSV_FIELDS = ["recv_s", "recv_epoch", "t_ms", "rdy",
+                  "roll_deg", "pitch_deg", "yaw_deg"]
+ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
+                   "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
+                   "up_avg_us", "up_max_us"]
+
+_ATT_LINE_RE = re.compile(
+    r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+r=([+-]?\d+\.\d+)\s+p=([+-]?\d+\.\d+)"
+    r"\s+y=([+-]?\d+\.\d+)\s*$")
+_STA_LINE_RE = re.compile(
+    r"^STA\s+n=(\d+)\s+f=(\d+)\s+g=(\d+)\s+dt=(\d+)/(\d+)\s+"
+    r"rd=(\d+)/(\d+)\s+up=(\d+)/(\d+)\s*$")
+
+
+def attitude_state_of(line):
+    """把一行 ATT 状态文字归类成界面显示的状态"""
+    if line.startswith("ATT init fail"):
+        return "初始化失败"
+    if line.startswith("ATT init ok"):
+        return "初始化完成"
+    if line.startswith("ATT wait still"):
+        return "等待静止"
+    if line.startswith("ATT ready"):
+        return "姿态就绪"
+    return None
+
+
+def attitude_detail_of(line):
+    """从状态行里取一小段说明（状态栏空间有限，只留关键信息）"""
+    if line.startswith("ATT init fail"):
+        m = re.search(r"st=(\d+)\s+lpf_rb=(\d+)", line)
+        return f"st={m.group(1)} 回读={m.group(2)}" if m else ""
+    if line.startswith("ATT init ok"):
+        m = re.search(r"readback=(\d+)", line)
+        return f"低通回读={m.group(1)}" if m else ""
+    if line.startswith("ATT wait still"):
+        parts = line.split()
+        return parts[3] if len(parts) > 3 else ""
+    if line.startswith("ATT ready"):
+        return line[len("ATT ready: "):].strip() if line.startswith("ATT ready: ") else ""
+    return ""
+
+
+def parse_attitude_line(line):
+    """解析一行文本，返回 ("att", dict) / ("sta", dict) / ("status", 原文) / None"""
+    m = _ATT_LINE_RE.match(line)
+    if m:
+        return ("att", {
+            "t_ms": int(m.group(1)),
+            "rdy": int(m.group(2)),
+            "roll": float(m.group(3)),
+            "pitch": float(m.group(4)),
+            "yaw": float(m.group(5)),
+        })
+    m = _STA_LINE_RE.match(line)
+    if m:
+        g = [int(x) for x in m.groups()]
+        return ("sta", {
+            "valid": g[0], "fail": g[1], "gap": g[2],
+            "dt_min_us": g[3], "dt_max_us": g[4],
+            "rd_avg_us": g[5], "rd_max_us": g[6],
+            "up_avg_us": g[7], "up_max_us": g[8],
+        })
+    if attitude_state_of(line):
+        return ("status", line)
+    return None
+
+
+class SimAttitudeSource:
+    """
+    模拟台架固件的文本输出（无硬件自测）：
+      init ok → wait still 递增 → ready → 14Hz ATT（缓慢变化）+ 1Hz STA
+    读取时故意把行切碎，验证分块到达的粘包处理。
+    """
+
+    def __init__(self, hz=14.0):
+        self.dt = 1.0 / hz
+        self.t0 = time.time()
+        self.buf = b""
+        self.n_att = 0
+        self.n_sta = 0
+        self.sent_init = False
+        self.sent_ready = False
+        self.t_ready = None
+        self._next_att = 0.0
+        self._next_sta = 0.0
+
+    def _push(self, text):
+        self.buf += (text + "\n").encode("ascii", "replace")
+
+    def _fill(self):
+        now = time.time()
+        el = now - self.t0
+        if not self.sent_init:
+            self.sent_init = True
+            self._push("ATT init ok: T3488 16g/2000dps 800Hz, gyro_lpf_sel=3 "
+                       "(ODR/16, ~50Hz), readback=3")
+        if el < 0.5:
+            if el >= self._next_att:
+                self._next_att += 0.25
+                self._push(f"ATT wait still {min(el, 0.5):.2f}/0.50s")
+        elif not self.sent_ready:
+            self.sent_ready = True
+            self.t_ready = now
+            self._push("ATT ready: r=+0.00 p=+0.00 (still 500ms)")
+        else:
+            if now >= self._next_att:
+                self._next_att = now + self.dt
+                self.n_att += 1
+                t_ms = int((now - self.t_ready) * 1000)
+                # 缓慢变化的姿态：偏航慢慢漂，横滚/俯仰小幅摆动
+                yaw = 0.8 * (now - self.t_ready) % 360.0
+                roll = 3.0 * math.sin(now * 0.7)
+                pitch = -5.0 + 2.0 * math.cos(now * 0.5)
+                self._push(f"ATT t={t_ms} rdy=1 r={roll:+.2f} p={pitch:+.2f} y={yaw:+.2f}")
+            if now >= self._next_sta:
+                self._next_sta = now + 1.0
+                self.n_sta += 1
+                valid = self.n_att
+                self._push(f"STA n={valid} f=0 g=0 dt=4995/5005 "
+                           f"rd=210/260 up=35/48")
+
+    def read(self):
+        self._fill()
+        if not self.buf:
+            time.sleep(0.01)
+            return b""
+        # 故意只取一小段，甚至切断一行，模拟串口分块到达
+        n = min(len(self.buf), 1 + (self.n_att * 7 + self.n_sta * 3) % 23)
+        chunk, self.buf = self.buf[:n], self.buf[n:]
+        return chunk
+
+    def close(self):
+        pass
+
+
+class AttitudeWorker(threading.Thread):
+    """台架文本采集线程：拆行 → 解析 ATT/STA → 写两份 CSV → 姿态样本入队"""
+
+    def __init__(self, source, csv_path, stat_path, sample_queue):
+        super().__init__(daemon=True)
+        self.source = source
+        self.csv_path = csv_path
+        self.stat_path = stat_path
+        self.queue = sample_queue
+        self.stop_event = threading.Event()
+
+        self.frames = 0          # 姿态样本条数
+        self.perf_frames = 0     # STA 条数
+        self.bad = 0             # 无法识别的行数
+        self.state = "等待数据"  # 初始化完成 / 等待静止 / 姿态就绪 / 初始化失败
+        self.detail = ""         # 状态的简短说明
+        self.last_stat = None    # 最近一条 STA
+        self.error = ""
+        self.start_wall = time.time()
+        self._buf = b""
+
+    def stop(self):
+        self.stop_event.set()
+
+    def summary_line(self):
+        return (f"姿态 {self.frames} 条  统计 {self.perf_frames} 条  "
+                f"无法识别 {self.bad} 行  状态 {self.state}")
+
+    def _handle_line(self, line, writer, stat_writer):
+        parsed = parse_attitude_line(line)
+        if parsed is None:
+            self.bad += 1
+            return
+
+        kind, payload = parsed
+        now = time.time()
+
+        if kind == "att":
+            self.frames += 1
+            writer.writerow({
+                "recv_s": f"{now - self.start_wall:.3f}",
+                "recv_epoch": f"{now:.3f}",
+                "t_ms": payload["t_ms"],
+                "rdy": payload["rdy"],
+                "roll_deg": f"{payload['roll']:.2f}",
+                "pitch_deg": f"{payload['pitch']:.2f}",
+                "yaw_deg": f"{payload['yaw']:.2f}",
+            })
+            try:
+                self.queue.put_nowait(payload)
+            except queue.Full:
+                pass
+            return
+
+        if kind == "sta":
+            self.perf_frames += 1
+            self.last_stat = payload
+            stat_writer.writerow({
+                "recv_s": f"{now - self.start_wall:.3f}",
+                "recv_epoch": f"{now:.3f}",
+                "valid": payload["valid"],
+                "fail": payload["fail"],
+                "gap": payload["gap"],
+                "dt_min_us": payload["dt_min_us"],
+                "dt_max_us": payload["dt_max_us"],
+                "rd_avg_us": payload["rd_avg_us"],
+                "rd_max_us": payload["rd_max_us"],
+                "up_avg_us": payload["up_avg_us"],
+                "up_max_us": payload["up_max_us"],
+            })
+            print(f"[统计] 有效{payload['valid']} 读失败{payload['fail']} "
+                  f"长间断{payload['gap']} dt {payload['dt_min_us']}~{payload['dt_max_us']}us "
+                  f"rd {payload['rd_avg_us']}/{payload['rd_max_us']}us "
+                  f"up {payload['up_avg_us']}/{payload['up_max_us']}us", flush=True)
+            return
+
+        # 状态行
+        self.state = attitude_state_of(line) or self.state
+        self.detail = attitude_detail_of(line)
+        print(f"[台架] {line}", flush=True)
+
+    def run(self):
+        try:
+            with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp, \
+                    open(self.stat_path, "w", newline="", encoding="utf-8-sig") as sfp:
+                writer = csv.DictWriter(fp, fieldnames=ATT_CSV_FIELDS)
+                writer.writeheader()
+                stat_writer = csv.DictWriter(sfp, fieldnames=ATT_STAT_FIELDS)
+                stat_writer.writeheader()
+
+                while not self.stop_event.is_set():
+                    data = self.source.read()
+                    if not data:
+                        continue
+                    self._buf += data
+                    # 一行一行处理：串口分块到达时，残行留在缓冲里等下一块
+                    while b"\n" in self._buf:
+                        raw, self._buf = self._buf.split(b"\n", 1)
+                        line = raw.decode("utf-8", "replace").strip()
+                        if line:
+                            self._handle_line(line, writer, stat_writer)
+                    if len(self._buf) > 512:
+                        # 迟迟没有换行：多半是波特率/接线不对，丢掉避免无限增长
+                        self.bad += 1
+                        self._buf = b""
+        except Exception as exc:          # 串口异常：记录下来给界面/控制台
+            self.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            try:
+                self.source.close()
+            except Exception:
+                pass
+
+
 def _nice_bounds(lo, hi):
     """把区间上下界取整到 1/2/2.5/5×10ⁿ 的"好看刻度"上"""
     span = max(hi - lo, 1e-9)
@@ -358,6 +624,11 @@ class SensorWorker(threading.Thread):
               f"超期{fr['miss_win']}(累计{fr['miss_total']}) 丢弃{fr['drop_total']}",
               flush=True)
 
+    def summary_line(self):
+        """无界面模式下的进度摘要（两种采集线程都有这个方法）"""
+        return (f"六轴 {self.frames} 帧  性能 {self.perf_frames} 帧  "
+                f"校验错 {self.bad} 丢帧≈{self.lost}")
+
     def run(self):
         try:
             with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp, \
@@ -414,11 +685,12 @@ class SensorWorker(threading.Thread):
 # 界面：主线程运行，只做"取队列 + 画图"
 # ----------------------------------------------------------------------------
 class SensorMonitor:
-    def __init__(self, worker, csv_path, window=10.0, duration=0):
+    def __init__(self, worker, csv_path, window=10.0, duration=0, mode="sensor"):
         self.worker = worker
         self.csv_path = csv_path
         self.window = window
         self.duration = duration
+        self.mode = mode          # "sensor"=六轴二进制帧；"attitude"=台架文本
 
         self.follow = True          # 是否自动跟随最新数据
         self.fig = None
@@ -456,23 +728,37 @@ class SensorMonitor:
                                            "Noto Sans CJK SC", "DejaVu Sans"]
         plt.rcParams["axes.unicode_minus"] = False
 
-        self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 8))
-        self.fig.canvas.manager.set_window_title("Robin_24G_Car 六轴传感器监视器")
-        self.axes = list(axes)
-
-        titles = ["加速度 (g)", "陀螺原始值 (dps)", "陀螺扣零偏 (dps)"]
-        labels = [("ax", "ay", "az"), ("gx", "gy", "gz"), ("gx-c", "gy-c", "gz-c")]
         colors = ["#d62728", "#2ca02c", "#1f77b4"]
-        for ax_obj, title, lab in zip(self.axes, titles, labels):
+        if self.mode == "attitude":
+            # 姿态模式：一张图 + 三条角度曲线（单位：度）
+            self.fig, ax_obj = plt.subplots(1, 1, figsize=(11, 5))
+            self.fig.canvas.manager.set_window_title(
+                "Robin_24G_Car 姿态监视器（台架固件文本）")
+            self.axes = [ax_obj]
             ax_obj.grid(True, alpha=0.3)
-            ax_obj.set_ylabel(title)
-            lines = [ax_obj.plot([], [], color=c, lw=0.9, label=l)[0]
-                     for c, l in zip(colors, lab)]
-            # 曲线设为 animated：全量重画时不画曲线，背景位图才干净，
-            # 之后每次 blit 只把曲线补上去，不会留残影
+            ax_obj.set_ylabel("角度 (°)")
+            lines = [ax_obj.plot([], [], color=c, lw=1.0, label=l)[0]
+                     for c, l in zip(colors, ("横滚", "俯仰", "相对偏航"))]
             for line in lines:
                 line.set_animated(True)
             self.lines.append(lines)
+        else:
+            self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 8))
+            self.fig.canvas.manager.set_window_title("Robin_24G_Car 六轴传感器监视器")
+            self.axes = list(axes)
+
+            titles = ["加速度 (g)", "陀螺原始值 (dps)", "陀螺扣零偏 (dps)"]
+            labels = [("ax", "ay", "az"), ("gx", "gy", "gz"), ("gx-c", "gy-c", "gz-c")]
+            for ax_obj, title, lab in zip(self.axes, titles, labels):
+                ax_obj.grid(True, alpha=0.3)
+                ax_obj.set_ylabel(title)
+                lines = [ax_obj.plot([], [], color=c, lw=0.9, label=l)[0]
+                         for c, l in zip(colors, lab)]
+                # 曲线设为 animated：全量重画时不画曲线，背景位图才干净，
+                # 之后每次 blit 只把曲线补上去，不会留残影
+                for line in lines:
+                    line.set_animated(True)
+                self.lines.append(lines)
         self.axes[-1].set_xlabel("时间 (s，0 = 当前)")
         for ax_obj in self.axes:
             # 图例放到坐标框上方（框外）：曲线被裁剪在框内，永远不会压到图例，
@@ -553,6 +839,12 @@ class SensorMonitor:
             self.t0 = fr["t_ms"]
         t = (fr["t_ms"] - self.t0) / 1000.0
         self.hist_t.append(t)
+        if self.mode == "attitude":
+            # 文本协议里的 r/p/y 已经是度，直接进三条曲线
+            for arr, val in zip(self.hist, (fr["roll"], fr["pitch"], fr["yaw"])):
+                arr.append(val)
+            self._dirty = True
+            return
         acc = (fr["ax"] / self.worker.acc_scale,
                fr["ay"] / self.worker.acc_scale,
                fr["az"] / self.worker.acc_scale)
@@ -572,7 +864,17 @@ class SensorMonitor:
         self.flags = fr["flags"]
         self._dirty = True
 
+    def _series_pairs(self):
+        """返回 [(数据序列组, 曲线组)]：姿态模式只有一组（三条角度曲线）"""
+        if self.mode == "attitude":
+            return [(self.hist, self.lines[0])]
+        return [(self.hist, self.lines[0]),
+                (self.hist_gyro, self.lines[1]),
+                (self.hist_gyro_c, self.lines[2])]
+
     def _status(self):
+        if self.mode == "attitude":
+            return self._status_attitude()
         if not self.hist_t:
             return (f"等待数据…（六轴 {self.worker.frames} 帧 / 性能 {self.worker.perf_frames} 帧，"
                     f"校验错 {self.worker.bad}）")
@@ -592,6 +894,31 @@ class SensorMonitor:
         msg += " | F 跟随 / Q 退出"
         if self.worker.error:
             msg += f" | 串口错误：{self.worker.error}"
+        return msg
+
+    def _status_attitude(self):
+        """姿态模式状态栏：固件状态 + 最新角度 + 最新 STA 统计"""
+        w = self.worker
+        msg = f"{w.state}"
+        if w.detail:
+            msg += f" {w.detail}"
+        msg += f" | 样本 {w.frames} 条"
+        if self.hist_t:
+            msg += (f" | 最新 横滚 {self.hist[0][-1]:+.2f}° 俯仰 {self.hist[1][-1]:+.2f}°"
+                    f" 相对偏航 {self.hist[2][-1]:+.2f}°")
+        else:
+            msg = "等待姿态数据…（先上电、静置） | " + msg
+        s = w.last_stat
+        if s:
+            msg += (f" | 有效 {s['valid']} 读失败 {s['fail']} 长间断 {s['gap']}"
+                    f" dt {s['dt_min_us']}~{s['dt_max_us']}us"
+                    f" rd {s['rd_avg_us']}/{s['rd_max_us']}us"
+                    f" up {s['up_avg_us']}/{s['up_max_us']}us")
+        else:
+            msg += " | 等待统计…"
+        msg += " | F 跟随 / Q 退出"
+        if w.error:
+            msg += f" | 串口错误：{w.error}"
         return msg
 
     def _refresh(self):
@@ -624,16 +951,14 @@ class SensorMonitor:
         t_min = t_end - self.window
         while self.hist_t and self.hist_t[0] < t_min:
             self.hist_t.popleft()
-            for series in (self.hist, self.hist_gyro, self.hist_gyro_c):
+            for series, _lines in self._series_pairs():
                 for arr in series:
                     arr.popleft()
 
         # x = 相对当前时刻（最新点在 0），配合固定 xlim 实现"数据左移"的滚动
         xs = np.fromiter((t - t_end for t in self.hist_t),
                          dtype=float, count=len(self.hist_t))
-        for series, line_set in ((self.hist, self.lines[0]),
-                                 (self.hist_gyro, self.lines[1]),
-                                 (self.hist_gyro_c, self.lines[2])):
+        for series, line_set in self._series_pairs():
             for arr, line in zip(series, line_set):
                 line.set_data(xs, np.fromiter(arr, dtype=float, count=len(arr)))
 
@@ -660,10 +985,10 @@ class SensorMonitor:
         只有整档变化时才改；返回需要重画的子图下标列表。
         """
         changed = []
-        series = (self.hist, self.hist_gyro, self.hist_gyro_c)
-        for i, ax_obj in enumerate(self.axes):
-            lo = min(min(a) for a in series[i])
-            hi = max(max(a) for a in series[i])
+        for i, (ax_obj, (series, _lines)) in enumerate(
+                zip(self.axes, self._series_pairs())):
+            lo = min(min(a) for a in series)
+            hi = max(max(a) for a in series)
             if hi - lo < 1e-6:
                 hi = lo + 1.0
             margin = (hi - lo) * 0.15
@@ -803,8 +1128,7 @@ def run_no_plot(worker, duration):
             now = time.time()
             if now - last > 2.0:
                 last = now
-                print(f"六轴 {worker.frames} 帧  性能 {worker.perf_frames} 帧  "
-                      f"校验错 {worker.bad} 丢帧≈{worker.lost}", flush=True)
+                print(worker.summary_line(), flush=True)
             if duration and (now - start) >= duration:
                 break
             if worker.error:
@@ -817,7 +1141,67 @@ def run_no_plot(worker, duration):
         worker.join(timeout=2.0)
 
 
+def make_attitude_csv_path(explicit):
+    """姿态模式默认文件名：attitude_年月日_时分秒.csv"""
+    if explicit:
+        return explicit
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"attitude_{stamp}.csv"
+
+
+def make_att_stat_path(explicit, data_csv):
+    """姿态统计 CSV：--stats-csv 指定则用它，否则数据 CSV 名后加 _stats"""
+    if explicit:
+        return explicit
+    base, _ = os.path.splitext(data_csv)
+    return f"{base}_stats.csv"
+
+
+def run_attitude(args):
+    """--attitude：按台架固件的文本协议（ATT/STA）采集与显示"""
+    if args.simulate:
+        source = SimAttitudeSource()
+        port_name = "模拟台架数据源"
+    else:
+        port_name = pick_port(args.port)
+        source = SerialSource(port_name, args.baud)
+
+    csv_path = make_attitude_csv_path(args.csv)
+    stat_path = make_att_stat_path(args.stats_csv, csv_path)
+    sample_queue = queue.Queue(maxsize=2000)
+    worker = AttitudeWorker(source, csv_path, stat_path, sample_queue)
+
+    print(f"数据源：{port_name}（姿态模式，文本协议）")
+    print(f"姿态 CSV：{csv_path}")
+    print(f"统计 CSV：{stat_path}")
+    print("提示：先看 ATT init ok / ATT ready；ATT wait still 表示还在等飞机静止。")
+
+    if args.no_plot:
+        run_no_plot(worker, args.duration)
+        print(f"姿态 CSV：{csv_path}（{worker.frames} 条 ATT）")
+        print(f"统计 CSV：{stat_path}（{worker.perf_frames} 条 STA，"
+              f"无法识别 {worker.bad} 行）")
+        return
+
+    worker.start()
+    monitor = SensorMonitor(worker, csv_path, args.window, args.duration,
+                            mode="attitude")
+    try:
+        monitor.run()
+    except KeyboardInterrupt:
+        print("\n用户中断")
+    finally:
+        worker.stop()
+        worker.join(timeout=2.0)
+    print(f"姿态 CSV：{csv_path}（{worker.frames} 条 ATT）")
+    print(f"统计 CSV：{stat_path}（{worker.perf_frames} 条 STA，"
+          f"无法识别 {worker.bad} 行）")
+
+
 def run(args):
+    if args.attitude:
+        run_attitude(args)
+        return
     if args.simulate:
         source = SimSource()
         port_name = "模拟数据源"
@@ -855,7 +1239,8 @@ def run(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Robin_24G_Car 六轴 + 性能统计串口采集")
+    ap = argparse.ArgumentParser(
+        description="Robin_24G_Car 六轴 / 台架姿态串口监视与记录")
     ap.add_argument("--list", action="store_true", help="列出所有串口后退出")
     ap.add_argument("--port", help="串口号，例如 COM3；不填则自动选择")
     ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
@@ -870,6 +1255,8 @@ def main():
                     help="加速度灵敏度（默认 2048 LSB/g，±16g）")
     ap.add_argument("--gyro-lsb-per-dps", type=float, default=DEFAULT_GYRO_LSB_PER_DPS,
                     help="陀螺灵敏度（默认 16.4 LSB/dps，±2000dps）")
+    ap.add_argument("--attitude", action="store_true",
+                    help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
     args = ap.parse_args()
 
     if args.list:

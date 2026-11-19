@@ -139,6 +139,20 @@ python uart_sensor_monitor.py --port COM12
 
 加 `--no-plot --duration 60 --csv "..\data\monitor.csv"` 可以不画图、定时记录。
 
+### 台架姿态固件（文本协议，--attitude）
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --attitude --duration 120 --csv "..\data\att.csv"
+```
+
+- `--attitude` 按固件的 `ATT ...` / `STA ...` 文本行解析（r/p/y 已经是度），
+  画横滚、俯仰、相对偏航三条曲线，状态栏同时显示最新三个角度与固件状态
+  （ATT init / wait still / ready / 初始化失败）；
+- 状态栏还显示最新一条 STA 的有效帧数、读失败、长间断与 dt/rd/up 耗时；
+- 姿态样本存 `att.csv`，统计存 `att_stats.csv`，两分钟静置验收直接看这两个文件；
+- 不加 `--attitude` 时仍是原来的 0x269A / 0x269B 二进制帧模式，行为和参数不变。
+
 ---
 
 ## 5. 气压计（后续）
