@@ -75,6 +75,32 @@ static att_i32 euler_atan2_deg100(att_i32 y, att_i32 x)
 	return deg / 10;                                        // 0.001° → 0.01°
 }
 
+// 对称舍入的右移：正负都按四舍五入，避免负值向下取整带来的系统性偏置
+static att_i32 euler_round_shift(att_i32 v, att_u8 shift)
+{
+	att_i32 half = (att_i32)1 << (shift - 1);
+
+	if (v >= 0) {
+		return (v + half) >> shift;
+	}
+	return -(((-v) + half) >> shift);
+}
+
+// 带余数的平均：avg = sum/2，余数累积到下一拍，长期没有取整偏置
+//   （直接用 >>1 或四舍五入都会让"0/-1 交替"这类输入产生固定方向漂移）
+static att_i32 euler_avg2(att_i32 *rem, att_i32 sum)
+{
+	att_i32 avg = sum >> 1;         // 向下取整
+	att_i32 r = sum & 1;            // 0 或 1（负数同样是 1）
+
+	*rem += r;
+	if (*rem >= 2) {
+		avg += 1;
+		*rem -= 2;
+	}
+	return avg;
+}
+
 // 四元数归一化
 static att_u8 euler_normalize(att_i32 q[4])
 {
@@ -97,6 +123,25 @@ static att_u8 euler_normalize(att_i32 q[4])
 //********************************************************************
 // 对外接口
 //********************************************************************
+att_i32 Euler_GyroToQ10(att_i32 raw_lsb, att_i32 bias_q6, att_i32 *rem)
+{
+	// 原始计数先放大到 1/64 LSB，与实测零偏同单位相减，精度不会被整数 LSB 截掉
+	att_i32 delta_q6 = (raw_lsb << 6) - bias_q6;
+	att_i32 total;
+	att_i32 q10;
+
+	// 1 LSB = 1024/16.4 × π/180 ≈ 1.08966 (Q10)；
+	// 换到 1/64 LSB 就是 1.08966/64 ≈ 278.95/16384，取 279/16384（误差 0.02%）
+	total = delta_q6 * 279 + *rem;
+
+	// 余数补偿：只取整数部分，小数留到下一拍，零速噪声不会被"总是朝零"的
+	// 移位吃掉，静置偏航因此不会缓慢累积
+	q10 = total / 16384;              // 朝零截断
+	*rem = total - q10 * 16384;       // 余数在 (-16384, 16384)
+
+	return q10;
+}
+
 void Euler_Reset(euler_q_t *m)
 {
 	m->q[0] = ATT_Q15_ONE;          // 单位四元数
@@ -110,6 +155,9 @@ void Euler_Reset(euler_q_t *m)
 	m->dq_rem[1] = 0;
 	m->dq_rem[2] = 0;
 	m->dq_rem[3] = 0;
+	m->trap_rem[0] = 0;
+	m->trap_rem[1] = 0;
+	m->trap_rem[2] = 0;
 	m->have_prev = 0;
 	m->ready = 0;
 	m->t_ms = 0;
@@ -178,6 +226,9 @@ att_u8 Euler_InitFromAccel(euler_q_t *m, const att_i32 acc_mg[3], att_u32 t_ms)
 	m->dq_rem[1] = 0;
 	m->dq_rem[2] = 0;
 	m->dq_rem[3] = 0;
+	m->trap_rem[0] = 0;
+	m->trap_rem[1] = 0;
+	m->trap_rem[2] = 0;
 	m->have_prev = 0;
 	m->ready = 1;
 	m->t_ms = t_ms;
@@ -242,9 +293,10 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 
 	// 梯形积分：相邻两拍角速度取平均
 	if (m->have_prev) {
-		wx = (m->gyro_prev[0] + gyro_q10[0]) >> 1;
-		wy = (m->gyro_prev[1] + gyro_q10[1]) >> 1;
-		wz = (m->gyro_prev[2] + gyro_q10[2]) >> 1;
+		// 相邻两拍取平均：余数累积，避免"0/-1 交替"这类输入的固定漂移
+		wx = euler_avg2(&m->trap_rem[0], m->gyro_prev[0] + gyro_q10[0]);
+		wy = euler_avg2(&m->trap_rem[1], m->gyro_prev[1] + gyro_q10[1]);
+		wz = euler_avg2(&m->trap_rem[2], m->gyro_prev[2] + gyro_q10[2]);
 	} else {
 		wx = gyro_q10[0];
 		wy = gyro_q10[1];
@@ -256,15 +308,21 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	m->gyro_prev[2] = gyro_q10[2];
 
 	// 叠加比例纠正（Q15·Q15 → Q30 → Q10）
-	wx += (att_i32)(((att_i32)kp * ex) >> 20);
-	wy += (att_i32)(((att_i32)kp * ey) >> 20);
-	wz += (att_i32)(((att_i32)kp * ez) >> 20);
+	wx += euler_round_shift(kp * ex, 20);
+	wy += euler_round_shift(kp * ey, 20);
+	wz += euler_round_shift(kp * ez, 20);
 
 	// q̇ = 0.5 × q ⊗ ω（Q24），用更新前的 q
-	t0 = -(((att_i32)q1 * wx) >> 1) - (((att_i32)q2 * wy) >> 1) - (((att_i32)q3 * wz) >> 1);
-	t1 =  (((att_i32)q0 * wx) >> 1) + (((att_i32)q2 * wz) >> 1) - (((att_i32)q3 * wy) >> 1);
-	t2 =  (((att_i32)q0 * wy) >> 1) - (((att_i32)q1 * wz) >> 1) + (((att_i32)q3 * wx) >> 1);
-	t3 =  (((att_i32)q0 * wz) >> 1) + (((att_i32)q1 * wy) >> 1) - (((att_i32)q2 * wx) >> 1);
+	// q 与 ω 相乘后要除以 2：同样用对称舍入，否则负角速度一侧会多积一点，
+	// 方波/往复输入 60 秒后会累积成可见的偏航漂移
+	t0 = -euler_round_shift((att_i32)q1 * wx, 1) - euler_round_shift((att_i32)q2 * wy, 1)
+	     - euler_round_shift((att_i32)q3 * wz, 1);
+	t1 =  euler_round_shift((att_i32)q0 * wx, 1) + euler_round_shift((att_i32)q2 * wz, 1)
+	     - euler_round_shift((att_i32)q3 * wy, 1);
+	t2 =  euler_round_shift((att_i32)q0 * wy, 1) - euler_round_shift((att_i32)q1 * wz, 1)
+	     + euler_round_shift((att_i32)q3 * wx, 1);
+	t3 =  euler_round_shift((att_i32)q0 * wz, 1) + euler_round_shift((att_i32)q1 * wy, 1)
+	     - euler_round_shift((att_i32)q2 * wx, 1);
 
 	// Δq = t × dt / 1.024e7（dt 单位 0.1ms）
 	// 整数除法会截断，余数累计到下一拍，避免缓慢旋转系统性偏慢
@@ -276,7 +334,8 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 		t[0] = t0; t[1] = t1; t[2] = t2; t[3] = t3;
 		qn[0] = q0; qn[1] = q1; qn[2] = q2; qn[3] = q3;
 		for (k = 0; k < 4; k++) {
-			att_i32 num = (t[k] >> 10) * dt_100us;
+			// t 是 Q24，先对称舍入到 Q14 再乘 dt（余数由 dq_rem 补偿）
+			att_i32 num = euler_round_shift(t[k], 10) * dt_100us;
 			att_i32 dq = num / 10000;
 			att_i32 rem = num % 10000;
 

@@ -269,7 +269,8 @@ ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
                    "up_avg_us", "up_max_us",
                    # 400Hz 验收追加（旧固件的 STA 没有这些字段，留空）
-                   "cyc_avg_us", "cyc_max_us", "miss", "skip", "euler_ok"]
+                   "cyc_avg_us", "cyc_max_us", "miss", "skip", "euler_ok",
+                   "z_pre_lsb", "z_post_lsb"]
 
 _ATT_LINE_RE = re.compile(
     r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+r=([+-]?\d+\.\d+)\s+p=([+-]?\d+\.\d+)"
@@ -278,7 +279,8 @@ _ATT_LINE_RE = re.compile(
 _STA_LINE_RE = re.compile(
     r"^STA\s+n=(\d+)\s+f=(\d+)\s+g=(\d+)\s+dt=(\d+)/(\d+)\s+"
     r"rd=(\d+)/(\d+)\s+up=(\d+)/(\d+)"
-    r"(?:\s+cyc=(\d+)/(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+eul=(\d+))?\s*$")
+    r"(?:\s+cyc=(\d+)/(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+eul=(\d+))?"
+    r"(?:\s+zb=([+-]\d+\.\d+)/([+-]\d+\.\d+))?\s*$")
 
 
 def attitude_state_of(line):
@@ -324,7 +326,8 @@ def parse_attitude_line(line):
     m = _STA_LINE_RE.match(line)
     if m:
         # 扩展字段是可选的：缺失时保持 None，界面/CSV 里不显示
-        g = [int(x) if x is not None else None for x in m.groups()]
+        raw = m.groups()
+        g = [int(x) if x is not None else None for x in raw[:14]]
         stat = {
             "valid": g[0], "fail": g[1], "gap": g[2],
             "dt_min_us": g[3], "dt_max_us": g[4],
@@ -339,6 +342,13 @@ def parse_attitude_line(line):
                 "cyc_avg_us": g[9], "cyc_max_us": g[10],
                 "miss": g[11], "skip": g[12], "euler_ok": g[13],
             })
+        # Z 轴扣偏前/后的窗口均值（单位 0.01 LSB），用于静置漂移核对
+        if raw[14] is not None:          # 第 15 组：Z 轴扣偏前均值
+            stat["z_pre_lsb"] = float(raw[14])
+            stat["z_post_lsb"] = float(raw[15])
+        else:
+            stat["z_pre_lsb"] = None
+            stat["z_post_lsb"] = None
         return ("sta", stat)
     if attitude_state_of(line):
         return ("status", line)
@@ -398,7 +408,8 @@ class SimAttitudeSource:
                 valid = self.n_att
                 # 与 400Hz 固件的扩展 STA 一致（含整拍/超期/跳拍/更新次数）
                 self._push(f"STA n={valid} f=0 g=0 dt=2499/2501 "
-                           f"rd=110/130 up=30/42 cyc=620/780 miss=0 skip=0 eul={valid}")
+                           f"rd=110/130 up=30/42 cyc=620/780 miss=0 skip=0 eul={valid} "
+                           f"zb=-1.32/+0.00")
 
     def read(self):
         self._fill()
@@ -488,6 +499,8 @@ class AttitudeWorker(threading.Thread):
                 "miss": "" if payload["miss"] is None else payload["miss"],
                 "skip": "" if payload["skip"] is None else payload["skip"],
                 "euler_ok": "" if payload["euler_ok"] is None else payload["euler_ok"],
+                "z_pre_lsb": "" if payload.get("z_pre_lsb") is None else payload["z_pre_lsb"],
+                "z_post_lsb": "" if payload.get("z_post_lsb") is None else payload["z_post_lsb"],
             })
             line = (f"[统计] 有效{payload['valid']} 读失败{payload['fail']} "
                     f"长间断{payload['gap']} dt {payload['dt_min_us']}~{payload['dt_max_us']}us "
@@ -497,6 +510,8 @@ class AttitudeWorker(threading.Thread):
                 line += (f" 整拍 {payload['cyc_avg_us']}/{payload['cyc_max_us']}us "
                          f"超期{payload['miss']} 跳拍{payload['skip']} "
                          f"姿态更新{payload['euler_ok']}")
+            if payload.get("z_post_lsb") is not None:
+                line += (f" Z轴偏前{payload['z_pre_lsb']:+.2f} 偏后{payload['z_post_lsb']:+.2f}LSB")
             print(line, flush=True)
             return
 
@@ -942,6 +957,8 @@ class SensorMonitor:
             if s["cyc_max_us"] is not None:
                 msg += (f" 整拍 {s['cyc_avg_us']}/{s['cyc_max_us']}us"
                         f" 超期 {s['miss']} 跳拍 {s['skip']} 更新 {s['euler_ok']}")
+            if s.get("z_post_lsb") is not None:
+                msg += f" Z偏前{s['z_pre_lsb']:+.2f}/偏后{s['z_post_lsb']:+.2f}"
         else:
             msg += " | 等待统计…"
         msg += " | F 跟随 / Q 退出"

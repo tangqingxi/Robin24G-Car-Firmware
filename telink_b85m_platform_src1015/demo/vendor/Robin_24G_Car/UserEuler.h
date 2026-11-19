@@ -74,6 +74,7 @@ typedef struct {
 	att_i32 q[4];              // 四元数 w, x, y, z（Q15）
 	att_i32 gyro_prev[3];      // 上一拍角速度（Q10 rad/s），用于梯形积分
 	att_i32 dq_rem[4];         // Δq 整数截断的余数（1/10000 LSB）
+	att_i32 trap_rem[3];       // 梯形平均的余数（1/2 Q10），避免负数取整偏置
 	att_u8  have_prev;         // 是否已有一拍角速度
 	att_u8  ready;             // 姿态是否已就绪
 	att_u32 t_ms;              // 最近一次有效更新时刻（毫秒）
@@ -96,6 +97,13 @@ att_u8 Euler_InitFromAccel(euler_q_t *m, const att_i32 acc_mg[3], att_u32 t_ms);
 // 加速度模长过小时只跳过纠偏，陀螺仍然照常积分
 att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q10[3],
                     att_i32 dt_100us, att_u32 t_ms);
+
+// 陀螺原始计数 → Q10 rad/s（先按 1/64 LSB 扣掉零偏，再乘移）
+//   raw_lsb : 已经映射到 FRD 的原始计数
+//   bias_q6 : 实测零偏，单位 1/64 LSB（例如 -1.1552 LSB → -74）
+//   rem     : 每轴换算余数（调用者保持），把舍入丢掉的小数带到下一拍，
+//             长期平均既不偏正也不偏负；静置时偏航不会一点点漂走
+att_i32 Euler_GyroToQ10(att_i32 raw_lsb, att_i32 bias_q6, att_i32 *rem);
 
 // 启动静止判定：这一拍是否可以计入"连续静止窗口"
 //   acc_mg/gyr_q10 为校准后的值；prev_acc/have_prev 用于检查相邻样本的跳变

@@ -1057,11 +1057,12 @@ void RxdFunction_loop(void)
 // 采集时按这个符号置换直接重排变号，不再做通用矩阵乘法
 static const s32 s_bench_acc_off_lsb[3]     = { -3, -8, -29 };
 static const s32 s_bench_acc_scale_q14[3]   = { 16436, 16429, 16357 };
-static const s32 s_bench_gyro_bias_lsb[3]   = { -1, -3, -1 };
+// 陀螺零偏（机体 FRD，1/64 LSB）：实测 -1.1552 / -2.982 / -1.3231 LSB
+// 保留小数 LSB，换算到 Q10 前扣掉，避免整数截断带来的常值漂移
+static const s32 s_bench_gyro_bias_q6[3]    = { -74, -191, -85 };
 
 #define BENCH_MG_PER_LSB        1000        // 1g = 2048 LSB → mg = lsb*1000/2048
 #define BENCH_LSB_PER_G         2048
-#define BENCH_GYRO_Q10_NUM      17852       // 1.0896 × 16384：LSB → Q10 rad/s 的乘移系数
 
 static u8   s_bench_inited;
 static u32  s_bench_retry_tick;
@@ -1096,6 +1097,14 @@ static struct {
 // 加速度一阶低通系数缓存（Q15）：α 只与 dt 有关，dt 变化超过 50us 才重算
 static att_i32 s_bench_lpf_alpha;
 static u32     s_bench_lpf_alpha_dt_us;
+
+// 陀螺换算余数（每轴），把 Q10 小数部分带到下一拍
+static att_i32 s_bench_gyro_rem[3];
+
+// FRD Z 轴窗口均值（每个 STA 周期清零）：扣偏前用 LSB，扣偏后用 1/64 LSB
+static s32 s_bench_z_pre_sum;
+static s32 s_bench_z_post_sum;
+static u32 s_bench_z_cnt;
 
 // 文本格式化（不用 printf / 浮点）
 static char *bench_put_str(char *p, const char *s)
@@ -1207,6 +1216,12 @@ static void BenchAtt_Init(void)
 	s_bench_stat.euler_ok = 0;
 	s_bench_lpf_alpha = 0;
 	s_bench_lpf_alpha_dt_us = 0;
+	s_bench_z_pre_sum = 0;
+	s_bench_z_post_sum = 0;
+	s_bench_z_cnt = 0;
+	s_bench_gyro_rem[0] = 0;
+	s_bench_gyro_rem[1] = 0;
+	s_bench_gyro_rem[2] = 0;
 
 	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	s_bench_inited = 1;
@@ -1324,10 +1339,15 @@ static void BenchAtt_Process(void)
 		// LSB → mg：1000/2048 = 125/256，用乘移代替整除
 		acc_mg[i] = (lsb * 125) >> 8;
 
-		lsb = gyr_frd[i] - s_bench_gyro_bias_lsb[i];
-		// LSB → Q10 rad/s：1.0896 ≈ 17852/16384，同样用乘移代替整除
-		gyr_q10[i] = (lsb * BENCH_GYRO_Q10_NUM) >> 14;
+		// 陀螺：按 1/64 LSB 扣零偏后换算到 Q10（乘移 + 对称舍入）
+		gyr_q10[i] = Euler_GyroToQ10(gyr_frd[i], s_bench_gyro_bias_q6[i],
+		                             &s_bench_gyro_rem[i]);
 	}
+
+	// FRD Z 轴窗口均值：扣偏前（LSB）与扣偏后（1/64 LSB），供静置漂移核对
+	s_bench_z_pre_sum += gyr_frd[2];
+	s_bench_z_post_sum += (((att_i32)gyr_frd[2] << 6) - s_bench_gyro_bias_q6[2]);
+	s_bench_z_cnt++;
 
 	// ---- 3) 时间差（u32 相减，天然处理回绕）----
 	if (!s_bench_have_ts) {
@@ -1480,6 +1500,26 @@ static void BenchAtt_Process(void)
 		q = bench_put_u32(q, s_bench_stat.skip);
 		q = bench_put_str(q, " eul=");
 		q = bench_put_u32(q, s_bench_stat.euler_ok);
+
+		// FRD Z 轴窗口均值（0.01 LSB）：扣偏前 / 扣偏后，静置时看后者是否接近 0
+		{
+			att_i32 pre_c = 0, post_c = 0;
+
+			if (s_bench_z_cnt) {
+				att_i32 pre_mean = s_bench_z_pre_sum / (att_i32)s_bench_z_cnt;    // LSB
+				att_i32 post_q6  = s_bench_z_post_sum / (att_i32)s_bench_z_cnt;   // 1/64 LSB
+
+				pre_c  = pre_mean * 100;
+				post_c = (post_q6 * 100) / 64;
+				s_bench_z_pre_sum = 0;
+				s_bench_z_post_sum = 0;
+				s_bench_z_cnt = 0;
+			}
+			q = bench_put_str(q, " zb=");
+			q = bench_put_fixed2(q, pre_c);
+			*q++ = '/';
+			q = bench_put_fixed2(q, post_c);
+		}
 		*q++ = '\n';
 		bench_send(buf, (int)(q - buf));
 	}
