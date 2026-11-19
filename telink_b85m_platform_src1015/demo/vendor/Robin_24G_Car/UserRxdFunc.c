@@ -22,6 +22,7 @@
 #include "User_IIC.h"
 #include "UserAdc.h"
 #include "PressSen_Lpc2623.h"
+#include "AttBench.h"        // 台架姿态估计入口（C_ATT_BENCH_EN）
 #include "FlightCtrl.h"
 #include "PerfMeas.h"
 
@@ -136,12 +137,17 @@ void User_hw_init(void)
 	gpio_intput_pullup_10k(IIC_SCL_Pin);
 	iic_pin_init();
 	sleep_ms(10);
+#if (C_ATT_BENCH_EN)
+	// 台架姿态估计：传感器由 AttBench 自己初始化（含陀螺片内低通），
+	// 这里跳过旧陀螺初始化与气压计初始化，避免重复复位和占用 I2C
+#else
 	t3488_gyro_init();
 #if C_FILTER_5_EN
 	t3488_data_filter_init();		// 中值滤波初始化以及处理
 #endif
 	//压力传感器
 	Lpc2623_Init_Seting();
+#endif
 
 	ChangePA3ToSWS();		//SWS, 车体前灯,Low active
 	//SetTestingPin();
@@ -824,9 +830,14 @@ void UserPowOnStart(void)
 	InitalRam();		//初始化用户变量
 //	GetUsb5VinStatus();
 	GetBatteryVoltage();	//测出电源电压
+#if (C_ATT_BENCH_EN)
+	// 台架姿态估计：不初始化旧控制器/混控/气压采样，电机保持停转
+	// （电机引脚在 UserPwmPinInital 里已经设为低电平输出）
+#else
 	User_pwm_init_func();
 	StartPressureSample();
 	FlightCtrl_Init();		//飞行姿态控制初始化（含高度零点）
+#endif
 }
 
 //*****************************************************
@@ -1029,6 +1040,14 @@ void RxdFunction_loop(void)
 void User_main_loop_process(void)
 {
 	wd_32k_feed();
+
+#if (C_ATT_BENCH_EN)
+	// 台架姿态估计入口：只读 T-3488 + 串口文本输出
+	// 不进入旧遥控解码、姿态控制、混控、气压高度等路径（电机保持停转）
+	AttBench_Process();
+	return;
+#endif
+
 	d24_rx_main_loop();
 
 #if (BATT_CHECK_ENABLE)

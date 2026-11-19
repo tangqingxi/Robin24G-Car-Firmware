@@ -89,42 +89,44 @@ void t3488_gyro_read_all(int16_t *accel, int16_t *gyro)
 uint8_t inv_imu_read_reg(uint16_t reg_addr, uint8_t *buf, int len)
 {
 	uint8_t data[2];
+	uint8_t st = 0;
 	/* Write address first */
 	data[0] = (reg_addr & 0xFF00) >> 8;
 	data[1] = reg_addr & 0xFF;
 
     ///spi_master_write_register(0x7c, 2, data);
-	i2c_write_regs_s1(0x7c, data, 2);
+	st |= i2c_write_regs_s1(0x7c, data, 2);
 	WaitUs(4);
 	/* Read all bytes one by one */
 	for (uint32_t i = 0; i < len; i++) {
 		///spi_master_read_register(0x7e, 1, &buf[i]);
-		i2c_read_regs_s1(0x7e, &buf[i], 1);
+		st |= i2c_read_regs_s1(0x7e, &buf[i], 1);
 		WaitUs(4);
 	}
 
-	return 0;
+	return st ? 1 : 0;		// 0:成功 1:失败
 }
 
 uint8_t inv_imu_write_reg(uint16_t reg_addr, uint8_t *buf, int len)
 {
 	uint8_t data[3];
+	uint8_t st = 0;
 	/* First two bytes are the address where we want to write */
 	data[0] = (reg_addr & 0xFF00) >> 8;
 	data[1] = reg_addr & 0xFF;
 	/* 3rd byte is the first data to write*/
 	data[2] = buf[0];
     ///spi_master_write_register(0x7c, 3, data);
-	i2c_write_regs_s1(0x7c, data, 3);
+	st |= i2c_write_regs_s1(0x7c, data, 3);
 
 	 WaitUs(4);
 	/* Read all bytes one by one */
 	for (uint32_t i = 1; i < len; i++) {
 		///spi_master_write_register(0x7e, 1, &buf[i]);
-		i2c_write_regs_s1(0x7e, &buf[i], 1);
+		st |= i2c_write_regs_s1(0x7e, &buf[i], 1);
 	}
 
-	return 0;
+	return st ? 1 : 0;		// 0:成功 1:失败
 }
 
 #define C_T3488_TEST_EN3	0	// 0:normal, 1:testing,
@@ -206,3 +208,76 @@ void t3488_gyro_init2(void)
 // -------------------------------------------------------------------------------------
 // file:"my_t3488.c", ,,,
 
+// =====================================================================================
+// 台架姿态估计用接口
+// =====================================================================================
+
+// 一次连续读 12 字节（SREG_DATA 0x03），小端有符号解析六轴
+// 返回 0 成功、1 失败（I2C 失败时不改动输出数组）
+uint8_t t3488_read_6axis(int16_t *accel, int16_t *gyro)
+{
+	uint8_t buf[12];
+
+	if (i2c_read_regs_s1(T3488_REG_SREG_DATA, buf, 12)) {
+		return 1;
+	}
+
+	accel[0] = (int16_t)(((uint16_t)buf[1] << 8) | buf[0]);
+	accel[1] = (int16_t)(((uint16_t)buf[3] << 8) | buf[2]);
+	accel[2] = (int16_t)(((uint16_t)buf[5] << 8) | buf[4]);
+
+	gyro[0] = (int16_t)(((uint16_t)buf[7] << 8) | buf[6]);
+	gyro[1] = (int16_t)(((uint16_t)buf[9] << 8) | buf[8]);
+	gyro[2] = (int16_t)(((uint16_t)buf[11] << 8) | buf[10]);
+	return 0;
+}
+
+// 台架初始化：WHOAMI → 软复位 → 量程/ODR → 低噪声 → 陀螺片内 UI 低通（写后回读）
+// lpf_sel: 0=ODR/2 1=ODR/4 2=ODR/8 3=ODR/16 4=ODR/32 ...
+// 返回 0 成功；1 找不到器件；2~8 为各步骤失败
+uint8_t t3488_bench_init(uint8_t lpf_sel, uint8_t *lpf_readback)
+{
+	uint8_t i, whoami = 0, val, rb = 0xFF;
+	uint8_t found = 0;
+
+	for (i = 0; i < 50; i++) {
+		if (i2c_read_reg_s1(T3488_REG_WHOAMI, &whoami) == 0 && whoami == T3488_WHOAMI_ID) {
+			found = 1;
+			break;
+		}
+		WaitMs(10);
+	}
+	if (!found) {
+		return 1;
+	}
+
+	if (i2c_write_reg_s1(0x7F, 0x04)) {		// 软复位
+		return 2;
+	}
+	WaitMs(80);
+
+	if (i2c_write_reg_s1(T3488_REG_ACCEL_CONFIG0, 0x15)) {	// ±16g / 800Hz
+		return 3;
+	}
+	if (i2c_write_reg_s1(T3488_REG_GYRO_CONFIG0, 0x15)) {	// ±2000dps / 800Hz
+		return 4;
+	}
+	if (i2c_write_reg_s1(T3488_REG_PWR_MGMT0, 0x0F)) {		// 加计+陀螺 低噪声
+		return 5;
+	}
+
+	// 陀螺片内 UI 低通：IPREG SYS1 偏移 0x09，bit[2:0]
+	val = (uint8_t)(lpf_sel & 0x07);
+	if (inv_imu_write_reg(0xA409, &val, 1)) {
+		return 6;
+	}
+	WaitMs(5);
+	if (inv_imu_read_reg(0xA409, &rb, 1)) {
+		return 7;
+	}
+	*lpf_readback = rb;
+	if (rb != val) {
+		return 8;			// 回读不一致
+	}
+	return 0;
+}

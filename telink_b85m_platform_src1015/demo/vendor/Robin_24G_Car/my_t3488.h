@@ -161,6 +161,10 @@ uint8_t inv_imu_read_reg(uint16_t reg_addr, uint8_t *buf, int len);
 uint8_t inv_imu_write_reg(uint16_t reg_addr, uint8_t *buf, int len);
 void t3488_gyro_init2(void);
 
+// 台架姿态估计用：带 I2C 状态的六轴读取 + 含片内陀螺低通的初始化
+uint8_t t3488_read_6axis(int16_t *accel, int16_t *gyro);
+uint8_t t3488_bench_init(uint8_t lpf_sel, uint8_t *lpf_readback);
+
 
 
 // -------------------------------------------------------------------------------------

@@ -65,7 +65,7 @@ typedef struct{
  unsigned char Reserve[2];
 }uart_rxdata_t;
 
-#define UART_DATA_LEN    48      // ★v24: 252→36（黑匣子读出已删除）。
+#define UART_DATA_LEN    160     // 台架姿态文本约 100 字节；0x269B 帧 44 字节也够用
 									//   调试帧 21B，36B 足够；原 252B 白占 216B 压垮栈
 									//   测量版：性能统计帧 44B，扩到 48B（+12B 静态 RAM）
 typedef struct{
