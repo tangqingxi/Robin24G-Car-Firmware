@@ -392,6 +392,13 @@ python accel_six_face_cal.py --port COM12 --resume "..\data\accel_cal.json" --fa
 - 成功后只替换目标面的记录，其余五面保持原均值/波动/样本数/时长，再用同一公式和
   跨度检查重新求解；输出到新文件（`--out` 省略时自动按时间戳命名，同名不覆盖），
   原 JSON 不动；
+- 加 `--replace` 则**校验通过后直接覆盖 `--resume` 指定的原文件**（与 `--out` 互斥）。
+  校验不通过或中途退出时根本不写文件，原文件保持原样；写入是"先写 .tmp 再改名"的
+  原子操作，不会写坏原文件。确认新结果没问题、不想再留一堆 `_retest` 文件时用它：
+
+  ```powershell
+  python accel_six_face_cal.py --port COM12 --resume "..\data\accel_cal.json" --face=-Z --replace
+  ```
 - 结束时会打印目标面的旧/新均值与标准差，以及受影响轴的旧/新 offset、跨度、scale，
   并列出另外两轴确认未变。注意这些是**拟合用数据**，最终精度仍要用静止斜放姿态验证。
 

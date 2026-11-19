@@ -39,6 +39,9 @@ JSON（格式见 README / 本文件 write_result）：
   # 单面补测：加载已有六面结果，只重采一面，其余五面保留
   python accel_six_face_cal.py --port COM3 --resume ..\data\accel_cal.json \
          --face=-Z --out ..\data\accel_cal_retest.json
+  # 同上，但校验通过后直接覆盖原文件（不再生成新文件）
+  python accel_six_face_cal.py --port COM3 --resume ..\data\accel_cal.json \
+         --face=-Z --replace
   注意负号面要写成 --face=-Z（等号形式），否则 argparse 会把它当成选项。
   这里的面是"UART 原始读数"的面：-Z 表示传感器 az 约为 -1g（本机倒放）。
   FRD 轴映射由 imu_axis_map.py 单独给出，本工具不读取它。
@@ -625,9 +628,12 @@ def write_result(path, cal, build_id=None):
         "aborted_segments": cal.aborted,
         "firmware_build": f"0x{build_id:08X}" if build_id else None,
     }
-    with open(path, "w", encoding="utf-8") as fp:
+    # 原子写：先写临时文件再改名，避免写一半把原文件弄坏（--replace 时尤其重要）
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fp:
         json.dump(data, fp, ensure_ascii=False, indent=2)
         fp.write("\n")
+    os.replace(tmp_path, path)
     return data
 
 
@@ -710,6 +716,11 @@ def run(args):
     if retest != bool(args.face):
         sys.exit("--resume 与 --face 必须同时使用：--resume 指定已有校准文件，"
                  "--face 指定要重采的面（负号面写 --face=-Z）")
+    if args.replace:
+        if not retest:
+            sys.exit("--replace 只能和 --resume/--face 一起使用（单面补测时覆盖原文件）")
+        if args.out:
+            sys.exit("--replace 与 --out 只能二选一：--replace 直接覆盖 --resume 指定的文件")
     old_faces = old_result = None
     preset = None
     target = None
@@ -731,6 +742,8 @@ def run(args):
         print("  2) 电机断开，飞控保持上锁（不要解锁）")
         print(f"  3) 摆到 {target} 面停稳，稳定 {cfg['stable_sec']:.1f}s 后"
               f"采样 {cfg['sample_sec']:.0f}s")
+        if args.replace:
+            print(f"  校验通过后直接覆盖：{os.path.abspath(args.resume)}")
         print("=" * 64)
     else:
         print("=" * 64)
@@ -782,7 +795,10 @@ def run(args):
         return 1
 
     build_id = last_perf["build_id"] if last_perf else None
-    if retest:
+    if retest and args.replace:
+        # 直接覆盖原文件：不做 unique_path，失败时（校验不过/中断）根本走不到这里
+        out_path = args.resume
+    elif retest:
         out_path = unique_path(args.out or
                                f"accel_cal_retest_{datetime.datetime.now():%Y%m%d_%H%M%S}.json")
     else:
@@ -793,9 +809,12 @@ def run(args):
     if retest:
         print_retest_summary(old_faces, cal, old_result, target)
     print_summary(cal, data)
-    print(f"\n校准文件：{os.path.abspath(out_path)}")
-    if retest:
-        print(f"原文件未改动：{os.path.abspath(args.resume)}")
+    if retest and args.replace:
+        print(f"\n已覆盖原校准文件：{os.path.abspath(out_path)}")
+    else:
+        print(f"\n校准文件：{os.path.abspath(out_path)}")
+        if retest:
+            print(f"原文件未改动：{os.path.abspath(args.resume)}")
     print("后续：把 calibration 里的 offset_lsb / scale 写进固件参数加载即可"
           "（本次只交付校准文件，固件接入属于后续任务）。")
     return 0
@@ -813,6 +832,8 @@ def main():
     ap.add_argument("--resume", help="已有六面校准 JSON（单面补测用，需与 --face 同时给出）")
     ap.add_argument("--face",
                     help="要重采的传感器面：+X/-X/+Y/-Y/+Z/-Z；负号面必须写 --face=-Z")
+    ap.add_argument("--replace", action="store_true",
+                    help="单面补测时校验通过后直接覆盖 --resume 指定的文件（与 --out 互斥）")
     args = ap.parse_args()
     sys.exit(run(args))
 
