@@ -65,8 +65,9 @@ typedef struct{
  unsigned char Reserve[2];
 }uart_rxdata_t;
 
-#define UART_DATA_LEN    36      // ★v24: 252→36（黑匣子读出已删除）。
+#define UART_DATA_LEN    48      // ★v24: 252→36（黑匣子读出已删除）。
 									//   调试帧 21B，36B 足够；原 252B 白占 216B 压垮栈
+									//   测量版：性能统计帧 44B，扩到 48B（+12B 静态 RAM）
 typedef struct{
  unsigned int len;        // dma len must be 4 byte
  unsigned char data[UART_DATA_LEN];
@@ -84,6 +85,13 @@ void UartBBSendFlash(unsigned long addr, unsigned char len);	// flash 块直读�
 // bias   ：陀螺零偏（原始 LSB），由上位机自行扣除
 // flags  ：位定义见 FlightCtrl.h（FC_SENSOR_FLAG_*）
 void UartSensorFrameSend(const s16 acc[3], const s16 gyr[3], const s16 bias[3], u8 flags);
+
+//---- 通用"尝试发送"：TX 空闲才写缓冲并启动 DMA，忙则返回 0（不等待）----
+// 供性能统计帧使用：统计发送必须是非阻塞的，且不能打断正在发送的帧。
+u8 UartTrySend(unsigned char *dat, unsigned char len);
+
+// 最近一次启动 UART 发送的 tick：性能统计帧据此错开六轴帧的发送窗口
+extern volatile u32 g_uart_tx_start_tick;
 
 //*******************************************************************
 //*******************************************************************

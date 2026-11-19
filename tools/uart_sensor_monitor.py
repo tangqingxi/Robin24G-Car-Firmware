@@ -41,6 +41,7 @@ import argparse
 import csv
 import datetime
 import math
+import os
 import queue
 import struct
 import sys
@@ -59,8 +60,12 @@ except ImportError:
 # ----------------------------------------------------------------------------
 # 协议常量
 # ----------------------------------------------------------------------------
+# 六轴波形帧 0x26 0x9A（27 字节）
 FRAME_HEAD = b"\x26\x9a"
 FRAME_LEN = 27
+# 性能统计帧 0x26 0x9B（44 字节，字段见固件 PerfMeas.c 文件头）
+PERF_HEAD = b"\x26\x9b"
+PERF_LEN = 44
 
 # 传感器量程（与固件 my_t3488.c 的配置一致：±16g / ±2000dps）
 DEFAULT_ACC_LSB_PER_G = 2048.0
@@ -72,9 +77,10 @@ FLAG_BIAS_APPLIED = 0x02
 FLAG_CALIBRATED = 0x04
 FLAG_ARMED = 0x08
 
-# 界面刷新周期：100ms → 约 10Hz（数据仍按 100Hz 全量接收并写盘）
+# 界面刷新周期：80ms → 约 10Hz（数据仍按 100Hz 全量接收并写盘）
 PLOT_PERIOD_MS = 80
 
+# 六轴 CSV 列
 CSV_FIELDS = [
     "t_ms", "seq",
     "ax_lsb", "ay_lsb", "az_lsb",
@@ -84,6 +90,27 @@ CSV_FIELDS = [
     "gx_dps", "gy_dps", "gz_dps",
     "gx_c_dps", "gy_c_dps", "gz_c_dps",
     "flags",
+]
+
+# 性能统计 CSV 列（窗内值每秒重置，累计值单调递增；单位写进列名）
+PERF_CSV_FIELDS = [
+    "recv_s",           # 采集开始后的秒数（本地）
+    "recv_epoch",       # 本地 Unix 时间戳（s）
+    "seq",              # 统计帧序号（0~255，跳变=漏帧）
+    "build_id",         # 固件构建标识（0xXXXXXXXX）
+    "window_ms",        # 本窗口长度 ms
+    "task_cnt",         # 窗口内控制任务次数
+    "task_avg_us",      # 控制任务平均耗时 us（含中断/等待）
+    "task_max_us",      # 控制任务最大耗时 us
+    "imu_cnt",          # 窗口内 IMU 区间次数
+    "imu_avg_us",       # IMU 读+中值滤波平均耗时 us
+    "imu_max_us",       # IMU 读+中值滤波最大耗时 us
+    "late_max_us",      # 最大启动迟到 us
+    "int_min_us",       # 相邻两轮实际启动间隔最小 us
+    "int_max_us",       # 相邻两轮实际启动间隔最大 us
+    "miss_win",         # 窗口内截止违约次数（>5000us）
+    "miss_total",       # 上电累计截止违约次数
+    "drop_total",       # 统计帧发送丢弃累计次数
 ]
 
 
@@ -155,11 +182,34 @@ class SerialSource:
 
 
 def build_frame(seq, t_ms, ax, ay, az, gx, gy, gz, bx, by, bz, flags):
-    """按固件格式组一个 27 字节帧（自测用）"""
+    """按固件格式组一个 27 字节六轴帧（自测用）"""
     body = bytes([seq & 0xFF]) + t_ms.to_bytes(4, "big") + \
         struct.pack(">hhhhhhhhh", ax, ay, az, gx, gy, gz, bx, by, bz) + \
         bytes([flags])
     return FRAME_HEAD + body + bytes([sum(body) & 0xFF])
+
+
+def build_perf_frame(seq, build_id, window_ms, task_cnt, task_avg, task_max,
+                     imu_cnt, imu_avg, imu_max, late_max,
+                     int_min, int_max, miss_win, miss_total, drop_total):
+    """按固件格式组一个 44 字节性能统计帧（自测用，字段见 PerfMeas.c）"""
+    body = bytes([1, seq & 0xFF]) + \
+        int(build_id).to_bytes(4, "big") + \
+        int(window_ms).to_bytes(2, "big") + \
+        int(task_cnt).to_bytes(2, "big") + \
+        int(task_avg).to_bytes(2, "big") + \
+        int(task_max).to_bytes(4, "big") + \
+        int(imu_cnt).to_bytes(2, "big") + \
+        int(imu_avg).to_bytes(2, "big") + \
+        int(imu_max).to_bytes(4, "big") + \
+        int(late_max).to_bytes(4, "big") + \
+        int(int_min).to_bytes(2, "big") + \
+        int(int_max).to_bytes(2, "big") + \
+        int(miss_win).to_bytes(2, "big") + \
+        int(miss_total).to_bytes(4, "big") + \
+        int(drop_total).to_bytes(2, "big") + \
+        bytes([0])                      # 保留字节
+    return PERF_HEAD + body + bytes([sum(body) & 0xFF])
 
 
 class SimSource:
@@ -173,6 +223,7 @@ class SimSource:
         self.silent = silent          # True 时一帧都不发，用于测试"无数据"时的界面响应
         self.t0 = time.time()
         self.n = 0
+        self.perf_n = 0
         self.t_ms0 = int(time.time() * 1000) & 0xFFFFFFFF
 
     def read(self):
@@ -198,7 +249,31 @@ class SimSource:
                 int((1.0 * np.sin(2 * np.pi * 0.2 * t) + 0.2) * 16.4 + np.random.normal(0, 2)),
                 12, -7, 3, FLAG_FILTERED))
             self.n += 1
+            # 每 100 帧（1 秒）插一帧性能统计，模拟真实固件的 1Hz 统计报文
+            if self.n % 100 == 0:
+                out.append(self._perf_frame())
         return b"".join(out)
+
+    def _perf_frame(self):
+        """造一帧性能统计：数值随窗口轻微抖动，每 7 个窗口出现一次超期"""
+        self.perf_n += 1
+        miss = 1 if (self.perf_n % 7 == 0) else 0
+        return build_perf_frame(
+            seq=self.perf_n % 256,
+            build_id=0x20261119,
+            window_ms=1000,
+            task_cnt=200,
+            task_avg=int(1180 + np.random.normal(0, 25)),
+            task_max=int(2100 + abs(np.random.normal(0, 320))),
+            imu_cnt=200,
+            imu_avg=int(620 + np.random.normal(0, 18)),
+            imu_max=int(900 + abs(np.random.normal(0, 90))),
+            late_max=int(abs(np.random.normal(0, 40))),
+            int_min=int(4990 + np.random.normal(0, 8)),
+            int_max=int(5060 + abs(np.random.normal(0, 30))),
+            miss_win=miss,
+            miss_total=self.perf_n // 7,
+            drop_total=0)
 
     def close(self):
         pass
@@ -208,12 +283,18 @@ class SimSource:
 # 组帧解析
 # ----------------------------------------------------------------------------
 class FrameParser:
-    """字节流 → 六轴帧；校验失败时滑动 1 字节重新同步"""
+    """
+    字节流 → (类型, 帧字典)
+      'sensor' = 0x26 0x9A 六轴帧（27B）
+      'perf'   = 0x26 0x9B 性能统计帧（44B）
+    两类帧可以任意交错；校验失败时滑动 1 字节重新同步。
+    """
 
     def __init__(self):
         self.buf = bytearray()
-        self.good = 0        # 校验通过的帧数
-        self.bad = 0         # 校验失败的帧数
+        self.good = 0        # 六轴帧数
+        self.good_perf = 0   # 性能帧数
+        self.bad = 0         # 校验失败次数（两类合计）
         self.t_ms_wrap = 0   # 设备毫秒计数回绕补偿
         self._last_t = None  # 上一帧的设备毫秒（用于判断回绕）
 
@@ -221,29 +302,41 @@ class FrameParser:
         self.buf += data
         frames = []
         while True:
-            pos = self.buf.find(FRAME_HEAD)
+            pos = self.buf.find(b"\x26")
             if pos < 0:
-                # 没有帧头：只保留最后 1 字节，避免 0x26 被切到下一批数据
-                if len(self.buf) > 1:
-                    del self.buf[:-1]
+                self.buf.clear()            # 没有帧头，全部丢弃
                 break
             if pos > 0:
                 del self.buf[:pos]
-            if len(self.buf) < FRAME_LEN:
+            if len(self.buf) < 2:
+                break
+            kind = self.buf[1]
+            if kind == 0x9A:
+                flen = FRAME_LEN
+            elif kind == 0x9B:
+                flen = PERF_LEN
+            else:
+                del self.buf[0]             # 不是已知帧头，滑一个字节再找
+                continue
+            if len(self.buf) < flen:
                 break
 
-            raw = bytes(self.buf[:FRAME_LEN])
-            if (sum(raw[2:26]) & 0xFF) != raw[26]:
+            raw = bytes(self.buf[:flen])
+            if (sum(raw[2:flen - 1]) & 0xFF) != raw[flen - 1]:
                 self.bad += 1
-                del self.buf[0]          # 不是真帧头，滑一个字节再找
+                del self.buf[0]             # 校验失败：滑一个字节重新同步
                 continue
 
-            del self.buf[:FRAME_LEN]
-            self.good += 1
-            frames.append(self._parse(raw))
+            del self.buf[:flen]
+            if kind == 0x9A:
+                self.good += 1
+                frames.append(("sensor", self._parse_sensor(raw)))
+            else:
+                self.good_perf += 1
+                frames.append(("perf", self._parse_perf(raw)))
         return frames
 
-    def _parse(self, raw):
+    def _parse_sensor(self, raw):
         seq = raw[2]
         t_ms = int.from_bytes(raw[3:7], "big")
 
@@ -261,6 +354,27 @@ class FrameParser:
             "gx": gx, "gy": gy, "gz": gz,
             "bx": bx, "by": by, "bz": bz,
             "flags": raw[25],
+        }
+
+    def _parse_perf(self, raw):
+        """性能统计帧（字段偏移与固件 PerfMeas.c 文件头一致，全部大端）"""
+        return {
+            "ver": raw[2],
+            "seq": raw[3],
+            "build_id": int.from_bytes(raw[4:8], "big"),
+            "window_ms": int.from_bytes(raw[8:10], "big"),
+            "task_cnt": int.from_bytes(raw[10:12], "big"),
+            "task_avg_us": int.from_bytes(raw[12:14], "big"),
+            "task_max_us": int.from_bytes(raw[14:18], "big"),
+            "imu_cnt": int.from_bytes(raw[18:20], "big"),
+            "imu_avg_us": int.from_bytes(raw[20:22], "big"),
+            "imu_max_us": int.from_bytes(raw[22:26], "big"),
+            "late_max_us": int.from_bytes(raw[26:30], "big"),
+            "int_min_us": int.from_bytes(raw[30:32], "big"),
+            "int_max_us": int.from_bytes(raw[32:34], "big"),
+            "miss_win": int.from_bytes(raw[34:36], "big"),
+            "miss_total": int.from_bytes(raw[36:40], "big"),
+            "drop_total": int.from_bytes(raw[40:42], "big"),
         }
 
 
@@ -312,10 +426,11 @@ def frame_to_row(fr, acc_scale, gyro_scale):
 # 采集线程：串口 → 解析 → CSV → 队列（界面只从队列取）
 # ----------------------------------------------------------------------------
 class SensorWorker(threading.Thread):
-    def __init__(self, source, csv_path, frame_queue, acc_scale, gyro_scale):
+    def __init__(self, source, csv_path, perf_path, frame_queue, acc_scale, gyro_scale):
         super().__init__(daemon=True)
         self.source = source
         self.csv_path = csv_path
+        self.perf_path = perf_path
         self.queue = frame_queue
         self.acc_scale = acc_scale
         self.gyro_scale = gyro_scale
@@ -326,22 +441,72 @@ class SensorWorker(threading.Thread):
         self.frames = 0
         self.bad = 0
         self.lost = 0
+        self.perf_frames = 0     # 收到的性能统计帧数
+        self.perf_lost = 0       # 性能帧序号跳变累计
+        self.last_perf = None    # 最近一帧性能统计（界面显示用）
         self.error = ""
+        self.start_wall = time.time()
         self._last_seq = None
+        self._last_perf_seq = None
 
     def stop(self):
         self.stop_event.set()
 
+    def _on_perf(self, fr, pwriter):
+        """性能统计帧：写独立 CSV + 控制台打印一行（1Hz）"""
+        self.perf_frames += 1
+        self.last_perf = fr
+        if self._last_perf_seq is not None:
+            step = (fr["seq"] - self._last_perf_seq) & 0xFF
+            if step != 1:
+                self.perf_lost += (step - 1) & 0xFF
+        self._last_perf_seq = fr["seq"]
+
+        now = time.time()
+        pwriter.writerow({
+            "recv_s": f"{now - self.start_wall:.3f}",
+            "recv_epoch": f"{now:.3f}",
+            "seq": fr["seq"],
+            "build_id": f"0x{fr['build_id']:08X}",
+            "window_ms": fr["window_ms"],
+            "task_cnt": fr["task_cnt"],
+            "task_avg_us": fr["task_avg_us"],
+            "task_max_us": fr["task_max_us"],
+            "imu_cnt": fr["imu_cnt"],
+            "imu_avg_us": fr["imu_avg_us"],
+            "imu_max_us": fr["imu_max_us"],
+            "late_max_us": fr["late_max_us"],
+            "int_min_us": fr["int_min_us"],
+            "int_max_us": fr["int_max_us"],
+            "miss_win": fr["miss_win"],
+            "miss_total": fr["miss_total"],
+            "drop_total": fr["drop_total"],
+        })
+        print(f"[性能] seq={fr['seq']:3d} 窗口{fr['window_ms']}ms "
+              f"任务 平均{fr['task_avg_us']}/最大{fr['task_max_us']}us "
+              f"IMU 平均{fr['imu_avg_us']}/最大{fr['imu_max_us']}us "
+              f"迟到{fr['late_max_us']}us 间隔{fr['int_min_us']}~{fr['int_max_us']}us "
+              f"超期{fr['miss_win']}(累计{fr['miss_total']}) 丢弃{fr['drop_total']}",
+              flush=True)
+
     def run(self):
         try:
-            with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp:
+            with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp, \
+                    open(self.perf_path, "w", newline="", encoding="utf-8-sig") as pfp:
                 writer = csv.DictWriter(fp, fieldnames=CSV_FIELDS)
                 writer.writeheader()
+                pwriter = csv.DictWriter(pfp, fieldnames=PERF_CSV_FIELDS)
+                pwriter.writeheader()
                 while not self.stop_event.is_set():
                     data = self.source.read()
                     if not data:
                         continue
-                    for fr in self.parser.feed(data):
+                    for kind, fr in self.parser.feed(data):
+                        if kind == "perf":
+                            self._on_perf(fr, pwriter)
+                            pfp.flush()          # 1Hz 一帧，直接落盘
+                            continue
+
                         self.frames += 1
                         self.bad = self.parser.bad
                         # 序号连续性统计（只提示，不丢数据）
@@ -363,9 +528,9 @@ class SensorWorker(threading.Thread):
                                     self.queue.get_nowait()
                                 except queue.Empty:
                                     pass
-                    # 约每 200 帧（2 秒）落一次盘，异常退出时最多丢 2 秒
-                    if self.frames and self.frames % 200 == 0:
-                        fp.flush()
+                        # 约每 200 帧（2 秒）落一次盘，异常退出时最多丢 2 秒
+                        if self.frames and self.frames % 200 == 0:
+                            fp.flush()
         except Exception as exc:                  # 串口掉线等：记录后让界面提示
             self.error = str(exc)
         finally:
@@ -540,14 +705,22 @@ class SensorMonitor:
 
     def _status(self):
         if not self.hist_t:
-            return f"等待数据…（已收 {self.worker.frames} 帧，校验错 {self.worker.bad}）"
+            return (f"等待数据…（六轴 {self.worker.frames} 帧 / 性能 {self.worker.perf_frames} 帧，"
+                    f"校验错 {self.worker.bad}）")
         span = self.hist_t[-1] - self.hist_t[max(0, len(self.hist_t) - 101)]
         rate = 100.0 / span if span > 0.01 else 0.0
         state = "跟随开" if self.follow else "跟随关"
         msg = (f"{state} | 帧 {self.worker.frames} 速率≈{rate:.1f}Hz "
                f"校验错 {self.worker.bad} 丢帧≈{self.worker.lost} | "
                f"零偏({self.bias[0]},{self.bias[1]},{self.bias[2]}) "
-               f"{flags_text(self.flags)} | F 跟随 / Q 退出")
+               f"{flags_text(self.flags)}")
+        # 性能统计（每秒一帧，取最近一帧显示）
+        perf = self.worker.last_perf
+        if perf:
+            msg += (f" | 任务 {perf['task_avg_us']}/{perf['task_max_us']}us "
+                    f"IMU {perf['imu_avg_us']}/{perf['imu_max_us']}us "
+                    f"迟到{perf['late_max_us']}us 超期{perf['miss_total']}")
+        msg += " | F 跟随 / Q 退出"
         if self.worker.error:
             msg += f" | 串口错误：{self.worker.error}"
         return msg
@@ -739,6 +912,17 @@ def make_csv_path(explicit):
     return f"uart_sensor_{stamp}.csv"
 
 
+def make_perf_csv_path(explicit, data_csv):
+    """
+    性能统计 CSV 路径：
+      --stats-csv 指定则用它；否则跟数据 CSV 同目录同名，加 _perf 后缀。
+    """
+    if explicit:
+        return explicit
+    base, _ = os.path.splitext(data_csv)
+    return f"{base}_perf.csv"
+
+
 def run_no_plot(worker, duration):
     """无界面模式：只采集 + 写 CSV"""
     worker.start()
@@ -750,7 +934,8 @@ def run_no_plot(worker, duration):
             now = time.time()
             if now - last > 2.0:
                 last = now
-                print(f"帧 {worker.frames} 校验错 {worker.bad} 丢帧≈{worker.lost}", flush=True)
+                print(f"六轴 {worker.frames} 帧  性能 {worker.perf_frames} 帧  "
+                      f"校验错 {worker.bad} 丢帧≈{worker.lost}", flush=True)
             if duration and (now - start) >= duration:
                 break
             if worker.error:
@@ -772,14 +957,19 @@ def run(args):
         source = SerialSource(port_name, args.baud)
 
     csv_path = make_csv_path(args.csv)
+    perf_path = make_perf_csv_path(args.stats_csv, csv_path)
     frame_queue = queue.Queue(maxsize=2000)
-    worker = SensorWorker(source, csv_path, frame_queue,
+    worker = SensorWorker(source, csv_path, perf_path, frame_queue,
                           args.acc_lsb_per_g, args.gyro_lsb_per_dps)
-    print(f"数据源：{port_name}    保存：{csv_path}")
+    print(f"数据源：{port_name}")
+    print(f"六轴 CSV：{csv_path}")
+    print(f"性能 CSV：{perf_path}")
+    print("提示：性能帧约 1Hz，收到时控制台会打印 [性能] 一行；没有该行说明没收到统计报文。")
 
     if args.no_plot:
         run_no_plot(worker, args.duration)
-        print(f"CSV 已保存：{csv_path}（帧 {worker.frames}，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+        print(f"六轴 CSV：{csv_path}（{worker.frames} 帧，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+        print(f"性能 CSV：{perf_path}（{worker.perf_frames} 帧，序号跳变≈{worker.perf_lost}）")
         return
 
     worker.start()
@@ -791,15 +981,17 @@ def run(args):
     finally:
         worker.stop()
         worker.join(timeout=2.0)
-    print(f"CSV 已保存：{csv_path}（帧 {worker.frames}，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+    print(f"六轴 CSV：{csv_path}（{worker.frames} 帧，校验错 {worker.bad}，丢帧≈{worker.lost}）")
+    print(f"性能 CSV：{perf_path}（{worker.perf_frames} 帧，序号跳变≈{worker.perf_lost}）")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Robin_24G_Car 六轴传感器串口监视器")
+    ap = argparse.ArgumentParser(description="Robin_24G_Car 六轴 + 性能统计串口采集")
     ap.add_argument("--list", action="store_true", help="列出所有串口后退出")
     ap.add_argument("--port", help="串口号，例如 COM3；不填则自动选择")
     ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
-    ap.add_argument("--csv", help="CSV 保存路径；默认按时间戳生成")
+    ap.add_argument("--csv", help="六轴 CSV 保存路径；默认按时间戳生成")
+    ap.add_argument("--stats-csv", help="性能统计 CSV 路径；默认在六轴 CSV 名后加 _perf")
     ap.add_argument("--window", type=float, default=10.0, help="曲线显示窗口秒数（默认 10s）")
     ap.add_argument("--no-plot", action="store_true", help="不画图，只写 CSV")
     ap.add_argument("--duration", type=float, default=0, help="采集时长秒，0=一直采")

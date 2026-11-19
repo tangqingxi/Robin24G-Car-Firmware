@@ -23,6 +23,7 @@
 #include "UserAdc.h"
 #include "PressSen_Lpc2623.h"
 #include "FlightCtrl.h"
+#include "PerfMeas.h"
 
 //*************************************************************************
 #if Project_XH261009_Rxd
@@ -924,7 +925,17 @@ void FlightCtrlSchedule(void)
 	{
 		u32_FlightCtrlTick += ((u32)FC_CTRL_DT_MS) * 1000 * CLOCK_SYS_CLOCK_1US;
 		//gpio_write(Testing_Pin, 1);
+#if (PERF_MEAS_EN)
+		// 计时：planned = 本轮计划启动 tick；实际启动/返回在 PerfMeas 内部取
+		{
+			static perf_tick_t s_perf_tick;
+			PerfMeas_TaskBegin(&s_perf_tick, u32_FlightCtrlTick);
+			FlightCtrl_Tick();
+			PerfMeas_TaskEnd(&s_perf_tick);
+		}
+#else
 		FlightCtrl_Tick();
+#endif
 		//gpio_write(Testing_Pin, 0);
 	}
 }
@@ -1033,6 +1044,10 @@ void User_main_loop_process(void)
 	RxdFunction_loop();
 	PressureSampleTick();
 
+#if (PERF_MEAS_EN)
+	// 性能统计帧：约 1S 一帧，尝试发送（TX 忙则丢弃计数），不等待、不 printf
+	PerfMeas_Poll();
+#endif
 }
 
 //*******************************************************************

@@ -29,6 +29,7 @@
 #include "User_IIC.h"
 #include "UserPwm.h"
 #include "UserUart.h"
+#include "PerfMeas.h"				// 计时统计（PERF_MEAS_EN=0 时为空）
 #include "driver.h"					// ★v25: flash_read_page/flash_write_page（黑匣子）
 #include "UserRxdFunc.h"
 #include "PressSen_Lpc2623.h"
@@ -1236,7 +1237,16 @@ void FlightCtrl_Tick(void)
 	// ① 传感器采集 + 姿态解算
 	//--------------------------------------------------------------------------
 #if C_FILTER_5_EN
+#if (PERF_MEAS_EN)
+	// 测量区间：IIC 读 6 轴 + 5 点中值滤波（不含姿态解算）
+	{
+		u32 perf_imu_t0 = clock_time();
+		t3488_data_filter_handler(accel, gyro);			// IIC读6轴 + 中值滤波
+		PerfMeas_ImuAdd(clock_time() - perf_imu_t0);
+	}
+#else
 	t3488_data_filter_handler(accel, gyro);			// IIC读6轴 + 中值滤波
+#endif
 #endif
 	update_euler_dt(accel, gyro, FC_CTRL_DT_MS);	// 姿态解算（随控制周期自适应）
 	ConvertT3488ParaToS16();						// → s16Roll/s16Pitch/s16Yaw (0.01°)

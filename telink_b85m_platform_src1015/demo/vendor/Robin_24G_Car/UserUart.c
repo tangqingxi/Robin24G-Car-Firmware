@@ -40,6 +40,7 @@ volatile unsigned char uart_dmairq_err_cnt;
 volatile unsigned char uart_dma_send_flag = 0;
 volatile unsigned char uart_Rcv_New=0;
 volatile unsigned char uart_send_end = 1;	// =1 视为空闲，允许立即启动发送（TX_DONE 中断再置 1）
+volatile u32 g_uart_tx_start_tick;			// 最近一次启动发送的 tick（性能统计帧据此错开）
 
 //__attribute__((aligned(4))) uart_data_t Utrans_buff;
 
@@ -171,7 +172,27 @@ void UartDbgSend(unsigned char *dat, unsigned char len)
 	for(i = 0; i < len; i++) T_txdata_user.data[i] = dat[i];
 	T_txdata_user.len = len;
 	uart_send_end = 0;
+	g_uart_tx_start_tick = clock_time();	// 记录发送起点，供统计帧错开
 	uart_send_dma(UART0, (unsigned char *)&T_txdata_user);
+}
+
+//********************************************************************
+// 通用"尝试发送"：只在 TX 空闲时写缓冲并启动 DMA，忙则立即返回 0。
+//	用途：性能统计帧（每秒一帧）。统计发送必须非阻塞，否则会拖慢主循环
+//	或打断正在发送的六轴帧；丢弃次数由调用方累计。
+//********************************************************************
+u8 UartTrySend(unsigned char *dat, unsigned char len)
+{
+	unsigned char i;
+
+	if(len > UART_DATA_LEN) return 0;		// 超过实际缓冲区长度：丢弃
+	if(!uart_send_end) return 0;			// 上一帧还在发：丢弃本帧
+
+	for(i = 0; i < len; i++) T_txdata_user.data[i] = dat[i];
+	T_txdata_user.len = len;
+	uart_send_end = 0;
+	uart_send_dma(UART0, (unsigned char *)&T_txdata_user);
+	return 1;
 }
 
 //********************************************************************
