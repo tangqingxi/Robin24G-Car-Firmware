@@ -13,3 +13,6 @@ Desktop.ini
 **/build_log.txt
 **/CMakeCache.txt
 **/CMakeFiles/
+
+# 忽略采集数据（CSV 体积大，按需另行归档）
+data/

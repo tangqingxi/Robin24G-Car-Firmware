@@ -255,7 +255,7 @@
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
-				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476" name="Robin_24G_Car_Flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="&quot;${workspace_loc:/${ProjName}}/../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot;   ${ConfigName}   ${ProjName}" preannouncebuildStep="" prebuildStep="">
+				<configuration artifactName="${ProjName}" buildArtefactType="com.telink.tc32eclipse.buildArtefactType.app" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=com.telink.tc32eclipse.buildArtefactType.app,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug" description="" errorParsers="org.eclipse.cdt.core.GASErrorParser;org.eclipse.cdt.core.GLDErrorParser;org.eclipse.cdt.core.MakeErrorParser;org.eclipse.cdt.core.GCCErrorParser" id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476" name="Robin_24G_Car_Flash" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.enablement=null,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.image=null,org.eclipse.cdt.docker.launcher.containerbuild.property.connection=null" parent="com.telink.tc32eclipse.configuration.app.debug" postannouncebuildStep="" postbuildStep="sh &quot;../../../../tools/tl_check_fw_tool/tl_check_fw.sh&quot; &quot;${ConfigName}&quot; &quot;${ProjName}&quot;" preannouncebuildStep="" prebuildStep="">
 					<folderInfo id="com.telink.tc32eclipse.configuration.app.debug.1970299845.351063629.799040038.948171501.573779185.407916476." name="/" resourcePath="">
 						<toolChain errorParsers="" id="com.telink.tc32eclipse.toolchain.TC32Win.app.debug.921636394" name="TC32-GCC Toolchain" superClass="com.telink.tc32eclipse.toolchain.TC32Win.app.debug">
 							<option id="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug.863800557" name="Generate binary file for Flash memory" superClass="com.telink.tc32eclipse.toolchain.options.toolchain.objcopy.flash.app.debug" useByScannerDiscovery="false"/>
@@ -267,8 +267,8 @@
 								<option id="com.telink.tc32eclipse.assembler.option.debug.level.2125438175" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.assembler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.assembler.option.debug.level.none" valueType="enumerated"/>
 								<option id="com.telink.tc32eclipse.asm.option.flags.128313150" name="Other GCC Flags" superClass="com.telink.tc32eclipse.asm.option.flags" useByScannerDiscovery="false" value="-DMCU_STARTUP_FLASH_APP  -DMCU_CORE_TC122X=1  -DFPGA=0  -DFW_BOOT_ADDR_NON_ZERO=1" valueType="string"/>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.asm.option.include.paths.721005580" name="#include paths for preprocessor(-I)" superClass="com.telink.tc32eclipse.asm.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+									<listOptionValue builtIn="false" value="../../../../chip/tc122x/drivers"/>
+									<listOptionValue builtIn="false" value="../../../../common"/>
 								</option>
 								<option id="com.telink.tc32eclipse.asm.option.include.gaspaths.378057821" name=".include paths for assembler(-Wa,-I)" superClass="com.telink.tc32eclipse.asm.option.include.gaspaths" useByScannerDiscovery="false"/>
 								<inputType id="com.telink.tc32eclipse.tool.assembler.input.985640885" superClass="com.telink.tc32eclipse.tool.assembler.input"/>
@@ -277,12 +277,12 @@
 								<option id="com.telink.tc32eclipse.compiler.option.debug.level.1743760139" name="Generate Debugging Info" superClass="com.telink.tc32eclipse.compiler.option.debug.level" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.option.debug.level.none" valueType="enumerated"/>
 								<option id="com.telink.tc32eclipse.compiler.option.optimize.1594773226" name="Optimization Level" superClass="com.telink.tc32eclipse.compiler.option.optimize" useByScannerDiscovery="false" value="com.telink.tc32eclipse.compiler.optimize.two" valueType="enumerated"/>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.incpath.30577389" name="Include Paths (-I)" superClass="com.telink.tc32eclipse.compiler.option.incpath" useByScannerDiscovery="false" valueType="includePath">
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/toy_common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common/calibration}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/common}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/vendor/Robin_24G_Car}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/common}&quot;"/>
+									<listOptionValue builtIn="false" value="../../../../chip/tc122x/drivers"/>
+									<listOptionValue builtIn="false" value="../../../../demo/vendor/toy_common"/>
+									<listOptionValue builtIn="false" value="../../../../demo/vendor/common/tc122x/calibration"/>
+									<listOptionValue builtIn="false" value="../../../../demo/vendor/common/common"/>
+									<listOptionValue builtIn="false" value="../../../../demo/vendor/Robin_24G_Car"/>
+									<listOptionValue builtIn="false" value="../../../../common"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.compiler.option.def.2055317230" name="Define Syms (-D)" superClass="com.telink.tc32eclipse.compiler.option.def" useByScannerDiscovery="false" valueType="definedSymbols">
 									<listOptionValue builtIn="false" value="MCU_CORE_TC122X=1"/>
@@ -300,7 +300,7 @@
 							</tool>
 							<tool command="tc32-elf-ld --gc-sections" commandLinePattern="${COMMAND} ${FLAGS} ${OUTPUT_FLAG}${OUTPUT_PREFIX}${OUTPUT} ${INPUTS}" errorParsers="org.eclipse.cdt.core.GLDErrorParser" id="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug.1352249152" name="TC32 C Linker" superClass="com.telink.tc32eclipse.tool.linker.TC32Win.app.debug">
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libpath.1492569048" name="Libraries Path (-L)" superClass="com.telink.tc32eclipse.linker.option.libpath" useByScannerDiscovery="false" valueType="stringList">
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/drivers/lib}&quot;"/>
+									<listOptionValue builtIn="false" value="../../../../chip/tc122x/drivers/lib"/>
 								</option>
 								<option IS_BUILTIN_EMPTY="false" IS_VALUE_EMPTY="false" id="com.telink.tc32eclipse.linker.option.libs.1616536413" name="Libraries (-l)" superClass="com.telink.tc32eclipse.linker.option.libs" useByScannerDiscovery="false" valueType="libs">
 									<listOptionValue builtIn="false" value="driver_tc122x_flash"/>

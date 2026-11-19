@@ -1,1 +1,0 @@
-telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car
