@@ -10,7 +10,8 @@
 | `uart_sensor_monitor.py` | 实时曲线 + 六轴 CSV + 性能统计 CSV（0x269A / 0x269B） |
 | `accel_six_face_cal.py` | **加速度计六面校准**（命令行交互，见第 8 节） |
 | `imu_axis_map.py` | **传感器轴 → 机体系 FRD 映射确认**（见第 9 节） |
-| `uart_proto.py` | 两种帧的解析/组帧（无绘图依赖，三个工具共用） |
+| `gyro_bias_cal.py` | **陀螺仪静止零偏标定**（见第 10 节） |
+| `uart_proto.py` | 两种帧的解析/组帧（无绘图依赖，四个工具共用） |
 
 ---
 
@@ -499,3 +500,99 @@ Z_frd = +Z_sensor
 - `det = -1` 说明某次摆法或读数有误（真实安装一定是右手系），按提示全部重采；
 - 与零偏/比例的关系：先用本工具定轴映射，再用 `accel_six_face_cal.py` 定零偏与比例，
   最后按 `v_frd = R × ((raw - offset) * scale)` 使用（两者顺序可交换，都是线性变换）。
+
+---
+
+## 10. 陀螺仪静止零偏标定（gyro_bias_cal.py）
+
+### 10.1 做什么
+
+飞机放在桌上静止不动，测陀螺仪三轴零偏（bias），按机体 **FRD** 坐标系保存。
+结果供固件后续做"映射 → 扣零偏 → 转 rad/s"。
+
+- 只读 `data/imu_axis_map_frd.json`（传感器 → FRD 映射），单独输出
+  `data/gyro_bias_frd.json`，不碰加速度计校准和轴映射文件；
+- 只用 0x269A 里**未扣偏**的 `gx/gy/gz`（s16，±2000 dps，16.4 LSB/dps）；
+  旧固件上报的 `bx/by/bz` 不参与求解；
+- `flags` 的 **ARMED(0x08)** 或 **BIAS_APPLIED(0x02)** 置位时，整段作废重采。
+
+### 10.2 命令
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python gyro_bias_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.json" --out "..\data\gyro_bias_frd.json"
+```
+
+- `--port` 改成本机串口（`--list` 先看）；
+- `--axis-map` 省略时默认 `../data/imu_axis_map_frd.json`；`--out` 省略时默认
+  `../data/gyro_bias_frd.json`，**同名不覆盖**（自动加 `_1`）；
+- 台架要求：**断开电机、关闭遥控器**，飞机放桌上松手；可以稍微倾斜，只要不动。
+
+### 10.3 流程与阈值
+
+按 Enter 开始后：先确认**连续静止 3 s** → 采 **15 s** 求三轴均值（拟合段）→
+另采 **10 s** 复核（复核段只算扣偏后的残余均值和标准差）。两段分别计帧数。
+
+阈值都在文件顶部 `CONFIG`（括号里是 bench_A 实测的参考值）：
+
+| 键 | 默认 | 含义 |
+|---|---|---|
+| `stable_sec` / `fit_sec` / `review_sec` | 3 / 15 / 10 s | 判稳、拟合、复核时长 |
+| `gyro_std_max_dps` | 0.5 dps | 段内三轴标准差上限（实测 0.05） |
+| `gyro_jump_max_dps` | 1.5 dps | 相邻帧变化上限，抓突然抖动（实测峰峰 0.6） |
+| `gyro_abs_max_dps` | 10 dps | 单轴绝对值上限，**要允许正常的待测零偏** |
+| `acc_std_max_g` | 0.03 g | 加速度标准差上限（辅助判断晃动） |
+| `max_gap_s` | 0.10 s | 相邻帧最大间隔，超过算明显间断 |
+| `review_mean_max_dps` | 0.30 dps | 复核残余均值上限（≈5 LSB） |
+| `review_std_max_dps` | 0.20 dps | 复核残余标准差上限 |
+
+晃动、丢帧、序号跳变、时间戳异常、解锁、已扣偏帧 → 中文提示原因并重采该段
+（拟合段退回判稳，复核段重采复核）。
+
+### 10.4 输出 JSON
+
+```json
+{
+  "format": "robin24g_gyro_bias_frd",
+  "version": 1,
+  "sensor": {"model": "T-3488", "gyro_range_dps": 2000, "gyro_lsb_per_dps": 16.4},
+  "target_frame": {"name": "FRD", "x": "forward", "y": "right", "z": "down"},
+  "axis_map": {"source": "...imu_axis_map_frd.json",
+               "matrix_sensor_to_frd": [[1,0,0],[0,-1,0],[0,0,-1]]},
+  "bias_frd_lsb": [5.01, 3.03, -6.97],
+  "bias_frd_dps": [0.306, 0.185, -0.425],
+  "segments": {
+    "fit":    {"frames": 1501, "duration_s": 15.0, "mean_lsb": [...], "std_lsb": [...]},
+    "review": {"frames": 1001, "duration_s": 10.0, "residual_lsb": [...], "std_lsb": [...]}
+  },
+  "checks": {"rejected_armed": 0, "rejected_bias_applied": 0, "segment_restarts": 0, ...},
+  "notes": ["..."]
+}
+```
+
+复核不通过时**不写文件**，只打印每轴残差，已有的结果文件保持原样。
+
+### 10.5 固件后续接入公式
+
+```c
+/* 1) 传感器 → FRD（用 axis_map 的矩阵 R，元素只有 0/±1） */
+gyro_frd[0] =  R[0][0]*gx + R[0][1]*gy + R[0][2]*gz;
+gyro_frd[1] =  R[1][0]*gx + R[1][1]*gy + R[1][2]*gz;
+gyro_frd[2] =  R[2][0]*gx + R[2][1]*gy + R[2][2]*gz;
+
+/* 2) 扣一次零偏（bias_frd_lsb） */
+gyro_lsb[0] = gyro_frd[0] - bias_x;   /* 同理 y、z */
+
+/* 3) 换成 rad/s：1 LSB = 1/16.4 dps = (1/16.4)*(π/180) rad/s ≈ 0.0010641 */
+omega_rad_s[0] = gyro_lsb[0] * 0.0010641f;
+```
+
+顺序不能颠倒：**先映射到 FRD，再扣 FRD 下的零偏**（映射本身是正交的，但零偏必须在
+FRD 里表达）。若想先在传感器系扣偏，则应扣 `R⁻¹ × bias_frd`，不建议。
+
+### 10.6 注意
+
+- 这是**当前上电、当前温度**下的静止零偏；换电池/温差大/重新上电后应重测；
+- 工具只接收，不向飞机发送任何指令；
+- 复核段是"同一状态下的再次测量"，不等于长期稳定性；需要更严的结论时，
+  可隔几分钟再跑一次对比 `bias_frd_lsb`。
