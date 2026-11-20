@@ -1094,7 +1094,7 @@ static struct {
 	u32 euler_ok;                      // Euler_Update 成功次数
 } s_bench_stat;
 
-// 分项计时：按这一拍实际做了哪些文本格式化分类
+// 分项计时：从姿态就绪开始统计 30 秒，按这一拍实际做了哪些文本格式化分类
 //   0=普通拍（没有输出） 1=只处理 ATT 2=只处理 STA 3=ATT 和 STA 都处理
 //   发送因串口忙被丢弃的拍也算"处理过"，因为格式化和提交都真的执行了
 static struct {
@@ -1104,69 +1104,42 @@ static struct {
 } s_bench_cat;
 static const char *s_bench_cat_name[4] = { " c0=", " c1=", " c2=", " c3=" };
 
-// 分项快照：STA 那拍把分项统计存成快照，等 UART 空闲、且离下一拍还有余量时
-// 才生成 STA2 并发送；发送失败（忙）就保留快照，下次再试
+// STA 单项耗时：从开始生成 STA 文本到尝试提交 DMA，窗口内累计
+static u32 s_bench_sta_cnt;
+static u32 s_bench_sta_sum_us;
+static u16 s_bench_sta_max_us;
+
+// 30 秒测量窗口：姿态就绪后开始累计；时间到就冻结快照，之后挑一个普通 STA
+// 时隙用 STA2 顶替一次 STA；UART 忙就保留快照，下个时隙再试
+#define C_ATT_CAT_WINDOW_MS   30000u
+
+#define BENCH_CAT_IDLE        0        // 还没就绪，不统计
+#define BENCH_CAT_MEASURING   1        // 正在统计
+#define BENCH_CAT_FROZEN      2        // 已冻结，等待 STA2 时隙
+#define BENCH_CAT_DONE        3        // STA2 已经发出，不再重复
+
+static u8  s_bench_cat_state;
+static u32 s_bench_cat_start_ms;       // 窗口起点（毫秒）
+
+// STA2 时隙发送后的状态迁移：发送成功 -> DONE（不再重复）；
+// UART 忙 -> 保持 FROZEN，下个 STA 时隙再试
+static u8 bench_cat_after_send(u8 state, u8 sent_ok)
+{
+	if (state != BENCH_CAT_FROZEN) {
+		return state;
+	}
+	return sent_ok ? BENCH_CAT_DONE : BENCH_CAT_FROZEN;
+}
+
+// 冻结后的分项快照（每次上电只做一轮 30 秒）
 static struct {
-	u8  pending;
 	u32 cnt[4];
 	u32 over[4];
 	u16 max_us[4];
 	u32 sta_cnt;
 	u32 sta_sum_us;
 	u16 sta_max_us;
-	u32 t_tick;              // 快照生成时刻的原始 tick，用来算排队时长
 } s_bench_cat_snap;
-
-// 上一次 STA2 发送的诊断值：写入这一行要等下一次发送才知道，所以显示"上一回"
-static u16 s_bench_cat_diag_us;       // 生成 + 提交 DMA 的耗时
-static u16 s_bench_cat_diag_margin_us; // 发送完成时距下一拍的余量
-static u16 s_bench_cat_diag_lat_ms;   // 快照排队等待时长
-
-// STA 单独计时：从开始生成 STA 文本到尝试提交 DMA
-static u32 s_bench_sta_cnt;
-static u32 s_bench_sta_sum_us;
-static u16 s_bench_sta_max_us;
-
-// 距离下一拍至少留这么多时钟（半格采样周期 ≈1.25ms）才发 STA2，
-// 保证诊断输出不会把下一拍的读取挤晚
-#define BENCH_CAT_SEND_MARGIN_TICKS   (BENCH_SAMPLE_TICKS / 2)
-
-// 距下次采样的余量（微秒）
-//   入参是"下次采样 tick - 当前 tick"的有符号差：
-//   已经到点或超期时 left_ticks <= 0，直接给 0，绝不把回绕后的巨大无符号值报成余量
-static u16 bench_cat_margin_us(s32 left_ticks)
-{
-	if (left_ticks <= 0) {
-		return 0;
-	}
-	return (u16)((u32)left_ticks / BENCH_TICKS_PER_US);
-}
-
-// 快照排队时长（毫秒）
-//   入参是"当前 tick - 快照 tick"的原始无符号差，32 位相减天然处理回绕，
-//   再换算成毫秒；超过 u16 上限时截断，避免溢出翻转
-static u16 bench_cat_latency_ms(u32 lat_ticks)
-{
-	u32 ms = lat_ticks / BENCH_TICKS_PER_MS;
-
-	return (ms > 0xFFFFu) ? 0xFFFFu : (u16)ms;
-}
-
-// 现在能不能发分项快照：有待发快照、串口空闲、且离下一拍还有余量
-// 返回 0 = 继续等（快照保留），1 = 可以生成并发送
-static u8 bench_cat_can_send(u8 pending, u8 uart_idle, u32 remain_ticks)
-{
-	if (!pending) {
-		return 0;
-	}
-	if (!uart_idle) {
-		return 0;
-	}
-	if (remain_ticks < BENCH_CAT_SEND_MARGIN_TICKS) {
-		return 0;
-	}
-	return 1;
-}
 
 // 加速度一阶低通系数缓存（Q15）：α 只与 dt 有关，dt 变化超过 50us 才重算
 static att_i32 s_bench_lpf_alpha;
@@ -1308,20 +1281,24 @@ static void BenchAtt_Init(void)
 	s_bench_gyro_rem[2] = 0;
 	{
 		u8 k;
+
 		for (k = 0; k < 4; k++) {
 			s_bench_cat.cnt[k] = 0;
 			s_bench_cat.over[k] = 0;
 			s_bench_cat.max_us[k] = 0;
+			s_bench_cat_snap.cnt[k] = 0;
+			s_bench_cat_snap.over[k] = 0;
+			s_bench_cat_snap.max_us[k] = 0;
 		}
 	}
 	s_bench_sta_cnt = 0;
 	s_bench_sta_sum_us = 0;
 	s_bench_sta_max_us = 0;
-	s_bench_cat_snap.pending = 0;
-	s_bench_cat_snap.t_tick = 0;
-	s_bench_cat_diag_us = 0;
-	s_bench_cat_diag_margin_us = 0;
-	s_bench_cat_diag_lat_ms = 0;
+	s_bench_cat_snap.sta_cnt = 0;
+	s_bench_cat_snap.sta_sum_us = 0;
+	s_bench_cat_snap.sta_max_us = 0;
+	s_bench_cat_state = BENCH_CAT_IDLE;
+	s_bench_cat_start_ms = 0;
 
 	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	s_bench_inited = 1;
@@ -1371,65 +1348,6 @@ static void BenchAtt_Startup(att_i32 acc_mg[3], att_i32 gyr_q10[3], u32 dt_ticks
 	s_bench_prev_ok = 1;
 }
 
-// 在采样间隙尝试发送分项快照（STA2）
-//   * 串口忙 / 离下一拍太近：直接返回，快照原样保留；
-//   * 发送成功：清除快照，并记录本次诊断开销（生成+DMA 提交、余量、排队时长）
-static void BenchAtt_CatPoll(u32 now)
-{
-	u32 remain_ticks = s_bench_next_tick - now;
-	u32 t0, us;
-	char buf[128];
-	char *r;
-	u8 k;
-
-	if (!bench_cat_can_send(s_bench_cat_snap.pending,
-	                        (u8)(uart_send_end ? 1 : 0), remain_ticks)) {
-		return;
-	}
-
-	t0 = clock_time();
-	r = buf;
-	r = bench_put_str(r, "STA2");
-	for (k = 0; k < 4; k++) {
-		r = bench_put_str(r, s_bench_cat_name[k]);
-		r = bench_put_u32(r, s_bench_cat_snap.cnt[k]);
-		*r++ = '/';
-		r = bench_put_u32(r, s_bench_cat_snap.max_us[k]);
-		*r++ = '/';
-		r = bench_put_u32(r, s_bench_cat_snap.over[k]);
-	}
-	r = bench_put_str(r, " sta=");
-	r = bench_put_u32(r, s_bench_cat_snap.sta_cnt
-	                     ? (s_bench_cat_snap.sta_sum_us / s_bench_cat_snap.sta_cnt) : 0);
-	*r++ = '/';
-	r = bench_put_u32(r, s_bench_cat_snap.sta_max_us);
-	// 诊断：上一回 STA2 的生成耗时 / 发完的余量 / 排队时长
-	r = bench_put_str(r, " diag=");
-	r = bench_put_u32(r, s_bench_cat_diag_us);
-	r = bench_put_str(r, " mrg=");
-	r = bench_put_u32(r, s_bench_cat_diag_margin_us);
-	r = bench_put_str(r, " lat=");
-	r = bench_put_u32(r, s_bench_cat_diag_lat_ms);
-	*r++ = '\n';
-
-	if (!UartTrySend((unsigned char *)buf, (u8)(r - buf))) {
-		// 极小概率：检查后刚好被别的输出抢走，快照仍保留
-		return;
-	}
-	s_bench_cat_snap.pending = 0;
-
-	us = (clock_time() - t0) / BENCH_TICKS_PER_US;
-	s_bench_cat_diag_us = (u16)us;
-
-	// 余量：先做有符号差，已到点/超期按 0 报，避免无符号回绕成天文数字
-	s_bench_cat_diag_margin_us =
-	    bench_cat_margin_us((s32)(s_bench_next_tick - clock_time()));
-
-	// 排队时长：先做原始 tick 的无符号差，跨时钟回绕也不会误报
-	s_bench_cat_diag_lat_ms =
-	    bench_cat_latency_ms(clock_time() - s_bench_cat_snap.t_tick);
-}
-
 // 台架主处理：主循环每圈调用一次，内部按 200Hz 采样
 static void BenchAtt_Process(void)
 {
@@ -1452,9 +1370,7 @@ static void BenchAtt_Process(void)
 
 	now = clock_time();
 	if ((s32)(now - s_bench_next_tick) < 0) {
-		// 采样间隙：UART 空闲且离下一拍还有余量时，把待发的 STA2 发掉
-		BenchAtt_CatPoll(now);
-		return;
+		return;                         // 还没到下一拍
 	}
 	s_bench_next_tick += BENCH_SAMPLE_TICKS;
 	if ((s32)(clock_time() - s_bench_next_tick) > 0) {
@@ -1625,72 +1541,104 @@ static void BenchAtt_Process(void)
 	}
 
 	if ((u32)(now - s_bench_stat_tick) >= BENCH_STAT_TICKS) {
-		char buf[160];
-		char *q;
-		u32 t_sta0 = clock_time();       // STA 单独计时的起点：开始拼文本
-
 		s_bench_stat_tick = now;
 		did_sta = 1;
-		q = buf;
-		q = bench_put_str(q, "STA n=");
-		q = bench_put_u32(q, s_bench_stat.valid);
-		q = bench_put_str(q, " f=");
-		q = bench_put_u32(q, s_bench_stat.fail);
-		q = bench_put_str(q, " g=");
-		q = bench_put_u32(q, s_bench_stat.gap);
-		q = bench_put_str(q, " dt=");
-		q = bench_put_u32(q, s_bench_stat.dt_min_us == 0xFFFF ? 0 : s_bench_stat.dt_min_us);
-		*q++ = '/';
-		q = bench_put_u32(q, s_bench_stat.dt_max_us);
-		q = bench_put_str(q, " rd=");
-		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.rd_sum_us / s_bench_stat.valid) : 0);
-		*q++ = '/';
-		q = bench_put_u32(q, s_bench_stat.rd_max_us);
-		q = bench_put_str(q, " up=");
-		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.up_sum_us / s_bench_stat.valid) : 0);
-		*q++ = '/';
-		q = bench_put_u32(q, s_bench_stat.up_max_us);
-		// 以下为 400Hz 验收追加：整拍耗时 / 截止超期 / 跳过节拍 / 姿态更新次数
-		q = bench_put_str(q, " cyc=");
-		q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.cyc_sum_us / s_bench_stat.valid) : 0);
-		*q++ = '/';
-		q = bench_put_u32(q, s_bench_stat.cyc_max_us);
-		q = bench_put_str(q, " miss=");
-		q = bench_put_u32(q, s_bench_stat.miss);
-		q = bench_put_str(q, " skip=");
-		q = bench_put_u32(q, s_bench_stat.skip);
-		q = bench_put_str(q, " eul=");
-		q = bench_put_u32(q, s_bench_stat.euler_ok);
 
-		// FRD Z 轴窗口均值（0.01 LSB）：扣偏前 / 扣偏后，静置时看后者是否接近 0
-		{
-			att_i32 pre_c = 0, post_c = 0;
+		if (s_bench_cat_state == BENCH_CAT_FROZEN) {
+			// 30 秒窗口已结束：用 STA2 顶替这一次 STA，只发一次；
+			// 串口忙（UartTrySend 返回 0）就保留快照，下个时隙再来
+			char buf2[128];
+			char *r2 = buf2;
+			u8 k;
 
-			if (s_bench_z_cnt) {
-				att_i32 pre_mean = s_bench_z_pre_sum / (att_i32)s_bench_z_cnt;    // LSB
-				att_i32 post_q6  = s_bench_z_post_sum / (att_i32)s_bench_z_cnt;   // 1/64 LSB
-
-				pre_c  = pre_mean * 100;
-				post_c = (post_q6 * 100) / 64;
-				s_bench_z_pre_sum = 0;
-				s_bench_z_post_sum = 0;
-				s_bench_z_cnt = 0;
+			r2 = bench_put_str(r2, "STA2");
+			for (k = 0; k < 4; k++) {
+				r2 = bench_put_str(r2, s_bench_cat_name[k]);
+				r2 = bench_put_u32(r2, s_bench_cat_snap.cnt[k]);
+				*r2++ = '/';
+				r2 = bench_put_u32(r2, s_bench_cat_snap.max_us[k]);
+				*r2++ = '/';
+				r2 = bench_put_u32(r2, s_bench_cat_snap.over[k]);
 			}
-			q = bench_put_str(q, " zb=");
-			q = bench_put_fixed2(q, pre_c);
+			r2 = bench_put_str(r2, " sta=");
+			r2 = bench_put_u32(r2, s_bench_cat_snap.sta_cnt
+			                       ? (s_bench_cat_snap.sta_sum_us / s_bench_cat_snap.sta_cnt) : 0);
+			*r2++ = '/';
+			r2 = bench_put_u32(r2, s_bench_cat_snap.sta_max_us);
+			// 单次输出没有"上一回发送"可参考，诊断字段保留 0，格式与上位机解析不变
+			r2 = bench_put_str(r2, " diag=0 mrg=0 lat=0");
+			*r2++ = '\n';
+
+			// 发送成功就标记完成，忙则保持冻结状态，下个 STA 时隙重试
+			s_bench_cat_state = bench_cat_after_send(
+			    s_bench_cat_state,
+			    (u8)(UartTrySend((unsigned char *)buf2, (u8)(r2 - buf2)) ? 1 : 0));
+		} else {
+			char buf[160];
+			char *q;
+			u32 t_sta0 = clock_time();       // STA 单独计时的起点：开始拼文本
+
+			q = buf;
+			q = bench_put_str(q, "STA n=");
+			q = bench_put_u32(q, s_bench_stat.valid);
+			q = bench_put_str(q, " f=");
+			q = bench_put_u32(q, s_bench_stat.fail);
+			q = bench_put_str(q, " g=");
+			q = bench_put_u32(q, s_bench_stat.gap);
+			q = bench_put_str(q, " dt=");
+			q = bench_put_u32(q, s_bench_stat.dt_min_us == 0xFFFF ? 0 : s_bench_stat.dt_min_us);
 			*q++ = '/';
-			q = bench_put_fixed2(q, post_c);
-		}
-		*q++ = '\n';
-		bench_send(buf, (int)(q - buf));
+			q = bench_put_u32(q, s_bench_stat.dt_max_us);
+			q = bench_put_str(q, " rd=");
+			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.rd_sum_us / s_bench_stat.valid) : 0);
+			*q++ = '/';
+			q = bench_put_u32(q, s_bench_stat.rd_max_us);
+			q = bench_put_str(q, " up=");
+			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.up_sum_us / s_bench_stat.valid) : 0);
+			*q++ = '/';
+			q = bench_put_u32(q, s_bench_stat.up_max_us);
+			// 以下为 400Hz 验收字段：整拍耗时 / 截止超期 / 跳过节拍 / 姿态更新次数
+			q = bench_put_str(q, " cyc=");
+			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.cyc_sum_us / s_bench_stat.valid) : 0);
+			*q++ = '/';
+			q = bench_put_u32(q, s_bench_stat.cyc_max_us);
+			q = bench_put_str(q, " miss=");
+			q = bench_put_u32(q, s_bench_stat.miss);
+			q = bench_put_str(q, " skip=");
+			q = bench_put_u32(q, s_bench_stat.skip);
+			q = bench_put_str(q, " eul=");
+			q = bench_put_u32(q, s_bench_stat.euler_ok);
 
-		// STA 从开始拼文本到尝试提交 DMA 的耗时（单独一项，便于判断尖峰来源）
-		{
-			u32 us = (clock_time() - t_sta0) / BENCH_TICKS_PER_US;
+			// FRD Z 轴窗口均值（0.01 LSB）：扣偏前 / 扣偏后，静置时看后者是否接近 0
+			{
+				att_i32 pre_c = 0, post_c = 0;
 
-			if (us > s_bench_sta_max_us) s_bench_sta_max_us = (u16)us;
-			s_bench_sta_sum_us += us;
-			s_bench_sta_cnt++;
+				if (s_bench_z_cnt) {
+					att_i32 pre_mean = s_bench_z_pre_sum / (att_i32)s_bench_z_cnt;    // LSB
+					att_i32 post_q6  = s_bench_z_post_sum / (att_i32)s_bench_z_cnt;   // 1/64 LSB
+
+					pre_c  = pre_mean * 100;
+					post_c = (post_q6 * 100) / 64;
+					s_bench_z_pre_sum = 0;
+					s_bench_z_post_sum = 0;
+					s_bench_z_cnt = 0;
+				}
+				q = bench_put_str(q, " zb=");
+				q = bench_put_fixed2(q, pre_c);
+				*q++ = '/';
+				q = bench_put_fixed2(q, post_c);
+			}
+			*q++ = '\n';
+			bench_send(buf, (int)(q - buf));
+
+			// STA 从开始拼文本到尝试提交 DMA 的耗时（窗口内累计）
+			{
+				u32 us = (clock_time() - t_sta0) / BENCH_TICKS_PER_US;
+
+				if (us > s_bench_sta_max_us) s_bench_sta_max_us = (u16)us;
+				s_bench_sta_sum_us += us;
+				s_bench_sta_cnt++;
+			}
 		}
 	}
 
@@ -1700,32 +1648,33 @@ static void BenchAtt_Process(void)
 		u16 us = (u16)((t_cyc1 - t_cyc0) / BENCH_TICKS_PER_US);
 		u8 cat = (u8)((did_att ? 1 : 0) | (did_sta ? 2 : 0));
 
-		// 分项统计：拍数、该分类整拍最大耗时、该分类超过 2500us 的次数
-		s_bench_cat.cnt[cat]++;
-		if (us > s_bench_cat.max_us[cat]) s_bench_cat.max_us[cat] = us;
-		if (us > C_ATT_SAMPLE_US) s_bench_cat.over[cat]++;
+		// 姿态就绪后开始 30 秒测量窗口
+		if (s_bench_cat_state == BENCH_CAT_IDLE && s_bench_att.ready) {
+			s_bench_cat_state = BENCH_CAT_MEASURING;
+			s_bench_cat_start_ms = (u32)(now / BENCH_TICKS_PER_MS);
+		}
 
-		// 本拍是 STA 拍：把这一秒的分项统计存成快照并清零，等空闲时再发 STA2。
-		// 快照里带上生成时刻，用来算排队等待了多久
-		if (did_sta) {
-			u8 k;
+		// 窗口内按拍累计：拍数、该分类整拍最大耗时、该分类超过 2500us 的次数
+		if (s_bench_cat_state == BENCH_CAT_MEASURING) {
+			s_bench_cat.cnt[cat]++;
+			if (us > s_bench_cat.max_us[cat]) s_bench_cat.max_us[cat] = us;
+			if (us > C_ATT_SAMPLE_US) s_bench_cat.over[cat]++;
 
-			for (k = 0; k < 4; k++) {
-				s_bench_cat_snap.cnt[k] = s_bench_cat.cnt[k];
-				s_bench_cat_snap.max_us[k] = s_bench_cat.max_us[k];
-				s_bench_cat_snap.over[k] = s_bench_cat.over[k];
-				s_bench_cat.cnt[k] = 0;
-				s_bench_cat.max_us[k] = 0;
-				s_bench_cat.over[k] = 0;
+			// 30 秒到点：把累计结果整体冻结，等 STA 时隙输出 STA2
+			if ((u32)((u32)(now / BENCH_TICKS_PER_MS) - s_bench_cat_start_ms)
+			        >= C_ATT_CAT_WINDOW_MS) {
+				u8 k;
+
+				for (k = 0; k < 4; k++) {
+					s_bench_cat_snap.cnt[k] = s_bench_cat.cnt[k];
+					s_bench_cat_snap.max_us[k] = s_bench_cat.max_us[k];
+					s_bench_cat_snap.over[k] = s_bench_cat.over[k];
+				}
+				s_bench_cat_snap.sta_cnt = s_bench_sta_cnt;
+				s_bench_cat_snap.sta_sum_us = s_bench_sta_sum_us;
+				s_bench_cat_snap.sta_max_us = s_bench_sta_max_us;
+				s_bench_cat_state = BENCH_CAT_FROZEN;
 			}
-			s_bench_cat_snap.sta_cnt = s_bench_sta_cnt;
-			s_bench_cat_snap.sta_sum_us = s_bench_sta_sum_us;
-			s_bench_cat_snap.sta_max_us = s_bench_sta_max_us;
-			s_bench_sta_cnt = 0;
-			s_bench_sta_sum_us = 0;
-			s_bench_sta_max_us = 0;
-			s_bench_cat_snap.t_tick = clock_time();
-			s_bench_cat_snap.pending = 1;
 		}
 
 		if (us < s_bench_stat.cyc_min_us) s_bench_stat.cyc_min_us = us;
