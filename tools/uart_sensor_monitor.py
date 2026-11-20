@@ -294,14 +294,18 @@ ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
 # ----------------------------------------------------------------------------
 # 400Hz 地面联调固件文本协议（--l400，按 7d01167 的实际输出解析）
 #   L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+12/-3/+0 c=-3/+0/-0
-#   L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
+#        ta=+3000/-1500 tw=+512/-256/+0 on=1
+#   L400S bad=0 n=12345 f=0 eul=12000 miss=0 cmiss=0 skip=0 txd=0 ctl=2490/3100
 #   L400 init ok lpf_rb=3
 #   L400 init fail st=N lpf_rb=M
 # 说明：
-#   * g 是扣偏后的三轴角速度，c 是目标角速度 0 的 P 环纠偏量，二者都是
-#     Q10 rad/s；上位机按 °/s 画图，不能当欧拉角。
+#   * g 是扣偏后的三轴角速度，c 是内环 PID 纠偏量，二者都是 Q10 rad/s；
+#     上位机按 °/s 画图，不能当欧拉角。
+#   * ta 是外环目标横滚/俯仰（0.01°）；tw 是外环/偏航目标角速度（Q10 rad/s）；
+#     on=1 表示控制输出使能。旧固件没有这三个字段，仍可解析。
 #   * L400 没有设备时间戳，观察 CSV 与曲线的时间轴用上位机接收时刻。
-#   * L400S 是累计统计，1Hz 一行；cyc 是“本统计周期最大 / 上电以来峰值”，us。
+#   * L400S 是累计统计，1Hz 一行；miss 是含串口报告的整拍超期，
+#     cmiss 是控制计算完成超期；ctl 是控制完成时延（本周期最大/上电峰值），us。
 # ----------------------------------------------------------------------------
 # Q10 rad/s → °/s：1 rad/s = 180/π °/s，Q10 的 1024 对应 1 rad/s
 Q10_RAD_S_TO_DPS = 180.0 / math.pi / 1024.0
@@ -318,13 +322,17 @@ L400_CSV_FIELDS = [
     "cx_q10", "cy_q10", "cz_q10",
     "gx_dps", "gy_dps", "gz_dps",
     "cx_dps", "cy_dps", "cz_dps",
+    "tgt_roll_deg100", "tgt_pitch_deg100",
+    "tgt_rate_x_q10", "tgt_rate_y_q10", "tgt_rate_z_q10", "ctrl_ok",
 ]
 
 L400_STAT_FIELDS = [
     "recv_s", "recv_epoch",
-    "bad_pkt", "n", "f", "gap", "eul", "miss", "skip", "txd",
+    "bad_pkt", "n", "f", "gap", "eul", "miss", "cmiss", "skip", "txd",
     "cyc_max_us", "cyc_peak_us",
-    # 分项耗时：迟到 / IMU+估计+P 环 / 无线收包 / 串口报告，单位 us
+    # 控制器联调：控制计算完成超期次数、控制完成时延（本周期/上电峰值）
+    "ctrl_miss", "ctrl_max_us", "ctrl_peak_us",
+    # 分项耗时：迟到 / IMU+估计+控制 / 无线收包 / 串口报告，单位 us
     "late_avg_us", "late_max_us",
     "exec_avg_us", "exec_max_us",
     "rx_avg_us", "rx_max_us",
@@ -519,7 +527,9 @@ _L400_LINE_RE = re.compile(
     r"^L400\s+rdy=([01])\s+lk=([01])\s+vld=([01])\s+"
     r"alk=(\d+)\s+avld=(\d+)\s+gpk=(\d+)\s+"
     r"g=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+"
-    r"c=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s*$")
+    r"c=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)"
+    r"(?:\s+ta=([+-]?\d+)/([+-]?\d+)\s+"
+    r"tw=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+on=([01]))?\s*$")
 
 # L400S 统计行旧格式（7d01167）：十进制计数 + 整拍耗时
 _L400_STAT_RE = re.compile(
@@ -527,12 +537,12 @@ _L400_STAT_RE = re.compile(
     r"eul=(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+txd=(\d+)\s+"
     r"cyc=(\d+)/(\d+)\s*$")
 
-# L400S 统计行新格式：定宽十六进制，追加四个分项耗时（us）
-#   late=原定拍点→采样开始  exec=IMU+估计+P环  rx=无线收包  tx=串口报告
+# L400S 统计行新格式：定宽十六进制；miss=整拍超期，cmiss=控制完成超期，
+# ctl=控制完成时延（本周期最大/上电峰值）；late/exec/rx/tx 为分项耗时。
 _L400_STAT_HEX_RE = re.compile(
     r"^L400S\s+bad=([0-9A-F]{4})\s+n=([0-9A-F]{6})\s+f=([0-9A-F]{4})\s+"
-    r"gap=([0-9A-F]{4})\s+eul=([0-9A-F]{6})\s+miss=([0-9A-F]{6})\s+"
-    r"skip=([0-9A-F]{6})\s+txd=([0-9A-F]{6})\s+cyc=([0-9A-F]{4})/([0-9A-F]{4})\s+"
+    r"eul=([0-9A-F]{6})\s+miss=([0-9A-F]{6})\s+cmiss=([0-9A-F]{6})\s+"
+    r"skip=([0-9A-F]{6})\s+txd=([0-9A-F]{6})\s+ctl=([0-9A-F]{4})/([0-9A-F]{4})\s+"
     r"late=([0-9A-F]{4})/([0-9A-F]{4})\s+exec=([0-9A-F]{4})/([0-9A-F]{4})\s+"
     r"rx=([0-9A-F]{4})/([0-9A-F]{4})\s+tx=([0-9A-F]{4})/([0-9A-F]{4})\s*$")
 
@@ -572,6 +582,13 @@ def parse_l400_line(line):
     if m:
         g_q10 = [int(m.group(i)) for i in (7, 8, 9)]
         c_q10 = [int(m.group(i)) for i in (10, 11, 12)]
+        tgt_att = None
+        tgt_rate = None
+        ctrl_ok = None
+        if m.group(13) is not None:
+            tgt_att = [int(m.group(13)), int(m.group(14))]
+            tgt_rate = [int(m.group(i)) for i in (15, 16, 17)]
+            ctrl_ok = int(m.group(18))
         return ("l400", {
             "rdy": int(m.group(1)),
             "lk": int(m.group(2)),
@@ -583,6 +600,9 @@ def parse_l400_line(line):
             "c_q10": c_q10,
             "g_dps": [q10_rad_s_to_dps(v) for v in g_q10],
             "c_dps": [q10_rad_s_to_dps(v) for v in c_q10],
+            "tgt_att_deg100": tgt_att,
+            "tgt_rate_q10": tgt_rate,
+            "ctrl_ok": ctrl_ok,
         })
 
     m = _L400_STAT_HEX_RE.match(line)
@@ -592,13 +612,17 @@ def parse_l400_line(line):
             "bad_pkt": g[0],
             "n": g[1],
             "f": g[2],
-            "gap": g[3],
-            "eul": g[4],
-            "miss": g[5],
+            "gap": None,               # 新格式不再输出长间断计数
+            "eul": g[3],
+            "miss": g[4],
+            "cmiss": g[5],
             "skip": g[6],
             "txd": g[7],
-            "cyc_max_us": g[8],
-            "cyc_peak_us": g[9],
+            "cyc_max_us": None,        # 旧格式的整拍最大/峰值
+            "cyc_peak_us": None,
+            "ctrl_miss": g[5],
+            "ctrl_max_us": g[8],
+            "ctrl_peak_us": g[9],
             "late_avg_us": g[10],
             "late_max_us": g[11],
             "exec_avg_us": g[12],
@@ -619,10 +643,14 @@ def parse_l400_line(line):
             "gap": int(m.group(4)),
             "eul": int(m.group(5)),
             "miss": int(m.group(6)),
+            "cmiss": None,
             "skip": int(m.group(7)),
             "txd": int(m.group(8)),
             "cyc_max_us": int(m.group(9)),
             "cyc_peak_us": int(m.group(10)),
+            "ctrl_miss": None,
+            "ctrl_max_us": None,
+            "ctrl_peak_us": None,
             "late_avg_us": None,
             "late_max_us": None,
             "exec_avg_us": None,
@@ -759,9 +787,11 @@ class SimL400Source:
         self.sample = 0
         self.euler = 0
         self.miss = 0
+        self.cmiss = 0
         self.skip = 0
         self.txd = 0
         self.peak = 2400
+        self.ctrl_peak = 2500
 
     def _push(self, text):
         self.buf += (text + "\n").encode("ascii", "replace")
@@ -798,30 +828,41 @@ class SimL400Source:
                 self.skip += 1
             if self.n_line % 149 == 0:
                 self.txd += 1
-            cyc = 2350 + (self.n_line * 13) % 300
-            if cyc > self.peak:
-                self.peak = cyc
+            if self.n_line % 181 == 0:
+                self.cmiss += 1
+            ctl = 2250 + (self.n_line * 13) % 260
+            if ctl > self.ctrl_peak:
+                self.ctrl_peak = ctl
+            # 控制器联调字段：目标姿态/角速度随模拟时间缓慢变化，on 与姿态就绪一致
+            ta_r = int(3000 * math.sin(2 * math.pi * 0.20 * el))
+            ta_p = int(1500 * math.sin(2 * math.pi * 0.15 * el + 0.7))
+            tw_x = int(600 * math.cos(2 * math.pi * 0.25 * el))
+            tw_y = int(400 * math.cos(2 * math.pi * 0.20 * el + 0.5))
+            tw_z = int(500 * math.sin(2 * math.pi * 0.10 * el))
+            on = 1 if rdy else 0
             self._push(
                 f"L400 rdy={rdy} lk=1 vld=1 alk={alk} avld={avld} gpk={gpk} "
-                f"g={gx:+d}/{gy:+d}/{gz:+d} c={cx:+d}/{cy:+d}/{cz:+d}")
+                f"g={gx:+d}/{gy:+d}/{gz:+d} c={cx:+d}/{cy:+d}/{cz:+d} "
+                f"ta={ta_r:+d}/{ta_p:+d} tw={tw_x:+d}/{tw_y:+d}/{tw_z:+d} on={on}")
 
         # 1Hz 统计行：n/eul 与上面的 400Hz 计数保持同一比例
         if el >= self._next_stat:
             self._next_stat = el + 1.0
             self.n_stat += 1
-            cyc = 2350 + (self.n_stat * 41) % 300
-            if cyc > self.peak:
-                self.peak = cyc
-            # 模拟新固件的定宽十六进制统计行，含四个分项耗时
+            ctl = 2300 + (self.n_stat * 41) % 260
+            if ctl > self.ctrl_peak:
+                self.ctrl_peak = ctl
+            # 模拟新固件的定宽十六进制统计行：控制超期 + 四个分项耗时
             late_avg = 900 + (self.n_stat * 7) % 200
             exec_avg = 1000 + (self.n_stat * 11) % 200
             rx_avg = 30 + (self.n_stat * 3) % 20
             tx_avg = 45 + (self.n_stat * 5) % 25
             self._push(
                 f"L400S bad={_hex(0, 4)} n={_hex(self.sample, 6)} "
-                f"f={_hex(0, 4)} gap={_hex(0, 4)} eul={_hex(self.euler, 6)} "
-                f"miss={_hex(self.miss, 6)} skip={_hex(self.skip, 6)} "
-                f"txd={_hex(self.txd, 6)} cyc={_hex(cyc, 4)}/{_hex(self.peak, 4)} "
+                f"f={_hex(0, 4)} eul={_hex(self.euler, 6)} "
+                f"miss={_hex(self.miss, 6)} cmiss={_hex(self.cmiss, 6)} "
+                f"skip={_hex(self.skip, 6)} txd={_hex(self.txd, 6)} "
+                f"ctl={_hex(ctl, 4)}/{_hex(self.ctrl_peak, 4)} "
                 f"late={_hex(late_avg, 4)}/{_hex(late_avg + 300, 4)} "
                 f"exec={_hex(exec_avg, 4)}/{_hex(exec_avg + 250, 4)} "
                 f"rx={_hex(rx_avg, 4)}/{_hex(rx_avg + 30, 4)} "
@@ -1070,6 +1111,13 @@ class L400Worker(threading.Thread):
                 "cx_dps": f"{payload['c_dps'][0]:.3f}",
                 "cy_dps": f"{payload['c_dps'][1]:.3f}",
                 "cz_dps": f"{payload['c_dps'][2]:.3f}",
+                # 控制器联调字段；旧固件没有，留空
+                "tgt_roll_deg100": "" if payload.get("tgt_att_deg100") is None else payload["tgt_att_deg100"][0],
+                "tgt_pitch_deg100": "" if payload.get("tgt_att_deg100") is None else payload["tgt_att_deg100"][1],
+                "tgt_rate_x_q10": "" if payload.get("tgt_rate_q10") is None else payload["tgt_rate_q10"][0],
+                "tgt_rate_y_q10": "" if payload.get("tgt_rate_q10") is None else payload["tgt_rate_q10"][1],
+                "tgt_rate_z_q10": "" if payload.get("tgt_rate_q10") is None else payload["tgt_rate_q10"][2],
+                "ctrl_ok": "" if payload.get("ctrl_ok") is None else payload["ctrl_ok"],
             })
             try:
                 self.queue.put_nowait(payload)
@@ -1089,10 +1137,14 @@ class L400Worker(threading.Thread):
                 "gap": payload["gap"],
                 "eul": payload["eul"],
                 "miss": payload["miss"],
+                "cmiss": "" if payload.get("cmiss") is None else payload["cmiss"],
                 "skip": payload["skip"],
                 "txd": payload["txd"],
-                "cyc_max_us": payload["cyc_max_us"],
-                "cyc_peak_us": payload["cyc_peak_us"],
+                "cyc_max_us": "" if payload.get("cyc_max_us") is None else payload["cyc_max_us"],
+                "cyc_peak_us": "" if payload.get("cyc_peak_us") is None else payload["cyc_peak_us"],
+                "ctrl_miss": "" if payload.get("ctrl_miss") is None else payload["ctrl_miss"],
+                "ctrl_max_us": "" if payload.get("ctrl_max_us") is None else payload["ctrl_max_us"],
+                "ctrl_peak_us": "" if payload.get("ctrl_peak_us") is None else payload["ctrl_peak_us"],
                 # 旧 7d01167 格式没有分项耗时：CSV 留空
                 "late_avg_us": "" if payload.get("late_avg_us") is None else payload["late_avg_us"],
                 "late_max_us": "" if payload.get("late_max_us") is None else payload["late_max_us"],
@@ -1104,9 +1156,17 @@ class L400Worker(threading.Thread):
                 "tx_max_us": "" if payload.get("tx_max_us") is None else payload["tx_max_us"],
             })
             line = (f"[L400统计] 采样{payload['n']} 姿态更新{payload['eul']} "
-                    f"读失败{payload['f']} 长间断{payload['gap']} 坏包{payload['bad_pkt']} "
-                    f"超时{payload['miss']} 跳拍{payload['skip']} 串口推迟{payload['txd']} "
-                    f"整拍{payload['cyc_max_us']}/{payload['cyc_peak_us']}us")
+                    f"读失败{payload['f']} 坏包{payload['bad_pkt']}")
+            if payload.get("cmiss") is not None:
+                line += (f" 整拍超期{payload['miss']} 控制超期{payload['cmiss']}")
+            else:
+                line += f" 超时{payload['miss']}"
+            line += f" 跳拍{payload['skip']} 串口推迟{payload['txd']}"
+            if payload.get("ctrl_max_us") is not None:
+                line += (f" 控制完成{payload['ctrl_max_us']}/"
+                         f"{payload['ctrl_peak_us']}us")
+            elif payload.get("cyc_max_us") is not None:
+                line += f" 整拍{payload['cyc_max_us']}/{payload['cyc_peak_us']}us"
             if payload.get("late_avg_us") is not None:
                 line += (f" 迟到{payload['late_avg_us']}/{payload['late_max_us']}us"
                          f" 执行{payload['exec_avg_us']}/{payload['exec_max_us']}us"
@@ -1447,10 +1507,11 @@ class SensorMonitor:
             # 放到状态栏上方，底部留出 22% 空间给两行统计文字和 x 轴标签。
             self.stat_text = self.fig.text(
                 0.01, 0.040, "统计：等待 L400S（1Hz）…",
-                fontsize=9, va="bottom")
+                fontsize=8, va="bottom")
             self.stat_text.set_animated(True)
-            # 统计区最多三行（累计量、整拍、四个分项耗时），底部留 26%
-            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.26)
+            # 控制器联调统计区最多五行（累计量、超期、耗时两行、控制目标），
+            # 底部留 32%，避免文字压到 x 轴标签
+            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.32)
         else:
             self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08)
 
@@ -1640,12 +1701,17 @@ class SensorMonitor:
         return msg
 
     def _status_l400(self):
-        """L400 状态栏：姿态就绪、遥控连接、指令有效、有效包龄、整拍峰值"""
+        """L400 状态栏：姿态就绪、遥控连接、指令有效、有效包龄、峰值/控制状态"""
         w = self.worker
         # 用 worker 的最新观察行，而不是绘图缓冲：关闭“跟随”时状态栏仍然实时
         o = w.last_obs or self.last_l400
         s = w.last_stat
-        peak = f"{s['cyc_peak_us']}us" if s else "--"
+        if s and s.get("ctrl_peak_us") is not None:
+            peak = f"{s['ctrl_peak_us']}us"
+        elif s and s.get("cyc_peak_us") is not None:
+            peak = f"{s['cyc_peak_us']}us"
+        else:
+            peak = "--"
         if o is None:
             msg = f"等待 L400 数据…（{w.state}）"
             if w.detail:
@@ -1662,7 +1728,7 @@ class SensorMonitor:
         if age > L400_STALE_S:
             msg = (f"串口数据中断（{age:.1f}s 无新观察帧） | "
                    f"遥控/指令状态已过期 | "
-                   f"有效包龄 {o['avld_ms']}ms（旧） | 整拍峰值 {peak}")
+                   f"有效包龄 {o['avld_ms']}ms（旧） | 峰值 {peak}")
             msg += " | F 跟随 / Q 退出"
             if w.error:
                 msg += f" | 串口错误：{w.error}"
@@ -1671,7 +1737,8 @@ class SensorMonitor:
         msg = (f"姿态 {'就绪' if o['rdy'] else '未就绪'} | "
                f"遥控 {'连接' if o['lk'] else '失联'} | "
                f"指令 {'有效' if o['vld'] else '失效'} | "
-               f"有效包龄 {o['avld_ms']}ms | 整拍峰值 {peak}")
+               f"有效包龄 {o['avld_ms']}ms | 峰值 {peak}")
+        # 控制使能/目标放在统计区，状态栏保持单行不越界
         msg += " | F 跟随 / Q 退出"
         if w.error:
             msg += f" | 串口错误：{w.error}"
@@ -1683,16 +1750,30 @@ class SensorMonitor:
         s = w.last_stat
         if s is None:
             return f"统计：等待 L400S（1Hz）…  已收观察 {w.frames} 条"
-        text = (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
-                f"读失败 f={s['f']}  长间断 gap={s['gap']}  坏包 bad={s['bad_pkt']}\n"
-                f"      超时 miss={s['miss']}  跳拍 skip={s['skip']}  "
-                f"串口推迟 txd={s['txd']}  "
-                f"整拍 cyc={s['cyc_max_us']}/{s['cyc_peak_us']}us")
+        if s.get("cmiss") is not None:
+            text = (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
+                    f"读失败 f={s['f']}  坏包 bad={s['bad_pkt']}\n"
+                    f"      整拍超期 miss={s['miss']}  控制超期 cmiss={s['cmiss']}  "
+                    f"跳拍 skip={s['skip']}  串口推迟 txd={s['txd']}\n"
+                    f"      控制完成 ctl={s['ctrl_max_us']}/{s['ctrl_peak_us']}us")
+        else:
+            text = (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
+                    f"读失败 f={s['f']}  长间断 gap={s['gap']}  坏包 bad={s['bad_pkt']}\n"
+                    f"      超时 miss={s['miss']}  跳拍 skip={s['skip']}  "
+                    f"串口推迟 txd={s['txd']}  "
+                    f"整拍 cyc={s['cyc_max_us']}/{s['cyc_peak_us']}us")
         if s.get("late_avg_us") is not None:
-            text += (f"\n      耗时 迟到 late={s['late_avg_us']}/{s['late_max_us']}us"
+            text += (f"  迟到 late={s['late_avg_us']}/{s['late_max_us']}us"
                      f"  执行 exec={s['exec_avg_us']}/{s['exec_max_us']}us"
-                     f"  收包 rx={s['rx_avg_us']}/{s['rx_max_us']}us"
+                     f"\n      收包 rx={s['rx_avg_us']}/{s['rx_max_us']}us"
                      f"  报告 tx={s['tx_avg_us']}/{s['tx_max_us']}us")
+        o = w.last_obs or self.last_l400
+        if o is not None and o.get("ctrl_ok") is not None:
+            ta = o["tgt_att_deg100"]
+            tw = o["tgt_rate_q10"]
+            text += (f"\n控制 {'使能' if o['ctrl_ok'] else '禁止'} 目标 "
+                     f"横滚{ta[0] / 100.0:+.1f}° 俯仰{ta[1] / 100.0:+.1f}° "
+                     f"偏航{q10_rad_s_to_dps(tw[2]):+.1f}°/s")
         return text
 
     def _compose_texts(self):

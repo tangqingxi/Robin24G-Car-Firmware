@@ -51,14 +51,19 @@ telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 `Robin_24G_Car_rc_bringup.bin`、`Robin_24G_Remote_Flash.bin`、
 `Robin_24G_Bootloader_Flash.bin` 共 6 份，删除前都已与下方保留件逐个核对哈希。
 
-构建目录目前只保留：
+构建目录目前保留两个联调测试镜像：
 
 ```text
 Robin_24G_Car_rc_loop400_sched.bin   26644 字节
 SHA256 CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16
+
+Robin_24G_Car_rc_loop400_ctrl.bin    27812 字节
+SHA256 EE667299551709CB4CEE7612DB3D25E73DD718ED9818560120A2380511878970
 ```
 
-它是 `2b7d3c3` 调度测试版的唯一仓库内副本，暂不退役。
+`_sched.bin` 是 `2b7d3c3` 调度测试版，`_ctrl.bin` 是姿态外环 + 角速度
+PID 内环（P=1/4，I=D=0）与调度诊断合并后的控制器联调版；两份都未纳入
+`firmware_delivery/daily`，暂不退役。
 
 以后重新编译仍会生成 `Robin_24G_Car_Flash.bin`、`.lst`、`.elf` 等通用产物，
 **不要**按文件名判断它是姿态版、维护版还是 L400 版；烧录优先使用
@@ -68,7 +73,8 @@ SHA256 CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16
 
 本轮不是只看文件名，做了三层核对：
 
-1. **哈希**：对受版本管理的日常/归档件、三份基线和 `_sched.bin` 分别计算 SHA256。
+1. **哈希**：对受版本管理的日常/归档件、三份基线和两个联调测试镜像
+   （`_sched.bin`、`_ctrl.bin`）分别计算 SHA256。
 2. **镜像内字符串**：
    - L400：包含 `L400 rdy=`、`L400S bad=`、`L400 init ok`；
    - RC 联调：包含 `RC lk=`；
