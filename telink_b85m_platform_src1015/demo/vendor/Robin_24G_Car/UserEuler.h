@@ -37,7 +37,7 @@
 #endif
 
 // 400Hz 地面联调镜像：收包 + 姿态 + 角速度 P 环（电机停转）
-//	用 -DC_RC_LOOP_400_EN=1 单独构建
+//	用 -DC_RC_LOOP_400_EN=1 单独构建；串口同时输出包龄与整拍统计
 #ifndef C_RC_LOOP_400_EN
 #define C_RC_LOOP_400_EN          0
 #endif

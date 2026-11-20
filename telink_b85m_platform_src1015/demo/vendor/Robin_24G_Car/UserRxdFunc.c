@@ -1923,51 +1923,108 @@ static void RcBringup_Report(void)
 #if (C_RC_LOOP_400_EN)
 // =====================================================================================
 // 400Hz 地面联调：收包 + 姿态估计 + 角速度 P 环（电机始终停转）
-//   目标角速度固定为 0，纠偏量 = Kp × (0 − 实测角速度)，只观察不出力。
+//   目标角速度固定为 0，纠偏量 = Kp × (0 − 实测角速度)，只观察不出力；
+//   本块只保存纠偏量，不写 PWM，电机停转由 C_ATT_BENCH_EN 分支保证。
+//   姿态部分复用台架镜像已验证的静止初始化、加计一阶低通和长间断处理。
+//   串口：10Hz 观察行（包龄/角速度/纠偏）+ 1Hz 统计行（采样/超时/跳拍）。
 // =====================================================================================
-#define L400_TICKS            (CLOCK_SYS_CLOCK_HZ / 400)
-#define L400_TICKS_PER_MS     (CLOCK_SYS_CLOCK_HZ / 1000)
-#define L400_TICKS_PER_US     (CLOCK_SYS_CLOCK_HZ / 1000000)
+#define L400_HZ                400
+#define L400_PERIOD_TICKS      (CLOCK_SYS_CLOCK_HZ / L400_HZ)          // 2.5ms = 60000 tick
+#define L400_TICKS_PER_MS      (CLOCK_SYS_CLOCK_HZ / 1000)            // 24000 tick/ms
+#define L400_TICKS_PER_100US   (CLOCK_SYS_CLOCK_HZ / 10000)           // 2400 tick/0.1ms
+#define L400_TICKS_PER_US      (CLOCK_SYS_CLOCK_HZ / 1000000)         // 24 tick/us
+#define L400_REPORT_TICKS      (CLOCK_SYS_CLOCK_HZ / 10)              // 100ms 观察行
 
-// 指令超时：超过这么久没有有效摇杆包，指令失效（松杆实测约 20~30ms 一包）
-#define L400_CMD_TIMEOUT_MS   200
+// 指令超时：超过这么久没有有效摇杆包，摇杆指令失效（松杆实测约 20~30ms 一包）
+#define L400_CMD_TIMEOUT_MS    200
+#define L400_CMD_TIMEOUT_TICKS ((u32)L400_CMD_TIMEOUT_MS * L400_TICKS_PER_MS)
+// 链路超时：超过这么久连心跳都没有，判为无线失联
+#define L400_LINK_TIMEOUT_MS   500
+#define L400_LINK_TIMEOUT_TICKS ((u32)L400_LINK_TIMEOUT_MS * L400_TICKS_PER_MS)
 // P 环增益：纠偏量 = 误差 × KP / 256（1/4）
-#define L400_KP_Q8            64
-// 摇杆指令有效范围（±307 满杆），超出判为无效包
-#define L400_STICK_MAX        400
+#define L400_KP_Q8             64
+// 启动静止窗口：与台架固件一致，连续静止 500ms 才定姿
+#define L400_INIT_STILL_TICKS  ((u32)C_ATT_INIT_STILL_US * L400_TICKS_PER_US)
+// 计数输出上限：长时间运行也不会把一行撑出 UART_DATA_LEN
+#define L400_CNT_MAX           9999999u
+#define L400_MS_MAX            9999u
 
-static s32 s_l400_cmd[4];          // 油门/偏航/俯仰/横滚（±307）
+// 收包时间全部保存原始 tick：链路用"任何包"，指令用"有效摇杆包"
+static s32 s_l400_cmd[4];          // 油门/偏航/俯仰/横滚（±307，供后续控制环）
 static u16 s_l400_key;
-static u8  s_l400_cmd_ok;          // 摇杆指令有效
-static u8  s_l400_link;            // 无线连接状态（心跳也算）
-static u32 s_l400_pkt_ms;          // 最近一次有效摇杆包时刻
-static u32 s_l400_link_ms;         // 最近一次任何包时刻
+static u8  s_l400_cmd_ok;          // 摇杆指令有效（最近有效摇杆包未超时）
+static u8  s_l400_link;            // 无线链路有效（任何包，含心跳）
+static u8  s_l400_have_pkt;        // 是否收到过有效摇杆包
+static u8  s_l400_have_link;       // 是否收到过无线包
+static u32 s_l400_pkt_tick;        // 最近有效摇杆包（原始时钟 tick）
+static u32 s_l400_link_tick;       // 最近无线包（原始时钟 tick）
+static u32 s_l400_gap_max_tick;    // 本报告周期内相邻有效摇杆包最大间隔
+static u32 s_l400_bad;             // 原始值越界、换算前被丢弃的包数
 
+// 姿态与调度状态
 static euler_q_t s_l400_att;
-static u8  s_l400_ready;
 static u8  s_l400_inited;
-static u32 s_l400_next_tick;
-static u32 s_l400_last_tick;
-static u32 s_l400_dt_rem;
+static u32 s_l400_retry_tick;      // 传感器初始化失败后的重试时刻
+static u32 s_l400_next_tick;       // 下一拍原定拍点
+static u32 s_l400_last_ts;         // 上一有效样本读取完成 tick
+static u8  s_l400_have_ts;
+static u32 s_l400_dt_rem;          // 0.1ms 换算余数
+static s32 s_l400_gyro_rem[3];     // 陀螺 Q10 换算余数
 
+// 加计一阶低通（参数与台架固件相同）
+static s32 s_l400_lpf[3];
+static u8  s_l400_lpf_ok;
+static u32 s_l400_lpf_alpha;       // Q15，只随 dt 变化
+static u32 s_l400_lpf_alpha_dt_us;
+
+// 启动静止判定（与台架固件相同）
+static u32 s_l400_still_ticks;
+static s32 s_l400_still_sum[3];
+static u32 s_l400_still_n;
+static s32 s_l400_prev_acc[3];
+static u8  s_l400_prev_ok;
+
+// P 环输出（只观察，不写电机）
 static s32 s_l400_rate[3];         // 扣偏后角速度 Q10 rad/s
 static s32 s_l400_corr[3];         // P 环纠偏量 Q10 rad/s
-static u16 s_l400_cyc_max;
-static u16 s_l400_cyc_peak;
-static u32 s_l400_over;
-static u32 s_l400_tx_tick;
 
-// 整包解码完成后的提交：全零心跳只更新连接状态
+// 统计
+static u32 s_l400_sample;          // 实际采样次数（成功读到的六轴样本）
+static u32 s_l400_fail;            // 六轴读失败次数
+static u32 s_l400_euler_ok;        // 姿态更新次数（Euler_Update 成功）
+static u32 s_l400_gap;             // >100ms 长间断次数
+static u32 s_l400_miss;            // 截止超时：原定拍点→本拍完成超过 1 个周期
+static u32 s_l400_skip;            // 跳拍：迟到超过 1 个周期时丢弃的节拍数
+static u32 s_l400_txd;             // 串口输出跨过下一拍截止点的次数
+static u32 s_l400_cyc_max;         // 本统计周期内最大整拍耗时 us
+static u32 s_l400_cyc_peak;        // 上电以来最大整拍耗时 us
+static u32 s_l400_tx_tick;         // 下一次观察行时刻
+static u32 s_l400_stat_tick;       // 下一次统计行时刻
+
+// 整包解码完成后的提交：全零心跳只更新链路，摇杆值换算前先验证
 void RcLoop_OnPacket(void)
 {
-	u16 thr = u16Throttle_Rxd, rot = u16Rotation_Rxd, fb = u16FBmove_Rxd, lr = u16LRmove_Rxd;
-	u32 now = clock_time() / L400_TICKS_PER_MS;
+	u16 thr = u16Throttle_Rxd, rot = u16Rotation_Rxd;
+	u16 fb = u16FBmove_Rxd, lr = u16LRmove_Rxd;
+	u32 now = clock_time();
 
+	// 任何成功解码的包都刷新链路时刻（心跳也说明遥控器还在）
 	s_l400_link = 1;
-	s_l400_link_ms = now;
+	s_l400_link_tick = now;
+	s_l400_have_link = 1;
 
 	if (thr == 0 && rot == 0 && fb == 0 && lr == 0) {
-		return;                    // 心跳帧：不动摇杆指令
+		return;                    // 全零心跳：只更新链路，不动摇杆指令
+	}
+
+	// 换算前先验证原始值：RxdDataConvert 内部会把越界值钳到 0x0400/0x1C00，
+	// 先换算再判断就分不清"满杆"和"坏包"，所以越界包在这里直接丢弃
+	if (thr < RfDataMinValue || thr > RfDataMaxValue ||
+		rot < RfDataMinValue || rot > RfDataMaxValue ||
+		fb  < RfDataMinValue || fb  > RfDataMaxValue ||
+		lr  < RfDataMinValue || lr  > RfDataMaxValue) {
+		s_l400_bad++;
+		return;
 	}
 
 	// 实机确认的映射：FB→油门、LR→偏航、Throttle→俯仰、Rotation→横滚(-1)
@@ -1975,123 +2032,443 @@ void RcLoop_OnPacket(void)
 	s_l400_cmd[1] = RxdDataConvert(lr, 1, 10);
 	s_l400_cmd[2] = RxdDataConvert(thr, 1, 10);
 	s_l400_cmd[3] = -RxdDataConvert(rot, 1, 10);
-	if (s_l400_cmd[0] > L400_STICK_MAX || s_l400_cmd[0] < -L400_STICK_MAX ||
-	    s_l400_cmd[1] > L400_STICK_MAX || s_l400_cmd[1] < -L400_STICK_MAX ||
-	    s_l400_cmd[2] > L400_STICK_MAX || s_l400_cmd[2] < -L400_STICK_MAX ||
-	    s_l400_cmd[3] > L400_STICK_MAX || s_l400_cmd[3] < -L400_STICK_MAX) {
-		return;                    // 越界包：不采信
+
+	// 有效摇杆包间隔也用原始 tick 记录，供实测失联门限（心跳不参与）
+	if (s_l400_have_pkt) {
+		u32 gap = now - s_l400_pkt_tick;
+
+		if (gap > s_l400_gap_max_tick) {
+			s_l400_gap_max_tick = gap;
+		}
 	}
+	s_l400_pkt_tick = now;
+	s_l400_have_pkt = 1;
 	s_l400_key = u16RemotorKeyVal;
-	s_l400_pkt_ms = now;
 	s_l400_cmd_ok = 1;
 }
 
-static void L400_Init(void)
+// 文本格式化（不用 printf / 浮点）
+static char *l400_put_str(char *p, const char *s)
 {
-	u8 rb = 0;
-
-	if (t3488_bench_init(C_GYRO_LPF_SEL, &rb)) {
-		return;
+	while (*s) {
+		*p++ = *s++;
 	}
-	Euler_Reset(&s_l400_att);
-	s_l400_ready = 0;
-	s_l400_inited = 1;
-	s_l400_next_tick = clock_time();
+	return p;
 }
-
-static char *l400_put_str(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
 
 static char *l400_put_u32(char *p, u32 v)
 {
-	char t[10]; u8 n = 0;
-	if (!v) { *p++ = '0'; return p; }
-	while (v && n < sizeof(t)) { t[n++] = (char)('0' + v % 10); v /= 10; }
-	while (n) *p++ = t[--n];
+	char t[10];
+	u8 n = 0;
+
+	if (!v) {
+		*p++ = '0';
+		return p;
+	}
+	while (v && n < sizeof(t)) {
+		t[n++] = (char)('0' + v % 10);
+		v /= 10;
+	}
+	while (n) {
+		*p++ = t[--n];
+	}
 	return p;
 }
+
+// 计数输出：超过上限就停在 cap，保证一行不超过串口缓冲区
+static char *l400_put_cnt(char *p, u32 v, u32 cap)
+{
+	if (v > cap) {
+		v = cap;
+	}
+	return l400_put_u32(p, v);
+}
+
 static char *l400_put_s32(char *p, s32 v)
 {
-	if (v < 0) { *p++ = '-'; return l400_put_u32(p, (u32)(-v)); }
-	*p++ = '+'; return l400_put_u32(p, (u32)v);
+	if (v < 0) {
+		*p++ = '-';
+		return l400_put_u32(p, (u32)(-v));
+	}
+	*p++ = '+';
+	return l400_put_u32(p, (u32)v);
+}
+
+// 清空启动静止窗口
+static void L400_StillReset(void)
+{
+	s_l400_still_ticks = 0;
+	s_l400_still_n = 0;
+	s_l400_still_sum[0] = 0;
+	s_l400_still_sum[1] = 0;
+	s_l400_still_sum[2] = 0;
+}
+
+// 传感器初始化成功后清空全部运行状态（统计从 0 开始）
+static void L400_StateReset(void)
+{
+	int i;
+
+	Euler_Reset(&s_l400_att);
+	s_l400_last_ts = 0;
+	s_l400_have_ts = 0;
+	s_l400_dt_rem = 0;
+	s_l400_lpf_ok = 0;
+	s_l400_lpf_alpha = 0;
+	s_l400_lpf_alpha_dt_us = 0;
+	s_l400_prev_ok = 0;
+	for (i = 0; i < 3; i++) {
+		s_l400_gyro_rem[i] = 0;
+		s_l400_lpf[i] = 0;
+		s_l400_rate[i] = 0;
+		s_l400_corr[i] = 0;
+		s_l400_still_sum[i] = 0;
+		s_l400_prev_acc[i] = 0;
+	}
+	L400_StillReset();
+	s_l400_sample = 0;
+	s_l400_fail = 0;
+	s_l400_euler_ok = 0;
+	s_l400_gap = 0;
+	s_l400_miss = 0;
+	s_l400_skip = 0;
+	s_l400_txd = 0;
+	s_l400_cyc_max = 0;
+	s_l400_cyc_peak = 0;
+	s_l400_cmd[0] = 0;
+	s_l400_cmd[1] = 0;
+	s_l400_cmd[2] = 0;
+	s_l400_cmd[3] = 0;
+	s_l400_key = 0;
+	s_l400_cmd_ok = 0;
+	s_l400_link = 0;
+	s_l400_have_pkt = 0;
+	s_l400_have_link = 0;
+	s_l400_gap_max_tick = 0;
+	s_l400_bad = 0;
+}
+
+// 传感器初始化：含陀螺片内低通写后回读；失败 1s 后重试
+static void L400_Init(void)
+{
+	u32 now = clock_time();
+	u8 rb = 0;
+	u8 st;
+	char buf[64];
+	char *q;
+
+	if ((s32)(now - s_l400_retry_tick) < 0) {
+		return;
+	}
+	s_l400_retry_tick = now + CLOCK_SYS_CLOCK_HZ;      // 失败后 1s 重试
+
+	st = t3488_bench_init(C_GYRO_LPF_SEL, &rb);
+	if (st) {
+		q = buf;
+		q = l400_put_str(q, "L400 init fail st=");
+		q = l400_put_u32(q, st);
+		q = l400_put_str(q, " lpf_rb=");
+		q = l400_put_u32(q, rb);
+		*q++ = '\n';
+		UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+		return;
+	}
+
+	L400_StateReset();
+
+	q = buf;
+	q = l400_put_str(q, "L400 init ok lpf_rb=");
+	q = l400_put_u32(q, rb);
+	*q++ = '\n';
+	UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+
+	// 初始化提示行发完再排第一拍，避免启动提示占用 400Hz 周期
+	now = clock_time();
+	s_l400_next_tick = now + L400_PERIOD_TICKS;
+	s_l400_tx_tick = now + L400_REPORT_TICKS;
+	s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
+	s_l400_inited = 1;
+}
+
+// 启动阶段：用一段连续静止样本的平均加速度定姿（移动/间断就重开窗口）
+static void L400_Startup(const att_i32 acc_mg[3], const att_i32 gyr_q10[3],
+						 u32 dt_ticks, u32 ts)
+{
+	u8 still;
+	int i;
+
+	still = Euler_IsStill(acc_mg, gyr_q10, s_l400_prev_acc, s_l400_prev_ok);
+
+	if (!still) {
+		L400_StillReset();
+	} else {
+		s_l400_still_sum[0] += acc_mg[0];
+		s_l400_still_sum[1] += acc_mg[1];
+		s_l400_still_sum[2] += acc_mg[2];
+		s_l400_still_n++;
+		s_l400_still_ticks += dt_ticks;
+
+		if (s_l400_still_ticks >= L400_INIT_STILL_TICKS && s_l400_still_n > 0) {
+			att_i32 avg[3];
+
+			avg[0] = s_l400_still_sum[0] / (att_i32)s_l400_still_n;
+			avg[1] = s_l400_still_sum[1] / (att_i32)s_l400_still_n;
+			avg[2] = s_l400_still_sum[2] / (att_i32)s_l400_still_n;
+			if (!Euler_InitFromAccel(&s_l400_att, avg, ts / L400_TICKS_PER_MS)) {
+				L400_StillReset();     // 模长等条件不满足：重开静止窗口
+			}
+		}
+	}
+
+	for (i = 0; i < 3; i++) {
+		s_l400_prev_acc[i] = acc_mg[i];
+	}
+	s_l400_prev_ok = 1;
 }
 
 static void L400_Process(void)
 {
 	int16_t raw_a[3], raw_g[3];
 	att_i32 acc_frd[3], acc_mg[3], gyr_q10[3];
-	u32 now, t0, dt_ticks;
-	att_i32 dt_100us;
-	u16 us;
+	u32 now, planned, t_read1 = 0, end, total;
+	u32 dt_ticks = 0;
+	att_i32 dt_100us = 0;
+	int i;
 
-	if (!s_l400_inited) { L400_Init(); return; }
+	if (!s_l400_inited) {
+		L400_Init();
+		return;
+	}
 
 	now = clock_time();
-	if ((s32)(now - s_l400_next_tick) < 0) return;
-	t0 = now;
-	s_l400_next_tick += L400_TICKS;
-	if ((s32)(clock_time() - s_l400_next_tick) > 0) {
-		s_l400_over++;
-		s_l400_next_tick = clock_time() + L400_TICKS;
+	if ((s32)(now - s_l400_next_tick) < 0) {
+		return;
 	}
 
-	if (t3488_read_6axis(raw_a, raw_g)) return;
+	// 原定拍点：截止超时和跳拍都从这里起算，包含主循环迟到的时间
+	planned = s_l400_next_tick;
+	s_l400_next_tick = planned + L400_PERIOD_TICKS;
+	{
+		u32 late = now - planned;
 
-	acc_frd[0] = raw_a[0]; acc_frd[1] = -raw_a[1]; acc_frd[2] = -raw_a[2];
-	gyr_q10[0] = Euler_GyroToQ10(raw_g[0], s_bench_gyro_bias_q6[0], &s_bench_gyro_rem[0]);
-	gyr_q10[1] = Euler_GyroToQ10(-raw_g[1], s_bench_gyro_bias_q6[1], &s_bench_gyro_rem[1]);
-	gyr_q10[2] = Euler_GyroToQ10(-raw_g[2], s_bench_gyro_bias_q6[2], &s_bench_gyro_rem[2]);
-	for (u8 i = 0; i < 3; i++) {
-		att_i32 lsb = (acc_frd[i] - s_bench_acc_off_lsb[i]) * s_bench_acc_scale_q14[i] >> 14;
-		acc_mg[i] = (lsb * 125) >> 8;
-		s_l400_rate[i] = gyr_q10[i];
-		s_l400_corr[i] = -(gyr_q10[i] * L400_KP_Q8) >> 8;   // 目标 0 - 实测
+		if (late >= L400_PERIOD_TICKS) {
+			// 迟到超过一个周期：已经错过的拍直接丢弃，从当前时刻重排
+			s_l400_skip += late / L400_PERIOD_TICKS;
+			s_l400_next_tick = now + L400_PERIOD_TICKS;
+		}
 	}
 
-	if (!s_l400_ready) {
-		if (Euler_InitFromAccel(&s_l400_att, acc_mg, now / L400_TICKS_PER_MS)) s_l400_ready = 1;
+	// 每拍检查两种有效期：全部用原始 tick 比较，不经过毫秒截断
+	if (s_l400_have_link
+		&& (u32)(now - s_l400_link_tick) > L400_LINK_TIMEOUT_TICKS) {
+		s_l400_link = 0;
+	}
+	if (s_l400_have_pkt
+		&& (u32)(now - s_l400_pkt_tick) > L400_CMD_TIMEOUT_TICKS) {
+		s_l400_cmd_ok = 0;
+	}
+
+	// 读一次 12 字节；失败不发布零值，只累计失败数，本拍仍走完计时与报告
+	if (t3488_read_6axis(raw_a, raw_g)) {
+		s_l400_fail++;
 	} else {
-		dt_ticks = now - s_l400_last_tick;
-		s_l400_dt_rem += dt_ticks;
-		dt_100us = (att_i32)(s_l400_dt_rem / (L400_TICKS_PER_US * 100));
-		s_l400_dt_rem -= (u32)dt_100us * (L400_TICKS_PER_US * 100);
-		if (dt_100us > 0) Euler_Update(&s_l400_att, acc_mg, gyr_q10, dt_100us,
-		                               now / L400_TICKS_PER_MS);
+		s_l400_sample++;
+		t_read1 = clock_time();
+
+		// 映射到机体 FRD（实测符号置换），再扣零偏/校准
+		acc_frd[0] = (att_i32)raw_a[0];
+		acc_frd[1] = -(att_i32)raw_a[1];
+		acc_frd[2] = -(att_i32)raw_a[2];
+		gyr_q10[0] = Euler_GyroToQ10((att_i32)raw_g[0], s_bench_gyro_bias_q6[0],
+									 &s_l400_gyro_rem[0]);
+		gyr_q10[1] = Euler_GyroToQ10(-(att_i32)raw_g[1], s_bench_gyro_bias_q6[1],
+									 &s_l400_gyro_rem[1]);
+		gyr_q10[2] = Euler_GyroToQ10(-(att_i32)raw_g[2], s_bench_gyro_bias_q6[2],
+									 &s_l400_gyro_rem[2]);
+		for (i = 0; i < 3; i++) {
+			att_i32 lsb = (acc_frd[i] - s_bench_acc_off_lsb[i])
+						  * s_bench_acc_scale_q14[i] >> 14;
+
+			acc_mg[i] = (lsb * 125) >> 8;                       // LSB → mg：1000/2048
+			s_l400_rate[i] = gyr_q10[i];                        // 扣偏后角速度
+			s_l400_corr[i] = -(gyr_q10[i] * L400_KP_Q8) >> 8;   // 目标 0 − 实测
+		}
+
+		// 时间差以上一次成功读取的完成时刻为基准，u32 相减天然处理回绕
+		if (!s_l400_have_ts) {
+			s_l400_last_ts = t_read1;
+			s_l400_have_ts = 1;
+			dt_ticks = 0;
+		} else {
+			dt_ticks = t_read1 - s_l400_last_ts;
+			s_l400_last_ts = t_read1;
+		}
+
+		// 长间断：重建积分端点，不补算缺失区间（与台架固件一致）
+		if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * L400_TICKS_PER_100US) {
+			s_l400_gap++;
+			s_l400_dt_rem = 0;
+			s_l400_att.have_prev = 0;
+			L400_StillReset();
+			dt_ticks = 0;
+		}
+
+		// 积分 dt 用 0.1ms：tick 余数留到下一拍，避免每拍向下截断
+		if (dt_ticks) {
+			s_l400_dt_rem += dt_ticks;
+			dt_100us = (att_i32)(s_l400_dt_rem / L400_TICKS_PER_100US);
+			s_l400_dt_rem -= (u32)dt_100us * L400_TICKS_PER_100US;
+		}
+
+		// 加速度一阶低通：在 FRD 校准之后做，α 只在 dt 变化超过 50us 时重算
+		if (!s_l400_lpf_ok) {
+			s_l400_lpf[0] = acc_mg[0];
+			s_l400_lpf[1] = acc_mg[1];
+			s_l400_lpf[2] = acc_mg[2];
+			s_l400_lpf_ok = 1;
+		} else if (C_ACC_LPF_EN && dt_ticks > 0) {
+			u32 dt_us = (dt_ticks + L400_TICKS_PER_US / 2) / L400_TICKS_PER_US;
+			att_i32 alpha;
+
+			if (dt_us + 50 < s_l400_lpf_alpha_dt_us
+				|| dt_us > s_l400_lpf_alpha_dt_us + 50) {
+				s_l400_lpf_alpha = (u32)((dt_us * 32768u) / (C_ACC_LPF_TAU_US + dt_us));
+				s_l400_lpf_alpha_dt_us = dt_us;
+			}
+			alpha = (att_i32)s_l400_lpf_alpha;
+			for (i = 0; i < 3; i++) {
+				s_l400_lpf[i] += (alpha * (acc_mg[i] - s_l400_lpf[i])) >> 15;
+			}
+		} else if (!C_ACC_LPF_EN) {
+			s_l400_lpf[0] = acc_mg[0];
+			s_l400_lpf[1] = acc_mg[1];
+			s_l400_lpf[2] = acc_mg[2];
+		}
+
+		// 启动静止判定 / 姿态更新：与台架固件同一套逻辑
+		if (!s_l400_att.ready) {
+			L400_Startup(s_l400_lpf, gyr_q10, dt_ticks, t_read1);
+		} else if (dt_100us > 0) {
+			if (Euler_Update(&s_l400_att, s_l400_lpf, gyr_q10, dt_100us,
+							 t_read1 / L400_TICKS_PER_MS)) {
+				s_l400_euler_ok++;
+			}
+		}
 	}
-	s_l400_last_tick = now;
 
-	us = (u16)((clock_time() - t0) / L400_TICKS_PER_US);
-	if (us > s_l400_cyc_max) s_l400_cyc_max = us;
-	if (us > s_l400_cyc_peak) s_l400_cyc_peak = us;
+	// 低频串口输出：10Hz 观察行 + 1Hz 统计行；同一拍最多发一帧，
+	// 避免第二帧等待上一帧 DMA 完成而把 400Hz 节拍拖长
+	{
+		u32 t_tx0 = clock_time();
+		u8 sent = 0;
 
-	// 低频率报告：链路/指令有效/包龄/角速度/纠偏/整拍峰值/超时
-	if ((s32)(clock_time() - s_l400_tx_tick) >= 0) {
-		char buf[128]; char *q = buf; u32 age;
-		s_l400_tx_tick = clock_time() + CLOCK_SYS_CLOCK_HZ / 10;
-		if (now / L400_TICKS_PER_MS - s_l400_pkt_ms > L400_CMD_TIMEOUT_MS) s_l400_cmd_ok = 0;
-		age = s_l400_link ? (now / L400_TICKS_PER_MS - s_l400_link_ms) : 9999;
-		q = l400_put_str(q, "L400 lk=");
-		q = l400_put_u32(q, s_l400_link);
-		q = l400_put_str(q, " vld=");
-		q = l400_put_u32(q, s_l400_cmd_ok);
-		q = l400_put_str(q, " age=");
-		q = l400_put_u32(q, age > 999 ? 999 : age);
-		q = l400_put_str(q, " g=");
-		q = l400_put_s32(q, s_l400_rate[0]); *q++ = '/';
-		q = l400_put_s32(q, s_l400_rate[1]); *q++ = '/';
-		q = l400_put_s32(q, s_l400_rate[2]);
-		q = l400_put_str(q, " c=");
-		q = l400_put_s32(q, s_l400_corr[0]); *q++ = '/';
-		q = l400_put_s32(q, s_l400_corr[1]); *q++ = '/';
-		q = l400_put_s32(q, s_l400_corr[2]);
-		q = l400_put_str(q, " cyc=");
-		q = l400_put_u32(q, s_l400_cyc_max);
-		q = l400_put_str(q, "/");
-		q = l400_put_u32(q, s_l400_cyc_peak);
-		q = l400_put_str(q, " ov=");
-		q = l400_put_u32(q, s_l400_over);
-		*q++ = '\n';
-		UartDbgSend((unsigned char *)buf, (u8)(q - buf));
-		s_l400_cyc_max = 0;
+		if ((s32)(t_tx0 - s_l400_stat_tick) >= 0) {
+			char buf[UART_DATA_LEN];
+			char *q = buf;
+
+			q = l400_put_str(q, "L400S bad=");
+			q = l400_put_cnt(q, s_l400_bad, L400_CNT_MAX);
+			q = l400_put_str(q, " n=");
+			q = l400_put_cnt(q, s_l400_sample, L400_CNT_MAX);
+			q = l400_put_str(q, " f=");
+			q = l400_put_cnt(q, s_l400_fail, L400_CNT_MAX);
+			q = l400_put_str(q, " gap=");
+			q = l400_put_cnt(q, s_l400_gap, L400_CNT_MAX);
+			q = l400_put_str(q, " eul=");
+			q = l400_put_cnt(q, s_l400_euler_ok, L400_CNT_MAX);
+			q = l400_put_str(q, " miss=");
+			q = l400_put_cnt(q, s_l400_miss, L400_CNT_MAX);
+			q = l400_put_str(q, " skip=");
+			q = l400_put_cnt(q, s_l400_skip, L400_CNT_MAX);
+			q = l400_put_str(q, " txd=");
+			q = l400_put_cnt(q, s_l400_txd, L400_CNT_MAX);
+			q = l400_put_str(q, " cyc=");
+			q = l400_put_cnt(q, s_l400_cyc_max, L400_CNT_MAX);
+			*q++ = '/';
+			q = l400_put_cnt(q, s_l400_cyc_peak, L400_CNT_MAX);
+			*q++ = '\n';
+			UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+
+			s_l400_stat_tick = t_tx0 + CLOCK_SYS_CLOCK_HZ;
+			s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;   // 这一拍不再发观察行
+			s_l400_cyc_max = 0;
+			s_l400_gap_max_tick = 0;
+			sent = 1;
+		} else if ((s32)(t_tx0 - s_l400_tx_tick) >= 0) {
+			char buf[UART_DATA_LEN];
+			char *q = buf;
+			u32 age_link, age_pkt, gap_ms;
+
+			// 两种包龄都用原始 tick 差换算（四舍五入到 ms）；从未收到过输出 9999
+			age_link = s_l400_have_link
+					 ? ((t_tx0 - s_l400_link_tick + L400_TICKS_PER_MS / 2)
+						/ L400_TICKS_PER_MS)
+					 : L400_MS_MAX;
+			age_pkt = s_l400_have_pkt
+					? ((t_tx0 - s_l400_pkt_tick + L400_TICKS_PER_MS / 2)
+					   / L400_TICKS_PER_MS)
+					: L400_MS_MAX;
+			gap_ms = (s_l400_gap_max_tick + L400_TICKS_PER_MS / 2) / L400_TICKS_PER_MS;
+			if (age_link > L400_MS_MAX) age_link = L400_MS_MAX;
+			if (age_pkt > L400_MS_MAX) age_pkt = L400_MS_MAX;
+			if (gap_ms > L400_MS_MAX) gap_ms = L400_MS_MAX;
+
+			q = l400_put_str(q, "L400 rdy=");
+			q = l400_put_u32(q, s_l400_att.ready);
+			q = l400_put_str(q, " lk=");
+			q = l400_put_u32(q, s_l400_link);
+			q = l400_put_str(q, " vld=");
+			q = l400_put_u32(q, s_l400_cmd_ok);
+			q = l400_put_str(q, " alk=");
+			q = l400_put_u32(q, age_link);
+			q = l400_put_str(q, " avld=");
+			q = l400_put_u32(q, age_pkt);
+			q = l400_put_str(q, " gpk=");
+			q = l400_put_u32(q, gap_ms);
+			q = l400_put_str(q, " g=");
+			q = l400_put_s32(q, s_l400_rate[0]);
+			*q++ = '/';
+			q = l400_put_s32(q, s_l400_rate[1]);
+			*q++ = '/';
+			q = l400_put_s32(q, s_l400_rate[2]);
+			q = l400_put_str(q, " c=");
+			q = l400_put_s32(q, s_l400_corr[0]);
+			*q++ = '/';
+			q = l400_put_s32(q, s_l400_corr[1]);
+			*q++ = '/';
+			q = l400_put_s32(q, s_l400_corr[2]);
+			*q++ = '\n';
+			UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+
+			s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;
+			s_l400_gap_max_tick = 0;
+			sent = 1;
+		}
+
+		// 串口输出是否把下一拍推迟了：发送前未到截止、发送后已过截止，
+		// 才算这一次输出造成的推迟；本来就已经迟到的不算
+		if (sent
+			&& (s32)(t_tx0 - s_l400_next_tick) < 0
+			&& (s32)(clock_time() - s_l400_next_tick) >= 0) {
+			s_l400_txd++;
+		}
+	}
+
+	// 整拍统计：从原定拍点算到本拍全部处理（含串口格式化与提交）完成
+	end = clock_time();
+	total = end - planned;
+	{
+		u32 us = total / L400_TICKS_PER_US;
+
+		if (us > s_l400_cyc_max) {
+			s_l400_cyc_max = us;
+		}
+		if (us > s_l400_cyc_peak) {
+			s_l400_cyc_peak = us;
+		}
+	}
+	if (total > L400_PERIOD_TICKS) {
+		s_l400_miss++;             // 完成时刻已越过下一拍原定拍点
 	}
 }
 #endif
