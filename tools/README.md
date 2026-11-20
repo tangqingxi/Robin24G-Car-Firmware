@@ -131,12 +131,20 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 
 **上电顺序**：烧录完成 → **断电重新上电**（不要只按复位，避免残留状态）→ 等 1 秒让固件完成传感器初始化 → 再运行脚本。
 
-### 3.2 跑标定
+### 3.2 跑标定（只维护这一份 JSON）
+
+零偏结果固定写 `..\data\gyro_bias_frd.json`，**不另存复测版本**。
+脚本本身不覆盖同名文件（存在时会自动加 `_1`、`_2` 后缀），所以重测时先删掉旧文件再跑，
+结果仍然落回同一个名字，`data\` 下始终只有一份零偏 JSON：
 
 ```powershell
 Set-Location "E:\泡沫纸飞机\code\tools"
+Remove-Item "..\data\gyro_bias_frd.json" -Force -ErrorAction SilentlyContinue
 python gyro_bias_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.json" --out "..\data\gyro_bias_frd.json"
 ```
+
+判稳 3 s → 拟合 15 s → 复核 10 s；**复核不通过时脚本不写文件**（此时旧文件已删），
+排除晃动后重跑一次即可。
 
 **摆放**：**断开电机、关闭遥控器**，飞机放桌上松手，可以稍微倾斜，只要不动。
 按 Enter 后：判稳 3 s → 拟合 15 s → 复核 10 s，全程约半分钟；晃动会被提示重采该段。
