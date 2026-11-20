@@ -206,8 +206,10 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 - 报告（新固件）：`UartTrySend` 非阻塞提交；离下一拍不足 400us 或串口忙时
   本拍不拼报，延期到下一拍。`txd` 表示**报告延期次数**（预算不足或串口忙），
   不再表示“跨过下一拍截止”；`tx` 只统计真正拼过文本的拍。
-- 控制（新固件）：外环 P 把摇杆映射成目标横滚/俯仰角（满杆 ±30°）和偏航目标角速度
-  （满杆 ±3rad/s）；内环 PID 的 P=1/4，I/D 初始为 0，只观察不写电机。
+- 控制（新固件）：外环 P 用四元数推算的向上比力方向与目标方向做叉积，直接得到
+  横滚/俯仰误差；摇杆目标在**有效收包时**换算，400Hz 控制拍不再算欧拉角或三角函数。
+  目标横滚/俯仰满杆 ±30°，偏航目标角速度满杆 ±3rad/s；内环 PID 的 P=1/4，
+  I/D 为 0 时对应的每拍状态更新不编译，只观察不写电机。欧拉角显示留给上位机。
   失联、指令超时、姿态未就绪或本拍没有新姿态时，目标/纠偏清零并显示“控制 禁止”。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、坏包 `bad`；
   新固件显示“整拍超期 `miss`、控制超期 `cmiss`、跳拍 `skip`、串口推迟 `txd`、
@@ -236,7 +238,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  27812 字节，SHA256 `EE667299551709CB4CEE7612DB3D25E73DD718ED9818560120A2380511878970`，
+  27636 字节，SHA256 `3D5DEF73451FB13855281A129EAA96DBBA17FD74F933337F91EC2FAFBAE0BD18`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；

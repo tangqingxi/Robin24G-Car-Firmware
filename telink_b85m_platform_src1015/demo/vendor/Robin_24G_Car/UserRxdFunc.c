@@ -1956,8 +1956,9 @@ static void RcBringup_Report(void)
 #define L400_STICK_MAX         307
 #define L400_MAX_TILT_DEG100   3000
 #define L400_YAW_RATE_MAX_Q10  3072
-// 外环 P：目标角速度 Q10 = 角度误差(0.01°) × 256 / 256，即 30° 误差约 2.93rad/s
-#define L400_ATT_KP_Q8         256
+// 外环 P：重力方向叉积误差 Q15 × 1500 / 256，右移 13 位成 Q10；
+// 30° 倾角误差（sin≈0.5）约输出 3000 Q10 ≈ 2.93rad/s，与上一版手感接近
+#define L400_ATT_KP_Q8         1500
 #define L400_RATE_LIMIT_Q10    4096
 // 内环 P=1/4；I/D 初始为 0，保留积分/微分状态供下一版调参
 #define L400_KP_Q8             64
@@ -2010,11 +2011,17 @@ static u8  s_l400_prev_ok;
 static s32 s_l400_rate[3];         // 扣偏后实测角速度 Q10 rad/s
 static s32 s_l400_corr[3];         // 内环 PID 纠偏量 Q10 rad/s
 static u8  s_l400_ctrl_ok;         // 控制输出使能：姿态就绪且链路/指令有效
-static s32 s_l400_tgt_att[2];      // 外环目标横滚/俯仰，0.01°
+static s32 s_l400_tgt_att[2];      // 外环目标横滚/俯仰，0.01°（仅上位机显示）
+static s32 s_l400_tgt_up[3];       // 目标重力反方向（向上比力）Q15，收包时换算
+static s32 s_l400_tgt_yaw_rate;    // 偏航杆目标角速度 Q10 rad/s，收包时换算
 static s32 s_l400_tgt_rate[3];     // 外环输出/偏航目标角速度 Q10 rad/s
-static s32 s_l400_rate_integ[3];   // 内环积分状态（I 初始 0，保留供下一版）
-static s32 s_l400_rate_prev_err[3]; // 内环上一拍误差（D 初始 0）
+#if (L400_KI_Q16 != 0)
+static s32 s_l400_rate_integ[3];   // 内环积分状态；I=0 时不编译
+#endif
+#if (L400_KD_Q8 != 0)
+static s32 s_l400_rate_prev_err[3]; // 内环上一拍误差；D=0 时不编译
 static u8  s_l400_rate_have_prev;
+#endif
 
 // 统计
 static u32 s_l400_sample;          // 实际采样次数（成功读到的六轴样本）
@@ -2043,6 +2050,9 @@ static u32 s_l400_tx_max_us;
 static u32 s_l400_tick_cnt;        // 本窗口 late/exec 的拍数
 static u32 s_l400_rx_cnt;          // 本窗口无线包数
 static u32 s_l400_tx_cnt;          // 本窗口报告次数
+
+// 有效摇杆包到达时换算目标姿态/目标重力方向；控制拍只做重力叉积和 PID
+static void L400_UpdateStickTargets(void);
 
 // 整包解码完成后的提交：全零心跳只更新链路，摇杆值换算前先验证
 void RcLoop_OnPacket(void)
@@ -2088,6 +2098,8 @@ void RcLoop_OnPacket(void)
 	s_l400_have_pkt = 1;
 	s_l400_key = u16RemotorKeyVal;
 	s_l400_cmd_ok = 1;
+	// 摇杆目标只在有效收包时换算，400Hz 控制拍不再做角度→重力方向的三角函数
+	L400_UpdateStickTargets();
 }
 
 // 累加一次分项耗时（us）：sum 用于平均值，max 用于峰值
@@ -2195,8 +2207,13 @@ static void L400_StateReset(void)
 		s_l400_rate[i] = 0;
 		s_l400_corr[i] = 0;
 		s_l400_tgt_rate[i] = 0;
+		s_l400_tgt_up[i] = 0;
+#if (L400_KI_Q16 != 0)
 		s_l400_rate_integ[i] = 0;
+#endif
+#if (L400_KD_Q8 != 0)
 		s_l400_rate_prev_err[i] = 0;
+#endif
 		s_l400_still_sum[i] = 0;
 		s_l400_prev_acc[i] = 0;
 	}
@@ -2213,7 +2230,10 @@ static void L400_StateReset(void)
 	s_l400_ctrl_ok = 0;
 	s_l400_tgt_att[0] = 0;
 	s_l400_tgt_att[1] = 0;
+	s_l400_tgt_yaw_rate = 0;
+#if (L400_KD_Q8 != 0)
 	s_l400_rate_have_prev = 0;
+#endif
 	s_l400_late_sum_us = 0;
 	s_l400_late_max_us = 0;
 	s_l400_exec_sum_us = 0;
@@ -2487,29 +2507,103 @@ static s32 l400_clamp_s32(s32 v, s32 lim)
 	return v;
 }
 
-// 失联、指令超时、姿态未就绪或本拍没有新姿态时：禁止输出并清状态
-static void L400_ControlInhibit(void)
+// 目标角 0.01° → sin/cos Q15；目标角限幅在 ±30° 内，泰勒展开误差很小
+static s32 l400_sin_q15(s32 ang_01)
+{
+	s32 r, r2, r3, r5;
+
+	r  = (ang_01 * 5857) >> 10;                 // 弧度 Q15
+	r2 = (r * r) >> 15;
+	r3 = (r2 * r) >> 15;
+	r5 = (r3 * r2) >> 15;
+	return r - r3 / 6 + r5 / 120;
+}
+
+static s32 l400_cos_q15(s32 ang_01)
+{
+	s32 r, r2, r4, r6;
+
+	r  = (ang_01 * 5857) >> 10;                 // 弧度 Q15
+	r2 = (r * r) >> 15;
+	r4 = (r2 * r2) >> 15;
+	r6 = (r4 * r2) >> 15;
+	return ATT_Q15_ONE - r2 / 2 + r4 / 24 - r6 / 720;
+}
+
+// 有效收包时换算：摇杆→目标姿态角、目标向上比力方向、偏航目标角速度。
+// 400Hz 控制拍只做四元数重力方向与目标方向的叉积，不再每拍算三角函数。
+static void L400_UpdateStickTargets(void)
+{
+	s32 roll, pitch, sr, cr, sp, cp;
+
+	// 横滚杆 → 目标横滚角；俯仰杆推前为正，而欧拉俯仰正为抬头，所以取负
+	roll = l400_clamp_s32(
+		(s_l400_cmd[3] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
+		L400_MAX_TILT_DEG100);
+	pitch = l400_clamp_s32(
+		-(s_l400_cmd[2] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
+		L400_MAX_TILT_DEG100);
+	s_l400_tgt_att[0] = roll;
+	s_l400_tgt_att[1] = pitch;
+	s_l400_tgt_yaw_rate = l400_clamp_s32(
+		(s_l400_cmd[1] * L400_YAW_RATE_MAX_Q10) / L400_STICK_MAX,
+		L400_YAW_RATE_MAX_Q10);
+
+	// 目标向上比力（与静止加速度计读数同向）：
+	// u = (sinθ, -sinφcosθ, -cosφcosθ)，Q15；重力方向与之相反
+	sr = l400_sin_q15(roll);
+	cr = l400_cos_q15(roll);
+	sp = l400_sin_q15(pitch);
+	cp = l400_cos_q15(pitch);
+	s_l400_tgt_up[0] = sp;
+	s_l400_tgt_up[1] = -((sr * cp) >> 15);
+	s_l400_tgt_up[2] = -((cr * cp) >> 15);
+}
+
+// 只清输出、保留已收到的摇杆目标；读失败/本拍无新姿态时用，
+// 下一拍读数恢复后可立即按原目标继续控制。
+static void L400_ControlOutputsClear(void)
 {
 	int i;
 
 	s_l400_ctrl_ok = 0;
-	s_l400_tgt_att[0] = 0;
-	s_l400_tgt_att[1] = 0;
 	for (i = 0; i < 3; i++) {
 		s_l400_tgt_rate[i] = 0;
 		s_l400_corr[i] = 0;
+#if (L400_KI_Q16 != 0)
 		s_l400_rate_integ[i] = 0;
+#endif
+#if (L400_KD_Q8 != 0)
 		s_l400_rate_prev_err[i] = 0;
+#endif
 	}
+#if (L400_KD_Q8 != 0)
 	s_l400_rate_have_prev = 0;
+#endif
 }
 
-// 400Hz 控制：摇杆→目标姿态/偏航角速度的外环 P，叠加内环角速度 PID；
-// 内环 I/D 增益当前为 0，只保留状态，电机仍停转。
+// 失联、指令超时、姿态未就绪：输出禁止，并把摇杆目标一起清零
+static void L400_ControlInhibit(void)
+{
+	L400_ControlOutputsClear();
+	s_l400_tgt_att[0] = 0;
+	s_l400_tgt_att[1] = 0;
+	s_l400_tgt_up[0] = 0;
+	s_l400_tgt_up[1] = 0;
+	s_l400_tgt_up[2] = 0;
+	s_l400_tgt_yaw_rate = 0;
+}
+
+// 400Hz 控制：四元数推算的向上比力方向 vs 目标向上方向，叉积取横滚/俯仰误差；
+// 目标角速度再进内环 PID（P=1/4，I/D 为 0 时对应状态更新被编译掉），电机仍停转。
 static void L400_ControlUpdate(void)
 {
-	att_i32 roll, pitch;
-	s32 err, tgt, p, i_term, d_term, corr, d_err;
+	s32 q0, q1, q2, q3;
+	s32 ax, ay, az;
+	s32 ex, ey, tgt, err, p, corr;
+#if (L400_KD_Q8 != 0)
+	s32 d_err;
+#endif
 	int i;
 
 	if (!s_l400_att.ready || !s_l400_link || !s_l400_cmd_ok) {
@@ -2517,45 +2611,51 @@ static void L400_ControlUpdate(void)
 		return;
 	}
 
-	// 横滚杆 → 目标横滚角；俯仰杆推前为正，而欧拉俯仰正为抬头，所以取负
-	s_l400_tgt_att[0] = l400_clamp_s32(
-		(s_l400_cmd[3] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
-		L400_MAX_TILT_DEG100);
-	s_l400_tgt_att[1] = l400_clamp_s32(
-		-(s_l400_cmd[2] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
-		L400_MAX_TILT_DEG100);
+	q0 = s_l400_att.q[0];
+	q1 = s_l400_att.q[1];
+	q2 = s_l400_att.q[2];
+	q3 = s_l400_att.q[3];
 
-	Euler_GetEulerDeg100(&s_l400_att, &roll, &pitch, 0);
+	// 四元数（机体→水平系）推算的向上比力方向，机体 FRD、Q15：
+	// 与 UserEuler 的 Mahony 纠偏使用同一个表达式；拆开每项避免中间和溢出
+	ax = ((q0 * q2) >> 14) - ((q1 * q3) >> 14);
+	ay = -(((q0 * q1) >> 14) + ((q2 * q3) >> 14));
+	az = (((q1 * q1) >> 14) + ((q2 * q2) >> 14)) - ATT_Q15_ONE;
 
-	// 外环 P：角度误差（0.01°）→ 目标角速度（Q10 rad/s）
-	tgt = ((s_l400_tgt_att[0] - roll) * L400_ATT_KP_Q8) >> 8;
+	// 目标向上方向 × 实际向上方向，x/y 分量就是横滚/俯仰误差（Q15）；
+	// 偏航分量不进外环，偏航杆仍直接给目标角速度。
+	ex = ((s_l400_tgt_up[1] * az) >> 15) - ((s_l400_tgt_up[2] * ay) >> 15);
+	ey = ((s_l400_tgt_up[2] * ax) >> 15) - ((s_l400_tgt_up[0] * az) >> 15);
+
+	tgt = (ex * L400_ATT_KP_Q8) >> 13;
 	s_l400_tgt_rate[0] = l400_clamp_s32(tgt, L400_RATE_LIMIT_Q10);
-	tgt = ((s_l400_tgt_att[1] - pitch) * L400_ATT_KP_Q8) >> 8;
+	tgt = (ey * L400_ATT_KP_Q8) >> 13;
 	s_l400_tgt_rate[1] = l400_clamp_s32(tgt, L400_RATE_LIMIT_Q10);
+	s_l400_tgt_rate[2] = s_l400_tgt_yaw_rate;
 
-	// 偏航杆直接给目标偏航角速度，不经过姿态外环
-	tgt = (s_l400_cmd[1] * L400_YAW_RATE_MAX_Q10) / L400_STICK_MAX;
-	s_l400_tgt_rate[2] = l400_clamp_s32(tgt, L400_YAW_RATE_MAX_Q10);
-
-	// 内环 PID：误差 = 目标角速度 − 实测角速度；P=1/4，I/D 初始 0
+	// 内环 PID：误差 = 目标角速度 − 实测角速度；P=1/4
 	for (i = 0; i < 3; i++) {
 		err = s_l400_tgt_rate[i] - s_l400_rate[i];
 		p = (err * L400_KP_Q8) >> 8;
+		corr = p;
 
+#if (L400_KI_Q16 != 0)
 		s_l400_rate_integ[i] += err;
 		s_l400_rate_integ[i] = l400_clamp_s32(s_l400_rate_integ[i],
 											 L400_RATE_INT_MAX);
-		i_term = (s_l400_rate_integ[i] * L400_KI_Q16) >> 16;
-
+		corr += (s_l400_rate_integ[i] * L400_KI_Q16) >> 16;
+#endif
+#if (L400_KD_Q8 != 0)
 		d_err = s_l400_rate_have_prev
 				? (err - s_l400_rate_prev_err[i]) : 0;
 		s_l400_rate_prev_err[i] = err;
-		d_term = (d_err * L400_KD_Q8) >> 8;
-
-		corr = p + i_term + d_term;
+		corr += (d_err * L400_KD_Q8) >> 8;
+#endif
 		s_l400_corr[i] = l400_clamp_s32(corr, L400_CORR_LIMIT_Q10);
 	}
+#if (L400_KD_Q8 != 0)
 	s_l400_rate_have_prev = 1;
+#endif
 	s_l400_ctrl_ok = 1;
 }
 
@@ -2602,6 +2702,10 @@ static void L400_Process(void)
 		&& (u32)(now - s_l400_pkt_tick) > L400_CMD_TIMEOUT_TICKS) {
 		s_l400_cmd_ok = 0;
 	}
+	// 链路/指令已经无效时，不等 IMU 读数成功也先把目标与输出清零
+	if (!s_l400_cmd_ok || !s_l400_link) {
+		L400_ControlInhibit();
+	}
 
 	// 实际采样开始：从原定拍点到这里就是主循环调度迟到量；
 	// 后面 t_exec1 - t_sample0 是 IMU + 估计 + P 环的执行时间。
@@ -2613,7 +2717,7 @@ static void L400_Process(void)
 	// 读一次 12 字节；失败不发布零值，只累计失败数，本拍仍走完计时与报告
 	if (t3488_read_6axis(raw_a, raw_g)) {
 		s_l400_fail++;
-		L400_ControlInhibit();     // 本拍没有新姿态/角速度：禁止输出
+		L400_ControlOutputsClear(); // 本拍没有新角速度：只清输出，保留摇杆目标
 	} else {
 		s_l400_sample++;
 		t_read1 = clock_time();
@@ -2701,7 +2805,8 @@ static void L400_Process(void)
 		if (att_updated) {
 			L400_ControlUpdate();
 		} else {
-			L400_ControlInhibit();
+			// 启动/长间断/更新失败：本拍无新姿态，先清输出但保留目标
+			L400_ControlOutputsClear();
 		}
 	}
 
