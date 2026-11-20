@@ -1942,6 +1942,9 @@ static void RcBringup_Report(void)
 #define L400_TICKS_PER_100US   (CLOCK_SYS_CLOCK_HZ / 10000)           // 2400 tick/0.1ms
 #define L400_TICKS_PER_US      (CLOCK_SYS_CLOCK_HZ / 1000000)         // 24 tick/us
 #define L400_REPORT_TICKS      (CLOCK_SYS_CLOCK_HZ / 10)              // 100ms 观察行
+// 报告提交余量：离下一拍不足 400us 就不拼文本、不提交，留到下一拍
+#define L400_TX_GUARD_US       400
+#define L400_TX_GUARD_TICKS    ((u32)L400_TX_GUARD_US * L400_TICKS_PER_US)
 
 // 指令超时：超过这么久没有有效摇杆包，摇杆指令失效（松杆实测约 20~30ms 一包）
 #define L400_CMD_TIMEOUT_MS    200
@@ -2008,6 +2011,8 @@ static u32 s_l400_cyc_max;         // 本统计周期内最大整拍耗时 us
 static u32 s_l400_cyc_peak;        // 上电以来最大整拍耗时 us
 static u32 s_l400_tx_tick;         // 下一次观察行时刻
 static u32 s_l400_stat_tick;       // 下一次统计行时刻
+static u8  s_l400_stat_deferred;   // 1Hz 统计行因余量不足/串口忙延期
+static u8  s_l400_tx_deferred;     // 10Hz 观察行因余量不足/串口忙延期
 
 // 分项耗时（本统计窗口累计/峰值，单位 us；统计行发出后清零）
 static u32 s_l400_late_sum_us;     // 原定拍点 → 实际采样开始
@@ -2196,6 +2201,8 @@ static void L400_StateReset(void)
 	s_l400_tick_cnt = 0;
 	s_l400_rx_cnt = 0;
 	s_l400_tx_cnt = 0;
+	s_l400_stat_deferred = 0;
+	s_l400_tx_deferred = 0;
 	s_l400_cmd[0] = 0;
 	s_l400_cmd[1] = 0;
 	s_l400_cmd[2] = 0;
@@ -2285,6 +2292,150 @@ static void L400_Startup(const att_i32 acc_mg[3], const att_i32 gyr_q10[3],
 		s_l400_prev_acc[i] = acc_mg[i];
 	}
 	s_l400_prev_ok = 1;
+}
+
+// 报告延期计数：一次报告事件只计一次，后续重试不重复累加
+static void l400_note_tx_defer(u8 *flag)
+{
+	if (!*flag) {
+		*flag = 1;
+		s_l400_txd++;
+	}
+}
+
+// 统计行发出后清空本窗口累计量；统计行自身的 tx 开销计入下一窗口
+static void L400_ResetWindow(void)
+{
+	s_l400_cyc_max = 0;
+	s_l400_gap_max_tick = 0;
+	s_l400_late_sum_us = 0;
+	s_l400_late_max_us = 0;
+	s_l400_exec_sum_us = 0;
+	s_l400_exec_max_us = 0;
+	s_l400_rx_sum_us = 0;
+	s_l400_rx_max_us = 0;
+	s_l400_tx_sum_us = 0;
+	s_l400_tx_max_us = 0;
+	s_l400_tick_cnt = 0;
+	s_l400_rx_cnt = 0;
+	s_l400_tx_cnt = 0;
+}
+
+// 1Hz 统计行：非阻塞提交；返回 1 已交给 DMA，0 串口忙（由调用方延期）
+static u8 L400_SendStats(u32 t_tx0)
+{
+	char buf[UART_DATA_LEN];
+	char *q = buf;
+	u32 late_avg, exec_avg, rx_avg, tx_avg;
+
+	// 本窗口平均值；本拍 late/exec 已累加进来，tx 报告本身
+	// 要等发完才计时，所以 tx 行显示的是上一个窗口的值。
+	late_avg = s_l400_tick_cnt ? s_l400_late_sum_us / s_l400_tick_cnt : 0;
+	exec_avg = s_l400_tick_cnt ? s_l400_exec_sum_us / s_l400_tick_cnt : 0;
+	rx_avg = s_l400_rx_cnt ? s_l400_rx_sum_us / s_l400_rx_cnt : 0;
+	tx_avg = s_l400_tx_cnt ? s_l400_tx_sum_us / s_l400_tx_cnt : 0;
+
+	// 全部定宽十六进制，最长 156 字节，保证不超 UART_DATA_LEN(160)
+	q = l400_put_str(q, "L400S bad=");
+	q = l400_put_hex(q, l400_cap(s_l400_bad, 0xFFFFu), 4);
+	q = l400_put_str(q, " n=");
+	q = l400_put_hex(q, l400_cap(s_l400_sample, 0xFFFFFFu), 6);
+	q = l400_put_str(q, " f=");
+	q = l400_put_hex(q, l400_cap(s_l400_fail, 0xFFFFu), 4);
+	q = l400_put_str(q, " gap=");
+	q = l400_put_hex(q, l400_cap(s_l400_gap, 0xFFFFu), 4);
+	q = l400_put_str(q, " eul=");
+	q = l400_put_hex(q, l400_cap(s_l400_euler_ok, 0xFFFFFFu), 6);
+	q = l400_put_str(q, " miss=");
+	q = l400_put_hex(q, l400_cap(s_l400_miss, 0xFFFFFFu), 6);
+	q = l400_put_str(q, " skip=");
+	q = l400_put_hex(q, l400_cap(s_l400_skip, 0xFFFFFFu), 6);
+	q = l400_put_str(q, " txd=");
+	q = l400_put_hex(q, l400_cap(s_l400_txd, 0xFFFFFFu), 6);
+	q = l400_put_str(q, " cyc=");
+	q = l400_put_hex(q, l400_cap(s_l400_cyc_max, 0xFFFFu), 4);
+	*q++ = '/';
+	q = l400_put_hex(q, l400_cap(s_l400_cyc_peak, 0xFFFFu), 4);
+	q = l400_put_str(q, " late=");
+	q = l400_put_hex(q, l400_cap(late_avg, 0xFFFFu), 4);
+	*q++ = '/';
+	q = l400_put_hex(q, l400_cap(s_l400_late_max_us, 0xFFFFu), 4);
+	q = l400_put_str(q, " exec=");
+	q = l400_put_hex(q, l400_cap(exec_avg, 0xFFFFu), 4);
+	*q++ = '/';
+	q = l400_put_hex(q, l400_cap(s_l400_exec_max_us, 0xFFFFu), 4);
+	q = l400_put_str(q, " rx=");
+	q = l400_put_hex(q, l400_cap(rx_avg, 0xFFFFu), 4);
+	*q++ = '/';
+	q = l400_put_hex(q, l400_cap(s_l400_rx_max_us, 0xFFFFu), 4);
+	q = l400_put_str(q, " tx=");
+	q = l400_put_hex(q, l400_cap(tx_avg, 0xFFFFu), 4);
+	*q++ = '/';
+	q = l400_put_hex(q, l400_cap(s_l400_tx_max_us, 0xFFFFu), 4);
+	*q++ = '\n';
+
+	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {
+		return 0;                  // 串口忙：不等待，下一拍再试
+	}
+	s_l400_stat_tick = t_tx0 + CLOCK_SYS_CLOCK_HZ;
+	s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;   // 这一拍不再发观察行
+	L400_ResetWindow();
+	return 1;
+}
+
+// 10Hz 观察行：非阻塞提交；返回 1 已交给 DMA，0 串口忙（由调用方延期）
+static u8 L400_SendMain(u32 t_tx0)
+{
+	char buf[UART_DATA_LEN];
+	char *q = buf;
+	u32 age_link, age_pkt, gap_ms;
+
+	// 两种包龄都用原始 tick 差换算（四舍五入到 ms）；从未收到过输出 9999
+	age_link = s_l400_have_link
+			 ? ((t_tx0 - s_l400_link_tick + L400_TICKS_PER_MS / 2)
+				/ L400_TICKS_PER_MS)
+			 : L400_MS_MAX;
+	age_pkt = s_l400_have_pkt
+			? ((t_tx0 - s_l400_pkt_tick + L400_TICKS_PER_MS / 2)
+			   / L400_TICKS_PER_MS)
+			: L400_MS_MAX;
+	gap_ms = (s_l400_gap_max_tick + L400_TICKS_PER_MS / 2) / L400_TICKS_PER_MS;
+	if (age_link > L400_MS_MAX) age_link = L400_MS_MAX;
+	if (age_pkt > L400_MS_MAX) age_pkt = L400_MS_MAX;
+	if (gap_ms > L400_MS_MAX) gap_ms = L400_MS_MAX;
+
+	q = l400_put_str(q, "L400 rdy=");
+	q = l400_put_u32(q, s_l400_att.ready);
+	q = l400_put_str(q, " lk=");
+	q = l400_put_u32(q, s_l400_link);
+	q = l400_put_str(q, " vld=");
+	q = l400_put_u32(q, s_l400_cmd_ok);
+	q = l400_put_str(q, " alk=");
+	q = l400_put_u32(q, age_link);
+	q = l400_put_str(q, " avld=");
+	q = l400_put_u32(q, age_pkt);
+	q = l400_put_str(q, " gpk=");
+	q = l400_put_u32(q, gap_ms);
+	q = l400_put_str(q, " g=");
+	q = l400_put_s32(q, s_l400_rate[0]);
+	*q++ = '/';
+	q = l400_put_s32(q, s_l400_rate[1]);
+	*q++ = '/';
+	q = l400_put_s32(q, s_l400_rate[2]);
+	q = l400_put_str(q, " c=");
+	q = l400_put_s32(q, s_l400_corr[0]);
+	*q++ = '/';
+	q = l400_put_s32(q, s_l400_corr[1]);
+	*q++ = '/';
+	q = l400_put_s32(q, s_l400_corr[2]);
+	*q++ = '\n';
+
+	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {
+		return 0;                  // 串口忙：不等待，下一拍再试
+	}
+	s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;
+	s_l400_gap_max_tick = 0;
+	return 1;
 }
 
 static void L400_Process(void)
@@ -2431,141 +2582,44 @@ static void L400_Process(void)
 	exec_us = (t_exec1 - t_sample0) / L400_TICKS_PER_US;
 	l400_add_timing(&s_l400_exec_sum_us, &s_l400_exec_max_us, exec_us);
 
-	// 低频串口输出：10Hz 观察行 + 1Hz 统计行；同一拍最多发一帧，
-	// 避免第二帧等待上一帧 DMA 完成而把 400Hz 节拍拖长
+	// 低频串口输出：400Hz 到点先保证采样/控制，报告只在本拍余量足够时
+	// 非阻塞提交；余量不足或串口忙就延期到下一拍，绝不等待 DMA。
 	{
 		u32 t_tx0 = clock_time();
 		u32 t_tx1;
-		u8 sent = 0;
+		u8 attempted = 0;
+		u8 stat_due = ((s32)(t_tx0 - s_l400_stat_tick) >= 0) ? 1 : 0;
+		u8 main_due = ((s32)(t_tx0 - s_l400_tx_tick) >= 0) ? 1 : 0;
+		u8 budget_ok = ((s32)(s_l400_next_tick - t_tx0)
+						>= (s32)L400_TX_GUARD_TICKS) ? 1 : 0;
 
-		if ((s32)(t_tx0 - s_l400_stat_tick) >= 0) {
-			char buf[UART_DATA_LEN];
-			char *q = buf;
-			u32 late_avg, exec_avg, rx_avg, tx_avg;
-
-			// 本窗口平均值；本拍 late/exec 已累加进来，tx 报告本身
-			// 要等发完才计时，所以 tx 行显示的是上一个窗口的值。
-			late_avg = s_l400_tick_cnt ? s_l400_late_sum_us / s_l400_tick_cnt : 0;
-			exec_avg = s_l400_tick_cnt ? s_l400_exec_sum_us / s_l400_tick_cnt : 0;
-			rx_avg = s_l400_rx_cnt ? s_l400_rx_sum_us / s_l400_rx_cnt : 0;
-			tx_avg = s_l400_tx_cnt ? s_l400_tx_sum_us / s_l400_tx_cnt : 0;
-
-			// 全部定宽十六进制，最长 156 字节，保证不超 UART_DATA_LEN(160)
-			q = l400_put_str(q, "L400S bad=");
-			q = l400_put_hex(q, l400_cap(s_l400_bad, 0xFFFFu), 4);
-			q = l400_put_str(q, " n=");
-			q = l400_put_hex(q, l400_cap(s_l400_sample, 0xFFFFFFu), 6);
-			q = l400_put_str(q, " f=");
-			q = l400_put_hex(q, l400_cap(s_l400_fail, 0xFFFFu), 4);
-			q = l400_put_str(q, " gap=");
-			q = l400_put_hex(q, l400_cap(s_l400_gap, 0xFFFFu), 4);
-			q = l400_put_str(q, " eul=");
-			q = l400_put_hex(q, l400_cap(s_l400_euler_ok, 0xFFFFFFu), 6);
-			q = l400_put_str(q, " miss=");
-			q = l400_put_hex(q, l400_cap(s_l400_miss, 0xFFFFFFu), 6);
-			q = l400_put_str(q, " skip=");
-			q = l400_put_hex(q, l400_cap(s_l400_skip, 0xFFFFFFu), 6);
-			q = l400_put_str(q, " txd=");
-			q = l400_put_hex(q, l400_cap(s_l400_txd, 0xFFFFFFu), 6);
-			q = l400_put_str(q, " cyc=");
-			q = l400_put_hex(q, l400_cap(s_l400_cyc_max, 0xFFFFu), 4);
-			*q++ = '/';
-			q = l400_put_hex(q, l400_cap(s_l400_cyc_peak, 0xFFFFu), 4);
-			q = l400_put_str(q, " late=");
-			q = l400_put_hex(q, l400_cap(late_avg, 0xFFFFu), 4);
-			*q++ = '/';
-			q = l400_put_hex(q, l400_cap(s_l400_late_max_us, 0xFFFFu), 4);
-			q = l400_put_str(q, " exec=");
-			q = l400_put_hex(q, l400_cap(exec_avg, 0xFFFFu), 4);
-			*q++ = '/';
-			q = l400_put_hex(q, l400_cap(s_l400_exec_max_us, 0xFFFFu), 4);
-			q = l400_put_str(q, " rx=");
-			q = l400_put_hex(q, l400_cap(rx_avg, 0xFFFFu), 4);
-			*q++ = '/';
-			q = l400_put_hex(q, l400_cap(s_l400_rx_max_us, 0xFFFFu), 4);
-			q = l400_put_str(q, " tx=");
-			q = l400_put_hex(q, l400_cap(tx_avg, 0xFFFFu), 4);
-			*q++ = '/';
-			q = l400_put_hex(q, l400_cap(s_l400_tx_max_us, 0xFFFFu), 4);
-			*q++ = '\n';
-			UartDbgSend((unsigned char *)buf, (u8)(q - buf));
-
-			s_l400_stat_tick = t_tx0 + CLOCK_SYS_CLOCK_HZ;
-			s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;   // 这一拍不再发观察行
-			s_l400_cyc_max = 0;
-			s_l400_gap_max_tick = 0;
-			s_l400_late_sum_us = 0;
-			s_l400_late_max_us = 0;
-			s_l400_exec_sum_us = 0;
-			s_l400_exec_max_us = 0;
-			s_l400_rx_sum_us = 0;
-			s_l400_rx_max_us = 0;
-			s_l400_tx_sum_us = 0;
-			s_l400_tx_max_us = 0;
-			s_l400_tick_cnt = 0;
-			s_l400_rx_cnt = 0;
-			s_l400_tx_cnt = 0;
-			sent = 1;
-		} else if ((s32)(t_tx0 - s_l400_tx_tick) >= 0) {
-			char buf[UART_DATA_LEN];
-			char *q = buf;
-			u32 age_link, age_pkt, gap_ms;
-
-			// 两种包龄都用原始 tick 差换算（四舍五入到 ms）；从未收到过输出 9999
-			age_link = s_l400_have_link
-					 ? ((t_tx0 - s_l400_link_tick + L400_TICKS_PER_MS / 2)
-						/ L400_TICKS_PER_MS)
-					 : L400_MS_MAX;
-			age_pkt = s_l400_have_pkt
-					? ((t_tx0 - s_l400_pkt_tick + L400_TICKS_PER_MS / 2)
-					   / L400_TICKS_PER_MS)
-					: L400_MS_MAX;
-			gap_ms = (s_l400_gap_max_tick + L400_TICKS_PER_MS / 2) / L400_TICKS_PER_MS;
-			if (age_link > L400_MS_MAX) age_link = L400_MS_MAX;
-			if (age_pkt > L400_MS_MAX) age_pkt = L400_MS_MAX;
-			if (gap_ms > L400_MS_MAX) gap_ms = L400_MS_MAX;
-
-			q = l400_put_str(q, "L400 rdy=");
-			q = l400_put_u32(q, s_l400_att.ready);
-			q = l400_put_str(q, " lk=");
-			q = l400_put_u32(q, s_l400_link);
-			q = l400_put_str(q, " vld=");
-			q = l400_put_u32(q, s_l400_cmd_ok);
-			q = l400_put_str(q, " alk=");
-			q = l400_put_u32(q, age_link);
-			q = l400_put_str(q, " avld=");
-			q = l400_put_u32(q, age_pkt);
-			q = l400_put_str(q, " gpk=");
-			q = l400_put_u32(q, gap_ms);
-			q = l400_put_str(q, " g=");
-			q = l400_put_s32(q, s_l400_rate[0]);
-			*q++ = '/';
-			q = l400_put_s32(q, s_l400_rate[1]);
-			*q++ = '/';
-			q = l400_put_s32(q, s_l400_rate[2]);
-			q = l400_put_str(q, " c=");
-			q = l400_put_s32(q, s_l400_corr[0]);
-			*q++ = '/';
-			q = l400_put_s32(q, s_l400_corr[1]);
-			*q++ = '/';
-			q = l400_put_s32(q, s_l400_corr[2]);
-			*q++ = '\n';
-			UartDbgSend((unsigned char *)buf, (u8)(q - buf));
-
-			s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;
-			s_l400_gap_max_tick = 0;
-			sent = 1;
+		if ((stat_due || main_due) && !budget_ok) {
+			// 离下一拍不足 400us：先保采样/控制，报告留到下一拍
+			if (stat_due) {
+				l400_note_tx_defer(&s_l400_stat_deferred);
+			} else {
+				l400_note_tx_defer(&s_l400_tx_deferred);
+			}
+		} else if (stat_due) {
+			attempted = 1;
+			if (L400_SendStats(t_tx0)) {
+				s_l400_stat_deferred = 0;
+				s_l400_tx_deferred = 0;   // 这一拍主行被统计行顶替
+			} else {
+				l400_note_tx_defer(&s_l400_stat_deferred);
+			}
+		} else if (main_due) {
+			attempted = 1;
+			if (L400_SendMain(t_tx0)) {
+				s_l400_tx_deferred = 0;
+			} else {
+				l400_note_tx_defer(&s_l400_tx_deferred);
+			}
 		}
 
-		// 串口报告开销：本拍从拼文本到 UartDbgSend 提交完成；
-		// 同时判断这次输出是否把下一拍推迟了（发前未到截止、发后已过截止）。
+		// 串口报告开销：只统计真正拼过文本的拍；没拼就延期的不计入
 		t_tx1 = clock_time();
-		if (sent
-			&& (s32)(t_tx0 - s_l400_next_tick) < 0
-			&& (s32)(t_tx1 - s_l400_next_tick) >= 0) {
-			s_l400_txd++;
-		}
-		if (sent) {
+		if (attempted) {
 			l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us,
 							(t_tx1 - t_tx0) / L400_TICKS_PER_US);
 			s_l400_tx_cnt++;
@@ -2598,10 +2652,12 @@ void User_main_loop_process(void)
 
 #if (C_ATT_BENCH_EN)
 #if (C_RC_LOOP_400_EN)
+	// 400Hz 到点时先执行采样/控制；射频中断仍在后台收包，
+	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
+	L400_Process();
 	d24_rx_main_loop();
 	TimeBaseGenerate();
 	car_work();
-	L400_Process();
 	return;
 #elif (C_RC_BRINGUP_EN)
 	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转

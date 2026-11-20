@@ -196,6 +196,11 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   恢复接收后按新帧更新。
 - CSV 保护：打开串口和文件之前检查 `--csv` 与 `--stats-csv` 是否指向同一文件；
   相同会明确报错退出，已有文件内容不会被截断。默认六轴和 `--attitude` 模式也做同样检查。
+- 调度（新固件）：400Hz 到点先执行 L400 采样/控制，再做 `d24_rx_main_loop`
+  的配对/ACK 和应用层收包；射频中断仍保留，控制优先。
+- 报告（新固件）：`UartTrySend` 非阻塞提交；离下一拍不足 400us 或串口忙时
+  本拍不拼报，延期到下一拍。`txd` 现在表示**报告延期次数**（预算不足或串口忙），
+  不再表示“跨过下一拍截止”；`tx` 只统计真正拼过文本的拍。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、长间断 `gap`、坏包 `bad`、
   超时 `miss`、跳拍 `skip`、串口推迟 `txd`，以及整拍 `cyc=本周期最大/上电峰值`。
   新固件还会多一行分项耗时：
@@ -218,16 +223,16 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   L400S bad=0000 n=0012C0 f=0000 gap=0000 eul=0012C0 miss=000000 skip=000000 txd=000000 cyc=09BA/0C1C late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096
   ```
 
-- 本轮计时测试镜像（未纳入 `firmware_delivery/daily`）：
-  `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_timing.bin`，
-  26468 字节，SHA256 `A695FEAF623D5F1888B06424250DF31E1A23047EF5586CAE43DC3AFDE042F5B7`，
+- 本轮调度+计时测试镜像（未纳入 `firmware_delivery/daily`）：
+  `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_sched.bin`，
+  26644 字节，SHA256 `CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16`，
   烧 0x4000；验证通过后再决定是否替换日常 400Hz 版。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
 - 解析/分块收包/CSV 自测：`python test_l400_monitor.py`。
 - 旧 7d01167 十进制格式已在 COM12 实机抓取验证；新十六进制 + 分项耗时格式
-  已由模拟源、解析和 CSV 测试覆盖，实机计时需烧录 timing 测试镜像后再采集。
+  已由模拟源、解析和 CSV 测试覆盖，实机调度/计时需烧录 sched 测试镜像后再采集。
 
 ### 台架姿态固件（文本协议，--attitude）
 
