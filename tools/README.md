@@ -113,6 +113,26 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 
 ## 3. 陀螺仪静止零偏
 
+### 3.1 先刷地面维护镜像（校准专用）
+
+校准脚本吃的是 **0x269A 原始六轴帧**，普通姿态固件发的是四元数文本，所以标定前必须换成维护镜像：
+
+| 镜像 | 用途 | 串口输出 |
+|---|---|---|
+| `Robin_24G_Car_maint_269a.bin` | **校准用**（本节目录下的三个脚本都要它） | 只有 0x269A 二进制帧，约 100 Hz |
+| `Robin_24G_Car_attitude_400hz.bin` | 台架姿态验证 | 只有 ATT 四元数文本 + STA/STA2 统计 |
+
+两份都在 `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\` 下，
+统一烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
+
+维护镜像的特性：沿用台架固件的 T-3488 初始化（±16g、±2000°/s、800 Hz ODR、片内低通 SEL=3），
+电机保持停转；帧里的六轴是**传感器原坐标系、轴映射/扣偏/软件滤波之前**的原始计数，
+`bx/by/bz` 填 0、`flags` 也是 0（未解锁、未扣偏、未软件滤波）。
+
+**上电顺序**：烧录完成 → **断电重新上电**（不要只按复位，避免残留状态）→ 等 1 秒让固件完成传感器初始化 → 再运行脚本。
+
+### 3.2 跑标定
+
 ```powershell
 Set-Location "E:\泡沫纸飞机\code\tools"
 python gyro_bias_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.json" --out "..\data\gyro_bias_frd.json"

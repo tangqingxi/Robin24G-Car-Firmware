@@ -23,6 +23,13 @@
 //********************************************************************
 #define C_ATT_BENCH_EN            1
 
+// 地面维护镜像开关（校准用）：1 = 只发 0x269A 原始六轴帧，0 = 姿态台架
+//	维护镜像用编译选项 -DC_MAINT_269A_EN=1 单独构建，源码不需要改；
+//	维护模式同样不初始化 PWM/旧控制链，电机保持停转。
+#ifndef C_MAINT_269A_EN
+#define C_MAINT_269A_EN           0
+#endif
+
 // ---- 采样与串口 ----
 #define C_ATT_SAMPLE_HZ           400       // MCU 读取率（台架实测目标 400Hz）
 #define C_ATT_SAMPLE_US           (1000000 / C_ATT_SAMPLE_HZ)   // 标称采样周期 2500us

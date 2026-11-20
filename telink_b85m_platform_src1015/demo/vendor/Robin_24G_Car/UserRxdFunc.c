@@ -1037,6 +1037,9 @@ void RxdFunction_loop(void)
 	}
 }
 
+// 台架姿态估计整块只在姿态镜像里编译；维护镜像用 -DC_MAINT_269A_EN=1 构建，
+// 这块整体不参与，省 Flash 也避免"定义了没人用"的告警。
+#if (!C_MAINT_269A_EN)
 //**************************************************************
 // 台架姿态估计（原独立模块已合入本文件）
 //   T-3488 直读 → FRD 映射与校准 → 加计一阶低通 → 四元数姿态 → 串口文本
@@ -1696,15 +1699,85 @@ static void BenchAtt_Process(void)
 	}
 }
 
+#endif /* !C_MAINT_269A_EN */
+
+#if (C_MAINT_269A_EN)
+// =====================================================================================
+// 地面维护模式：只把 T-3488 的原始六轴计数打成 0x269A 帧（约 100Hz）
+//   * 取的是传感器原坐标系、轴映射/扣偏/软件滤波之前的原始计数；
+//   * 帧里的零偏字段填 0，flags 也是 0（未解锁、未扣偏、未软件滤波）；
+//   * 轴映射与加计校准都由上位机脚本完成，固件不参与；
+//   * 电机保持停转：维护模式不初始化 PWM，也不进旧控制链。
+// =====================================================================================
+#define MAINT_SAMPLE_HZ        100
+#define MAINT_SAMPLE_TICKS     (CLOCK_SYS_CLOCK_HZ / MAINT_SAMPLE_HZ)
+
+static u8  s_maint_inited;
+static u32 s_maint_retry_tick;
+static u32 s_maint_next_tick;
+
+// 与台架固件完全相同的传感器初始化：±16g / ±2000dps / 800Hz ODR / 片内低通
+static void Maint_Init(void)
+{
+	u32 now = clock_time();
+	u8 lpf_rb = 0;
+
+	if ((s32)(now - s_maint_retry_tick) < 0) {
+		return;
+	}
+	s_maint_retry_tick = now + CLOCK_SYS_CLOCK_HZ;      // 失败后 1s 重试
+
+	if (t3488_bench_init(C_GYRO_LPF_SEL, &lpf_rb)) {
+		return;
+	}
+	s_maint_next_tick = clock_time() + MAINT_SAMPLE_TICKS;
+	s_maint_inited = 1;
+}
+
+static void Maint_Process(void)
+{
+	static const s16 zero_bias[3] = { 0, 0, 0 };
+	int16_t raw_acc[3], raw_gyr[3];
+	u32 now;
+
+	if (!s_maint_inited) {
+		Maint_Init();
+		return;
+	}
+
+	now = clock_time();
+	if ((s32)(now - s_maint_next_tick) < 0) {
+		return;
+	}
+	s_maint_next_tick += MAINT_SAMPLE_TICKS;
+	if ((s32)(clock_time() - s_maint_next_tick) > 0) {
+		s_maint_next_tick = clock_time() + MAINT_SAMPLE_TICKS;   // 落后就重排
+	}
+
+	// 一次连续读 12 字节：原坐标系、未映射、未扣偏、未滤波
+	if (t3488_read_6axis(raw_acc, raw_gyr)) {
+		return;                     // 读失败不发帧，避免把 0 当成数据送去标定
+	}
+
+	// 0x269A：flags=0（未解锁/未扣偏/未软件滤波），零偏字段填 0
+	UartSensorFrameSend((const s16 *)raw_acc, (const s16 *)raw_gyr, zero_bias, 0);
+}
+#endif /* C_MAINT_269A_EN */
+
 //**************************************************************
 void User_main_loop_process(void)
 {
 	wd_32k_feed();
 
 #if (C_ATT_BENCH_EN)
+#if (C_MAINT_269A_EN)
+	// 地面维护入口：只读 T-3488 原始六轴 + 0x269A 二进制帧（校准用）
+	Maint_Process();
+#else
 	// 台架姿态估计入口：只读 T-3488 + 串口文本输出
 	// 不进入旧遥控解码、姿态控制、混控、气压高度等路径（电机保持停转）
 	BenchAtt_Process();
+#endif
 	return;
 #endif
 
