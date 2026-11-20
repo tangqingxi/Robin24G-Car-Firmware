@@ -1094,6 +1094,21 @@ static struct {
 	u32 euler_ok;                      // Euler_Update 成功次数
 } s_bench_stat;
 
+// 分项计时：按这一拍实际做了哪些文本格式化分类
+//   0=普通拍（没有输出） 1=只处理 ATT 2=只处理 STA 3=ATT 和 STA 都处理
+//   发送因串口忙被丢弃的拍也算"处理过"，因为格式化和提交都真的执行了
+static struct {
+	u32 cnt[4];            // 各分类的拍数
+	u32 over[4];           // 各分类里整拍超过标称采样周期（2500us）的次数
+	u16 max_us[4];         // 各分类的整拍最大耗时
+} s_bench_cat;
+static const char *s_bench_cat_name[4] = { " c0=", " c1=", " c2=", " c3=" };
+
+// STA 单独计时：从开始生成 STA 文本到尝试提交 DMA
+static u32 s_bench_sta_cnt;
+static u32 s_bench_sta_sum_us;
+static u16 s_bench_sta_max_us;
+
 // 加速度一阶低通系数缓存（Q15）：α 只与 dt 有关，dt 变化超过 50us 才重算
 static att_i32 s_bench_lpf_alpha;
 static u32     s_bench_lpf_alpha_dt_us;
@@ -1232,6 +1247,17 @@ static void BenchAtt_Init(void)
 	s_bench_gyro_rem[0] = 0;
 	s_bench_gyro_rem[1] = 0;
 	s_bench_gyro_rem[2] = 0;
+	{
+		u8 k;
+		for (k = 0; k < 4; k++) {
+			s_bench_cat.cnt[k] = 0;
+			s_bench_cat.over[k] = 0;
+			s_bench_cat.max_us[k] = 0;
+		}
+	}
+	s_bench_sta_cnt = 0;
+	s_bench_sta_sum_us = 0;
+	s_bench_sta_max_us = 0;
 
 	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	s_bench_inited = 1;
@@ -1292,6 +1318,8 @@ static void BenchAtt_Process(void)
 	att_i32 dt_100us = 0;
 	u8 st;
 	u32 t_read0, t_read1, t_up0, t_up1, t_cyc0;
+	u8 did_att = 0;          // 本拍是否真的拼了 ATT 文本
+	u8 did_sta = 0;          // 本拍是否真的拼了 STA 文本
 	int i;
 
 	if (!s_bench_inited) {
@@ -1452,6 +1480,7 @@ static void BenchAtt_Process(void)
 		char *q;
 
 		s_bench_tx_tick = now;
+		did_att = 1;
 
 		// 只发 Q15 四元数（w/x/y/z，32768 = 1.0），欧拉角交给上位机换算，
 		// 这样 14Hz 输出这一拍不做 atan2，也不会挤占下一拍的采样预算
@@ -1473,8 +1502,10 @@ static void BenchAtt_Process(void)
 	if ((u32)(now - s_bench_stat_tick) >= BENCH_STAT_TICKS) {
 		char buf[160];
 		char *q;
+		u32 t_sta0 = clock_time();       // STA 单独计时的起点：开始拼文本
 
 		s_bench_stat_tick = now;
+		did_sta = 1;
 		q = buf;
 		q = bench_put_str(q, "STA n=");
 		q = bench_put_u32(q, s_bench_stat.valid);
@@ -1527,12 +1558,59 @@ static void BenchAtt_Process(void)
 		}
 		*q++ = '\n';
 		bench_send(buf, (int)(q - buf));
+
+		// STA 从开始拼文本到尝试提交 DMA 的耗时（单独一项，便于判断尖峰来源）
+		{
+			u32 us = (clock_time() - t_sta0) / BENCH_TICKS_PER_US;
+
+			if (us > s_bench_sta_max_us) s_bench_sta_max_us = (u16)us;
+			s_bench_sta_sum_us += us;
+			s_bench_sta_cnt++;
+		}
+
+		// ---- 分项汇总（1Hz，与 STA 同频）：四类拍的拍数/最大耗时/超期次数 ----
+		{
+			char buf2[96];
+			char *r = buf2;
+			u8 k;
+
+			r = bench_put_str(r, "STA2");
+			for (k = 0; k < 4; k++) {
+				r = bench_put_str(r, s_bench_cat_name[k]);
+				r = bench_put_u32(r, s_bench_cat.cnt[k]);
+				*r++ = '/';
+				r = bench_put_u32(r, s_bench_cat.max_us[k]);
+				*r++ = '/';
+				r = bench_put_u32(r, s_bench_cat.over[k]);
+			}
+			r = bench_put_str(r, " sta=");
+			r = bench_put_u32(r, s_bench_sta_cnt ? (s_bench_sta_sum_us / s_bench_sta_cnt) : 0);
+			*r++ = '/';
+			r = bench_put_u32(r, s_bench_sta_max_us);
+			*r++ = '\n';
+			bench_send(buf2, (int)(r - buf2));
+
+			for (k = 0; k < 4; k++) {
+				s_bench_cat.cnt[k] = 0;
+				s_bench_cat.max_us[k] = 0;
+				s_bench_cat.over[k] = 0;
+			}
+			s_bench_sta_cnt = 0;
+			s_bench_sta_sum_us = 0;
+			s_bench_sta_max_us = 0;
+		}
 	}
 
 	// ---- 7) 整拍耗时：从本次读取前到本拍串口格式化与提交 DMA 之后 ----
 	{
 		u32 t_cyc1 = clock_time();
 		u16 us = (u16)((t_cyc1 - t_cyc0) / BENCH_TICKS_PER_US);
+		u8 cat = (u8)((did_att ? 1 : 0) | (did_sta ? 2 : 0));
+
+		// 分项统计：拍数、该分类整拍最大耗时、该分类超过 2500us 的次数
+		s_bench_cat.cnt[cat]++;
+		if (us > s_bench_cat.max_us[cat]) s_bench_cat.max_us[cat] = us;
+		if (us > C_ATT_SAMPLE_US) s_bench_cat.over[cat]++;
 
 		if (us < s_bench_stat.cyc_min_us) s_bench_stat.cyc_min_us = us;
 		if (us > s_bench_stat.cyc_max_us) s_bench_stat.cyc_max_us = us;

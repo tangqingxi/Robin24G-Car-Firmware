@@ -263,9 +263,17 @@ class SimSource:
 #   ATT t=12345 rdy=1 q=32768/0/0/0                  ← 新：Q15 四元数 w/x/y/z
 #   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 旧：姿态样本，字段已是度
 #   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48
+#   STA2 c0=12000/410/0 ... sta=210/260              ← 分项计时（四类拍 + STA 单项）
 # ----------------------------------------------------------------------------
 ATT_CSV_FIELDS = ["recv_s", "recv_epoch", "t_ms", "rdy",
                   "roll_deg", "pitch_deg", "yaw_deg"]
+ATT_CAT_FIELDS = ["recv_s", "recv_epoch",
+                  "c0_cnt", "c0_max_us", "c0_over",
+                  "c1_cnt", "c1_max_us", "c1_over",
+                  "c2_cnt", "c2_max_us", "c2_over",
+                  "c3_cnt", "c3_max_us", "c3_over",
+                  "sta_avg_us", "sta_max_us"]
+
 ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
                    "up_avg_us", "up_max_us",
@@ -312,6 +320,13 @@ def quat_q15_to_euler_deg(qw, qx, qy, qz):
     pitch = math.degrees(math.asin(sin_p))
     yaw = math.degrees(math.atan2(r10, r00))
     return roll, pitch, yaw
+
+
+_STA2_LINE_RE = re.compile(
+    r"^STA2"
+    r"\s+c0=(\d+)/(\d+)/(\d+)\s+c1=(\d+)/(\d+)/(\d+)"
+    r"\s+c2=(\d+)/(\d+)/(\d+)\s+c3=(\d+)/(\d+)/(\d+)"
+    r"\s+sta=(\d+)/(\d+)\s*$")
 
 
 def attitude_state_of(line):
@@ -395,6 +410,17 @@ def parse_attitude_line(line):
             stat["z_pre_lsb"] = None
             stat["z_post_lsb"] = None
         return ("sta", stat)
+    m = _STA2_LINE_RE.match(line)
+    if m:
+        g = [int(x) for x in m.groups()]
+        return ("sta2", {
+            "c0_cnt": g[0], "c0_max_us": g[1], "c0_over": g[2],
+            "c1_cnt": g[3], "c1_max_us": g[4], "c1_over": g[5],
+            "c2_cnt": g[6], "c2_max_us": g[7], "c2_over": g[8],
+            "c3_cnt": g[9], "c3_max_us": g[10], "c3_over": g[11],
+            "sta_avg_us": g[12], "sta_max_us": g[13],
+        })
+
     if attitude_state_of(line):
         return ("status", line)
     return None
@@ -473,6 +499,9 @@ class SimAttitudeSource:
                 self._push(f"STA n={valid} f=0 g=0 dt=2499/2501 "
                            f"rd=110/130 up=30/42 cyc=620/780 miss=0 skip=0 eul={valid} "
                            f"zb=-1.32/+0.00")
+                # 分项：普通拍/只 ATT/只 STA/两者，以及 STA 单项耗时
+                self._push(f"STA2 c0={max(0, valid - 28)}/410/0 c1=28/520/0 "
+                           f"c2=0/0/0 c3=0/0/0 sta=210/260")
 
     def read(self):
         self._fill()
@@ -491,11 +520,12 @@ class SimAttitudeSource:
 class AttitudeWorker(threading.Thread):
     """台架文本采集线程：拆行 → 解析 ATT/STA → 写两份 CSV → 姿态样本入队"""
 
-    def __init__(self, source, csv_path, stat_path, sample_queue):
+    def __init__(self, source, csv_path, stat_path, sample_queue, cat_path=None):
         super().__init__(daemon=True)
         self.source = source
         self.csv_path = csv_path
         self.stat_path = stat_path
+        self.cat_path = cat_path
         self.queue = sample_queue
         self.stop_event = threading.Event()
 
@@ -505,6 +535,7 @@ class AttitudeWorker(threading.Thread):
         self.state = "等待数据"  # 初始化完成 / 等待静止 / 姿态就绪 / 初始化失败
         self.detail = ""         # 状态的简短说明
         self.last_stat = None    # 最近一条 STA
+        self.last_cat = None     # 最近一条 STA2（分项计时）
         self.error = ""
         self.start_wall = time.time()
         self._buf = b""
@@ -516,7 +547,7 @@ class AttitudeWorker(threading.Thread):
         return (f"姿态 {self.frames} 条  统计 {self.perf_frames} 条  "
                 f"无法识别 {self.bad} 行  状态 {self.state}")
 
-    def _handle_line(self, line, writer, stat_writer):
+    def _handle_line(self, line, writer, stat_writer, cat_writer=None):
         parsed = parse_attitude_line(line)
         if parsed is None:
             self.bad += 1
@@ -578,19 +609,40 @@ class AttitudeWorker(threading.Thread):
             print(line, flush=True)
             return
 
+        if kind == "sta2":
+            self.last_cat = payload
+            if cat_writer is not None:
+                row = {"recv_s": f"{now - self.start_wall:.3f}",
+                       "recv_epoch": f"{now:.3f}"}
+                row.update(payload)
+                cat_writer.writerow(row)
+            print(f"[分项] 普通 {payload['c0_cnt']}/{payload['c0_max_us']}us/超{payload['c0_over']}  "
+                  f"只ATT {payload['c1_cnt']}/{payload['c1_max_us']}us/超{payload['c1_over']}  "
+                  f"只STA {payload['c2_cnt']}/{payload['c2_max_us']}us/超{payload['c2_over']}  "
+                  f"ATT+STA {payload['c3_cnt']}/{payload['c3_max_us']}us/超{payload['c3_over']}  "
+                  f"STA单项 {payload['sta_avg_us']}/{payload['sta_max_us']}us", flush=True)
+            return
+
         # 状态行
         self.state = attitude_state_of(line) or self.state
         self.detail = attitude_detail_of(line)
         print(f"[台架] {line}", flush=True)
 
     def run(self):
+        cat_fp = None
         try:
+            cat_fp = open(self.cat_path, "w", newline="", encoding="utf-8-sig") \
+                if self.cat_path else None
             with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp, \
                     open(self.stat_path, "w", newline="", encoding="utf-8-sig") as sfp:
                 writer = csv.DictWriter(fp, fieldnames=ATT_CSV_FIELDS)
                 writer.writeheader()
                 stat_writer = csv.DictWriter(sfp, fieldnames=ATT_STAT_FIELDS)
                 stat_writer.writeheader()
+                cat_writer = None
+                if cat_fp is not None:
+                    cat_writer = csv.DictWriter(cat_fp, fieldnames=ATT_CAT_FIELDS)
+                    cat_writer.writeheader()
 
                 while not self.stop_event.is_set():
                     data = self.source.read()
@@ -602,7 +654,7 @@ class AttitudeWorker(threading.Thread):
                         raw, self._buf = self._buf.split(b"\n", 1)
                         line = raw.decode("utf-8", "replace").strip()
                         if line:
-                            self._handle_line(line, writer, stat_writer)
+                            self._handle_line(line, writer, stat_writer, cat_writer)
                     if len(self._buf) > 512:
                         # 迟迟没有换行：多半是波特率/接线不对，丢掉避免无限增长
                         self.bad += 1
@@ -610,6 +662,11 @@ class AttitudeWorker(threading.Thread):
         except Exception as exc:          # 串口异常：记录下来给界面/控制台
             self.error = f"{type(exc).__name__}: {exc}"
         finally:
+            try:
+                if cat_fp is not None:
+                    cat_fp.close()
+            except Exception:
+                pass
             try:
                 self.source.close()
             except Exception:
@@ -1022,6 +1079,10 @@ class SensorMonitor:
                         f" 超期 {s['miss']} 跳拍 {s['skip']} 更新 {s['euler_ok']}")
             if s.get("z_post_lsb") is not None:
                 msg += f" Z偏前{s['z_pre_lsb']:+.2f}/偏后{s['z_post_lsb']:+.2f}"
+        c = w.last_cat
+        if c:
+            msg += (f" | 分项max {c['c0_max_us']}/{c['c1_max_us']}"
+                    f"/{c['c2_max_us']}/{c['c3_max_us']}us")
         else:
             msg += " | 等待统计…"
         msg += " | F 跟随 / Q 退出"
@@ -1276,12 +1337,14 @@ def run_attitude(args):
 
     csv_path = make_attitude_csv_path(args.csv)
     stat_path = make_att_stat_path(args.stats_csv, csv_path)
+    cat_path = f"{os.path.splitext(csv_path)[0]}_cat.csv"
     sample_queue = queue.Queue(maxsize=2000)
-    worker = AttitudeWorker(source, csv_path, stat_path, sample_queue)
+    worker = AttitudeWorker(source, csv_path, stat_path, sample_queue, cat_path)
 
     print(f"数据源：{port_name}（姿态模式，文本协议）")
     print(f"姿态 CSV：{csv_path}")
     print(f"统计 CSV：{stat_path}")
+    print(f"分项 CSV：{cat_path}（四类拍的拍数/最大耗时/超期次数）")
     print("提示：先看 ATT init ok / ATT ready；ATT wait still 表示还在等飞机静止。")
 
     if args.no_plot:
@@ -1289,6 +1352,7 @@ def run_attitude(args):
         print(f"姿态 CSV：{csv_path}（{worker.frames} 条 ATT）")
         print(f"统计 CSV：{stat_path}（{worker.perf_frames} 条 STA，"
               f"无法识别 {worker.bad} 行）")
+        print(f"分项 CSV：{cat_path}")
         return
 
     worker.start()
@@ -1304,6 +1368,7 @@ def run_attitude(args):
     print(f"姿态 CSV：{csv_path}（{worker.frames} 条 ATT）")
     print(f"统计 CSV：{stat_path}（{worker.perf_frames} 条 STA，"
           f"无法识别 {worker.bad} 行）")
+    print(f"分项 CSV：{cat_path}")
 
 
 def run(args):

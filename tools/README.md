@@ -150,7 +150,8 @@ python uart_sensor_monitor.py --port COM12 --attitude --duration 120 --csv "..\d
   画横滚、俯仰、相对偏航三条曲线，状态栏同时显示最新三个角度与固件状态
   （ATT init / wait still / ready / 初始化失败）；
 - 状态栏还显示最新一条 STA 的有效帧数、读失败、长间断与 dt/rd/up 耗时；
-- 姿态样本存 `att.csv`，统计存 `att_stats.csv`，两分钟静置验收直接看这两个文件；
+- 姿态样本存 `att.csv`，统计存 `att_stats.csv`，分项计时（四类拍的拍数/最大耗时/超期
+  次数，来自固件的 `STA2` 行）存 `att_cat.csv`，两分钟静置验收直接看这三个文件；
 - 不加 `--attitude` 时仍是原来的 0x269A / 0x269B 二进制帧模式，行为和参数不变。
 
 ---
