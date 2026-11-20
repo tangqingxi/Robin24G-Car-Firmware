@@ -4,7 +4,7 @@
 uart_sensor_monitor.py 的 L400 模式自测。
 
 覆盖：
-  1. 7d01167 固件实际输出的 L400 / L400S / init 行解析；
+  1. 7d01167 旧十进制 L400S，以及带 late/exec/rx/tx 的新十六进制 L400S；
   2. Q10 rad/s → °/s 换算；
   3. 串口分块到达时 L400Worker 的拆行、两份 CSV 与统计；
   4. 模拟源在 10Hz / 1Hz 下产生可解析的文本；
@@ -31,6 +31,10 @@ L400_SAMPLE = ("L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 "
                "g=+512/-256/+0 c=-128/+64/-0")
 L400_STAT_SAMPLE = ("L400S bad=0 n=12345 f=0 gap=0 eul=12000 "
                     "miss=0 skip=0 txd=0 cyc=2490/3100")
+# 新固件格式：定宽十六进制，追加 late/exec/rx/tx 四个分项耗时
+L400_STAT_HEX_SAMPLE = ("L400S bad=0000 n=0012C0 f=0000 gap=0000 eul=0012C0 "
+                        "miss=000000 skip=000000 txd=000000 cyc=09BA/0C1C "
+                        "late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096")
 L400_INIT_OK = "L400 init ok lpf_rb=3"
 L400_INIT_FAIL = "L400 init fail st=1 lpf_rb=255"
 
@@ -73,7 +77,7 @@ class L400ParserTest(unittest.TestCase):
         self.assertAlmostEqual(data["g_dps"][0], 28.6478898, places=5)
         self.assertAlmostEqual(data["c_dps"][0], -7.1619724, places=5)
 
-    def test_parse_statistics(self):
+    def test_parse_statistics_old_decimal(self):
         kind, data = mon.parse_l400_line(L400_STAT_SAMPLE)
         self.assertEqual(kind, "l400s")
         self.assertEqual(data["bad_pkt"], 0)
@@ -85,6 +89,21 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual(data["skip"], 0)
         self.assertEqual(data["txd"], 0)
         self.assertEqual((data["cyc_max_us"], data["cyc_peak_us"]), (2490, 3100))
+        # 旧 7d01167 没有分项耗时：保持 None，CSV 留空
+        self.assertIsNone(data["late_avg_us"])
+        self.assertIsNone(data["tx_max_us"])
+
+    def test_parse_statistics_hex_timing(self):
+        kind, data = mon.parse_l400_line(L400_STAT_HEX_SAMPLE)
+        self.assertEqual(kind, "l400s")
+        self.assertEqual(data["bad_pkt"], 0)
+        self.assertEqual(data["n"], 0x12C0)
+        self.assertEqual(data["eul"], 0x12C0)
+        self.assertEqual((data["cyc_max_us"], data["cyc_peak_us"]), (0x09BA, 0x0C1C))
+        self.assertEqual((data["late_avg_us"], data["late_max_us"]), (0x04B0, 0x09C4))
+        self.assertEqual((data["exec_avg_us"], data["exec_max_us"]), (0x0384, 0x0514))
+        self.assertEqual((data["rx_avg_us"], data["rx_max_us"]), (0x0028, 0x005A))
+        self.assertEqual((data["tx_avg_us"], data["tx_max_us"]), (0x0032, 0x0096))
 
     def test_parse_status_and_unknown(self):
         kind, text = mon.parse_l400_line(L400_INIT_OK)
@@ -149,6 +168,35 @@ class L400WorkerTest(unittest.TestCase):
             self.assertEqual(stats[0]["n"], "12345")
             self.assertEqual(stats[0]["eul"], "12000")
             self.assertEqual(stats[0]["cyc_peak_us"], "3100")
+
+    def test_worker_writes_timing_columns(self):
+        text = "\n".join([L400_INIT_OK, L400_SAMPLE, L400_STAT_HEX_SAMPLE]) + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_path = os.path.join(tmp, "obs.csv")
+            stat_path = os.path.join(tmp, "stats.csv")
+            worker = mon.L400Worker(FakeLineSource([text.encode("ascii")]),
+                                    obs_path, stat_path, queue.Queue(maxsize=100))
+            worker.start()
+            deadline = time.time() + 2.0
+            while time.time() < deadline and (worker.frames < 1 or worker.stats < 1):
+                time.sleep(0.01)
+            worker.stop()
+            worker.join(timeout=2.0)
+
+            with open(stat_path, newline="", encoding="utf-8-sig") as fp:
+                stats = list(csv.DictReader(fp))
+            self.assertEqual(len(stats), 1)
+            row = stats[0]
+            self.assertEqual(row["n"], str(0x12C0))
+            self.assertEqual(row["cyc_max_us"], str(0x09BA))
+            self.assertEqual(row["late_avg_us"], str(0x04B0))
+            self.assertEqual(row["late_max_us"], str(0x09C4))
+            self.assertEqual(row["exec_avg_us"], str(0x0384))
+            self.assertEqual(row["exec_max_us"], str(0x0514))
+            self.assertEqual(row["rx_avg_us"], str(0x0028))
+            self.assertEqual(row["rx_max_us"], str(0x005A))
+            self.assertEqual(row["tx_avg_us"], str(0x0032))
+            self.assertEqual(row["tx_max_us"], str(0x0096))
 
 
 class L400SimulationTest(unittest.TestCase):

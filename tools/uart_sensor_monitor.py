@@ -324,6 +324,11 @@ L400_STAT_FIELDS = [
     "recv_s", "recv_epoch",
     "bad_pkt", "n", "f", "gap", "eul", "miss", "skip", "txd",
     "cyc_max_us", "cyc_peak_us",
+    # 分项耗时：迟到 / IMU+估计+P 环 / 无线收包 / 串口报告，单位 us
+    "late_avg_us", "late_max_us",
+    "exec_avg_us", "exec_max_us",
+    "rx_avg_us", "rx_max_us",
+    "tx_avg_us", "tx_max_us",
 ]
 
 _ATT_LINE_RE = re.compile(
@@ -516,11 +521,20 @@ _L400_LINE_RE = re.compile(
     r"g=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+"
     r"c=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s*$")
 
-# L400S 统计行：累计计数 + 整拍耗时（本周期最大 / 上电峰值，us）
+# L400S 统计行旧格式（7d01167）：十进制计数 + 整拍耗时
 _L400_STAT_RE = re.compile(
     r"^L400S\s+bad=(\d+)\s+n=(\d+)\s+f=(\d+)\s+gap=(\d+)\s+"
     r"eul=(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+txd=(\d+)\s+"
     r"cyc=(\d+)/(\d+)\s*$")
+
+# L400S 统计行新格式：定宽十六进制，追加四个分项耗时（us）
+#   late=原定拍点→采样开始  exec=IMU+估计+P环  rx=无线收包  tx=串口报告
+_L400_STAT_HEX_RE = re.compile(
+    r"^L400S\s+bad=([0-9A-F]{4})\s+n=([0-9A-F]{6})\s+f=([0-9A-F]{4})\s+"
+    r"gap=([0-9A-F]{4})\s+eul=([0-9A-F]{6})\s+miss=([0-9A-F]{6})\s+"
+    r"skip=([0-9A-F]{6})\s+txd=([0-9A-F]{6})\s+cyc=([0-9A-F]{4})/([0-9A-F]{4})\s+"
+    r"late=([0-9A-F]{4})/([0-9A-F]{4})\s+exec=([0-9A-F]{4})/([0-9A-F]{4})\s+"
+    r"rx=([0-9A-F]{4})/([0-9A-F]{4})\s+tx=([0-9A-F]{4})/([0-9A-F]{4})\s*$")
 
 
 def q10_rad_s_to_dps(value):
@@ -571,8 +585,33 @@ def parse_l400_line(line):
             "c_dps": [q10_rad_s_to_dps(v) for v in c_q10],
         })
 
+    m = _L400_STAT_HEX_RE.match(line)
+    if m:
+        g = [int(x, 16) for x in m.groups()]
+        return ("l400s", {
+            "bad_pkt": g[0],
+            "n": g[1],
+            "f": g[2],
+            "gap": g[3],
+            "eul": g[4],
+            "miss": g[5],
+            "skip": g[6],
+            "txd": g[7],
+            "cyc_max_us": g[8],
+            "cyc_peak_us": g[9],
+            "late_avg_us": g[10],
+            "late_max_us": g[11],
+            "exec_avg_us": g[12],
+            "exec_max_us": g[13],
+            "rx_avg_us": g[14],
+            "rx_max_us": g[15],
+            "tx_avg_us": g[16],
+            "tx_max_us": g[17],
+        })
+
     m = _L400_STAT_RE.match(line)
     if m:
+        # 旧 7d01167 格式没有分项耗时：保持 None，CSV 留空
         return ("l400s", {
             "bad_pkt": int(m.group(1)),
             "n": int(m.group(2)),
@@ -584,6 +623,14 @@ def parse_l400_line(line):
             "txd": int(m.group(8)),
             "cyc_max_us": int(m.group(9)),
             "cyc_peak_us": int(m.group(10)),
+            "late_avg_us": None,
+            "late_max_us": None,
+            "exec_avg_us": None,
+            "exec_max_us": None,
+            "rx_avg_us": None,
+            "rx_max_us": None,
+            "tx_avg_us": None,
+            "tx_max_us": None,
         })
 
     if l400_state_of(line):
@@ -765,10 +812,20 @@ class SimL400Source:
             cyc = 2350 + (self.n_stat * 41) % 300
             if cyc > self.peak:
                 self.peak = cyc
+            # 模拟新固件的定宽十六进制统计行，含四个分项耗时
+            late_avg = 900 + (self.n_stat * 7) % 200
+            exec_avg = 1000 + (self.n_stat * 11) % 200
+            rx_avg = 30 + (self.n_stat * 3) % 20
+            tx_avg = 45 + (self.n_stat * 5) % 25
             self._push(
-                f"L400S bad=0 n={self.sample} f=0 gap=0 eul={self.euler} "
-                f"miss={self.miss} skip={self.skip} txd={self.txd} "
-                f"cyc={cyc}/{self.peak}")
+                f"L400S bad={_hex(0, 4)} n={_hex(self.sample, 6)} "
+                f"f={_hex(0, 4)} gap={_hex(0, 4)} eul={_hex(self.euler, 6)} "
+                f"miss={_hex(self.miss, 6)} skip={_hex(self.skip, 6)} "
+                f"txd={_hex(self.txd, 6)} cyc={_hex(cyc, 4)}/{_hex(self.peak, 4)} "
+                f"late={_hex(late_avg, 4)}/{_hex(late_avg + 300, 4)} "
+                f"exec={_hex(exec_avg, 4)}/{_hex(exec_avg + 250, 4)} "
+                f"rx={_hex(rx_avg, 4)}/{_hex(rx_avg + 30, 4)} "
+                f"tx={_hex(tx_avg, 4)}/{_hex(tx_avg + 60, 4)}")
 
     def read(self):
         self._fill()
@@ -1036,11 +1093,26 @@ class L400Worker(threading.Thread):
                 "txd": payload["txd"],
                 "cyc_max_us": payload["cyc_max_us"],
                 "cyc_peak_us": payload["cyc_peak_us"],
+                # 旧 7d01167 格式没有分项耗时：CSV 留空
+                "late_avg_us": "" if payload.get("late_avg_us") is None else payload["late_avg_us"],
+                "late_max_us": "" if payload.get("late_max_us") is None else payload["late_max_us"],
+                "exec_avg_us": "" if payload.get("exec_avg_us") is None else payload["exec_avg_us"],
+                "exec_max_us": "" if payload.get("exec_max_us") is None else payload["exec_max_us"],
+                "rx_avg_us": "" if payload.get("rx_avg_us") is None else payload["rx_avg_us"],
+                "rx_max_us": "" if payload.get("rx_max_us") is None else payload["rx_max_us"],
+                "tx_avg_us": "" if payload.get("tx_avg_us") is None else payload["tx_avg_us"],
+                "tx_max_us": "" if payload.get("tx_max_us") is None else payload["tx_max_us"],
             })
-            print(f"[L400统计] 采样{payload['n']} 姿态更新{payload['eul']} "
-                  f"读失败{payload['f']} 长间断{payload['gap']} 坏包{payload['bad_pkt']} "
-                  f"超时{payload['miss']} 跳拍{payload['skip']} 串口推迟{payload['txd']} "
-                  f"整拍{payload['cyc_max_us']}/{payload['cyc_peak_us']}us", flush=True)
+            line = (f"[L400统计] 采样{payload['n']} 姿态更新{payload['eul']} "
+                    f"读失败{payload['f']} 长间断{payload['gap']} 坏包{payload['bad_pkt']} "
+                    f"超时{payload['miss']} 跳拍{payload['skip']} 串口推迟{payload['txd']} "
+                    f"整拍{payload['cyc_max_us']}/{payload['cyc_peak_us']}us")
+            if payload.get("late_avg_us") is not None:
+                line += (f" 迟到{payload['late_avg_us']}/{payload['late_max_us']}us"
+                         f" 执行{payload['exec_avg_us']}/{payload['exec_max_us']}us"
+                         f" 收包{payload['rx_avg_us']}/{payload['rx_max_us']}us"
+                         f" 报告{payload['tx_avg_us']}/{payload['tx_max_us']}us")
+            print(line, flush=True)
             return
 
         # 初始化状态行
@@ -1374,10 +1446,11 @@ class SensorMonitor:
             # L400 统计区：采样/姿态更新/读失败/超时/跳拍/串口推迟等累计量。
             # 放到状态栏上方，底部留出 22% 空间给两行统计文字和 x 轴标签。
             self.stat_text = self.fig.text(
-                0.01, 0.045, "统计：等待 L400S（1Hz）…",
+                0.01, 0.040, "统计：等待 L400S（1Hz）…",
                 fontsize=9, va="bottom")
             self.stat_text.set_animated(True)
-            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.22)
+            # 统计区最多三行（累计量、整拍、四个分项耗时），底部留 26%
+            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.26)
         else:
             self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08)
 
@@ -1605,16 +1678,22 @@ class SensorMonitor:
         return msg
 
     def _stat_text(self):
-        """L400 统计区：累计采样/更新/失败/超时/跳拍/串口推迟等"""
+        """L400 统计区：累计采样/更新/失败/超时/跳拍/串口推迟与分项耗时"""
         w = self.worker
         s = w.last_stat
         if s is None:
             return f"统计：等待 L400S（1Hz）…  已收观察 {w.frames} 条"
-        return (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
+        text = (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
                 f"读失败 f={s['f']}  长间断 gap={s['gap']}  坏包 bad={s['bad_pkt']}\n"
                 f"      超时 miss={s['miss']}  跳拍 skip={s['skip']}  "
                 f"串口推迟 txd={s['txd']}  "
                 f"整拍 cyc={s['cyc_max_us']}/{s['cyc_peak_us']}us")
+        if s.get("late_avg_us") is not None:
+            text += (f"\n      耗时 迟到 late={s['late_avg_us']}/{s['late_max_us']}us"
+                     f"  执行 exec={s['exec_avg_us']}/{s['exec_max_us']}us"
+                     f"  收包 rx={s['rx_avg_us']}/{s['rx_max_us']}us"
+                     f"  报告 tx={s['tx_avg_us']}/{s['tx_max_us']}us")
+        return text
 
     def _compose_texts(self):
         """生成状态栏与统计区文字（统计区只有 L400 模式才有）"""

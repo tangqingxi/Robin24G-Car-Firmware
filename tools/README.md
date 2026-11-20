@@ -176,7 +176,9 @@ python uart_sensor_monitor.py --port COM12
 
 ### 400Hz 联调固件（文本协议，--l400）
 
-当前 7d01167 固件输出 10Hz 的 `L400 ...` 观察行和 1Hz 的 `L400S ...` 统计行。
+7d01167 固件输出 10Hz 的 `L400 ...` 观察行和 1Hz 的 `L400S ...` 统计行；
+带分项耗时的新 L400 固件把 `L400S` 改成定宽十六进制，并追加
+`late/exec/rx/tx` 四个耗时字段，监视器同时兼容新旧两种格式。
 图形监视命令：
 
 ```powershell
@@ -196,20 +198,36 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   相同会明确报错退出，已有文件内容不会被截断。默认六轴和 `--attitude` 模式也做同样检查。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、长间断 `gap`、坏包 `bad`、
   超时 `miss`、跳拍 `skip`、串口推迟 `txd`，以及整拍 `cyc=本周期最大/上电峰值`。
+  新固件还会多一行分项耗时：
+  `late=原定拍点→采样开始`、`exec=IMU+估计+P环`、`rx=无线整包处理`、
+  `tx=串口报告格式化与提交`，每组都是“本窗口平均/峰值”，单位 us。
 - 观察数据写 `--csv`（默认 `l400_时间戳.csv`），统计写 `--stats-csv`
-  （默认在观察文件名后加 `_stats.csv`），两份分开保存。
-- 实际串口行样例：
+  （默认在观察文件名后加 `_stats.csv`），两份分开保存；统计 CSV 末尾追加
+  `late_avg_us/late_max_us/exec_avg_us/exec_max_us/rx_avg_us/rx_max_us/tx_avg_us/tx_max_us`，
+  旧固件没有这些字段时留空。
+- 实际串口行样例（旧 7d01167 十进制格式）：
 
   ```text
   L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+512/-256/+0 c=-128/+64/-0
   L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
   ```
 
+  带分项耗时的新格式（定宽十六进制，最长 156 字节）：
+
+  ```text
+  L400S bad=0000 n=0012C0 f=0000 gap=0000 eul=0012C0 miss=000000 skip=000000 txd=000000 cyc=09BA/0C1C late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096
+  ```
+
+- 本轮计时测试镜像（未纳入 `firmware_delivery/daily`）：
+  `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_timing.bin`，
+  26468 字节，SHA256 `A695FEAF623D5F1888B06424250DF31E1A23047EF5586CAE43DC3AFDE042F5B7`，
+  烧 0x4000；验证通过后再决定是否替换日常 400Hz 版。
+
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
 - 解析/分块收包/CSV 自测：`python test_l400_monitor.py`。
-- 已在 7d01167 固件 + COM12 上实机抓取验证：28 条 `L400`、3 条 `L400S`，
-  0 行无法识别；图形窗口的状态栏/统计区、两份 CSV 均正常。
+- 旧 7d01167 十进制格式已在 COM12 实机抓取验证；新十六进制 + 分项耗时格式
+  已由模拟源、解析和 CSV 测试覆盖，实机计时需烧录 timing 测试镜像后再采集。
 
 ### 台架姿态固件（文本协议，--attitude）
 

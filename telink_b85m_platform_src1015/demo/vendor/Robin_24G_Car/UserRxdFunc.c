@@ -629,6 +629,7 @@ unsigned short u16RemotorKeyVal=0;
 #if 1
 #if (C_RC_LOOP_400_EN)
 void RcLoop_OnPacket(void);
+static void RcLoop_RecordRx(u32 ticks);
 #endif
 void car_work(void)
 {
@@ -648,6 +649,10 @@ void car_work(void)
 			return;
 		}
 		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
+#if (C_RC_LOOP_400_EN)
+		// 无线收包处理计时起点：整包解码 + 映射 + 按键 + 时间戳
+		u32 t_rx0 = clock_time();
+#endif
 		rf_received_type=UserRfRcvBuffer[9];
 		rf_received_key=UserRfRcvBuffer[8];
 		//从UserRfRcvBuffer[10]开始是扩展数据
@@ -657,10 +662,13 @@ void car_work(void)
 		u16FBmove_Rxd = (UserRfRcvBuffer[16]<<8) + UserRfRcvBuffer[17];
 		u16LRmove_Rxd = (UserRfRcvBuffer[18]<<8) + UserRfRcvBuffer[19];
 
-		Rxdata_Handler();
 #if (C_RC_LOOP_400_EN)
-		// 整包解码并校验完成：一次性提交四轴、按键与收包时间
+		// L400 新路径只保留有效整包解码后的映射、按键与时间戳；
+		// 旧按键业务和重复摇杆换算不再进入这条路径。
 		RcLoop_OnPacket();
+		RcLoop_RecordRx(clock_time() - t_rx0);
+#else
+		Rxdata_Handler();
 #endif
 	}
 	else
@@ -2001,6 +2009,19 @@ static u32 s_l400_cyc_peak;        // 上电以来最大整拍耗时 us
 static u32 s_l400_tx_tick;         // 下一次观察行时刻
 static u32 s_l400_stat_tick;       // 下一次统计行时刻
 
+// 分项耗时（本统计窗口累计/峰值，单位 us；统计行发出后清零）
+static u32 s_l400_late_sum_us;     // 原定拍点 → 实际采样开始
+static u32 s_l400_late_max_us;
+static u32 s_l400_exec_sum_us;     // IMU 读取 + 估计 + P 环
+static u32 s_l400_exec_max_us;
+static u32 s_l400_rx_sum_us;       // 无线整包处理（解码/映射/按键/时间戳，不含 RF 驱动）
+static u32 s_l400_rx_max_us;
+static u32 s_l400_tx_sum_us;       // 串口报告格式化与提交
+static u32 s_l400_tx_max_us;
+static u32 s_l400_tick_cnt;        // 本窗口 late/exec 的拍数
+static u32 s_l400_rx_cnt;          // 本窗口无线包数
+static u32 s_l400_tx_cnt;          // 本窗口报告次数
+
 // 整包解码完成后的提交：全零心跳只更新链路，摇杆值换算前先验证
 void RcLoop_OnPacket(void)
 {
@@ -2047,6 +2068,25 @@ void RcLoop_OnPacket(void)
 	s_l400_cmd_ok = 1;
 }
 
+// 累加一次分项耗时（us）：sum 用于平均值，max 用于峰值
+static void l400_add_timing(u32 *sum, u32 *max, u32 us)
+{
+	*sum += us;
+	if (us > *max) {
+		*max = us;
+	}
+}
+
+// 无线收包处理耗时：car_work 从整包解码到映射/按键/时间戳提交完成；
+// 不含 d24_rx_main_loop 的射频驱动/配对部分。
+static void RcLoop_RecordRx(u32 ticks)
+{
+	u32 us = (ticks + L400_TICKS_PER_US / 2) / L400_TICKS_PER_US;
+
+	l400_add_timing(&s_l400_rx_sum_us, &s_l400_rx_max_us, us);
+	s_l400_rx_cnt++;
+}
+
 // 文本格式化（不用 printf / 浮点）
 static char *l400_put_str(char *p, const char *s)
 {
@@ -2075,13 +2115,23 @@ static char *l400_put_u32(char *p, u32 v)
 	return p;
 }
 
-// 计数输出：超过上限就停在 cap，保证一行不超过串口缓冲区
-static char *l400_put_cnt(char *p, u32 v, u32 cap)
+// 定宽十六进制：4 位或 6 位，避免长跑后一行超出 UART_DATA_LEN
+static char *l400_put_hex(char *p, u32 v, u8 digits)
 {
-	if (v > cap) {
-		v = cap;
+	u8 i;
+
+	for (i = digits; i > 0; i--) {
+		u8 nib = (u8)((v >> ((u8)((i - 1) * 4))) & 0x0Fu);
+
+		*p++ = (char)((nib < 10) ? ('0' + nib) : ('A' + nib - 10));
 	}
-	return l400_put_u32(p, v);
+	return p;
+}
+
+// 计数封顶：超过上限就停在 cap，配合定宽输出
+static u32 l400_cap(u32 v, u32 cap)
+{
+	return (v > cap) ? cap : v;
 }
 
 static char *l400_put_s32(char *p, s32 v)
@@ -2135,6 +2185,17 @@ static void L400_StateReset(void)
 	s_l400_txd = 0;
 	s_l400_cyc_max = 0;
 	s_l400_cyc_peak = 0;
+	s_l400_late_sum_us = 0;
+	s_l400_late_max_us = 0;
+	s_l400_exec_sum_us = 0;
+	s_l400_exec_max_us = 0;
+	s_l400_rx_sum_us = 0;
+	s_l400_rx_max_us = 0;
+	s_l400_tx_sum_us = 0;
+	s_l400_tx_max_us = 0;
+	s_l400_tick_cnt = 0;
+	s_l400_rx_cnt = 0;
+	s_l400_tx_cnt = 0;
 	s_l400_cmd[0] = 0;
 	s_l400_cmd[1] = 0;
 	s_l400_cmd[2] = 0;
@@ -2230,7 +2291,8 @@ static void L400_Process(void)
 {
 	int16_t raw_a[3], raw_g[3];
 	att_i32 acc_frd[3], acc_mg[3], gyr_q10[3];
-	u32 now, planned, t_read1 = 0, end, total;
+	u32 now, planned, t_sample0, t_exec1, t_read1 = 0, end, total;
+	u32 late_us, exec_us;
 	u32 dt_ticks = 0;
 	att_i32 dt_100us = 0;
 	int i;
@@ -2267,6 +2329,13 @@ static void L400_Process(void)
 		&& (u32)(now - s_l400_pkt_tick) > L400_CMD_TIMEOUT_TICKS) {
 		s_l400_cmd_ok = 0;
 	}
+
+	// 实际采样开始：从原定拍点到这里就是主循环调度迟到量；
+	// 后面 t_exec1 - t_sample0 是 IMU + 估计 + P 环的执行时间。
+	t_sample0 = clock_time();
+	late_us = (t_sample0 - planned) / L400_TICKS_PER_US;
+	l400_add_timing(&s_l400_late_sum_us, &s_l400_late_max_us, late_us);
+	s_l400_tick_cnt++;
 
 	// 读一次 12 字节；失败不发布零值，只累计失败数，本拍仍走完计时与报告
 	if (t3488_read_6axis(raw_a, raw_g)) {
@@ -2356,36 +2425,68 @@ static void L400_Process(void)
 		}
 	}
 
+	// IMU 读取 + 标定/低通 + 姿态更新 + P 环都在这段里；到这里为止，
+	// 不含后面的串口报告开销。
+	t_exec1 = clock_time();
+	exec_us = (t_exec1 - t_sample0) / L400_TICKS_PER_US;
+	l400_add_timing(&s_l400_exec_sum_us, &s_l400_exec_max_us, exec_us);
+
 	// 低频串口输出：10Hz 观察行 + 1Hz 统计行；同一拍最多发一帧，
 	// 避免第二帧等待上一帧 DMA 完成而把 400Hz 节拍拖长
 	{
 		u32 t_tx0 = clock_time();
+		u32 t_tx1;
 		u8 sent = 0;
 
 		if ((s32)(t_tx0 - s_l400_stat_tick) >= 0) {
 			char buf[UART_DATA_LEN];
 			char *q = buf;
+			u32 late_avg, exec_avg, rx_avg, tx_avg;
 
+			// 本窗口平均值；本拍 late/exec 已累加进来，tx 报告本身
+			// 要等发完才计时，所以 tx 行显示的是上一个窗口的值。
+			late_avg = s_l400_tick_cnt ? s_l400_late_sum_us / s_l400_tick_cnt : 0;
+			exec_avg = s_l400_tick_cnt ? s_l400_exec_sum_us / s_l400_tick_cnt : 0;
+			rx_avg = s_l400_rx_cnt ? s_l400_rx_sum_us / s_l400_rx_cnt : 0;
+			tx_avg = s_l400_tx_cnt ? s_l400_tx_sum_us / s_l400_tx_cnt : 0;
+
+			// 全部定宽十六进制，最长 156 字节，保证不超 UART_DATA_LEN(160)
 			q = l400_put_str(q, "L400S bad=");
-			q = l400_put_cnt(q, s_l400_bad, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_bad, 0xFFFFu), 4);
 			q = l400_put_str(q, " n=");
-			q = l400_put_cnt(q, s_l400_sample, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_sample, 0xFFFFFFu), 6);
 			q = l400_put_str(q, " f=");
-			q = l400_put_cnt(q, s_l400_fail, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_fail, 0xFFFFu), 4);
 			q = l400_put_str(q, " gap=");
-			q = l400_put_cnt(q, s_l400_gap, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_gap, 0xFFFFu), 4);
 			q = l400_put_str(q, " eul=");
-			q = l400_put_cnt(q, s_l400_euler_ok, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_euler_ok, 0xFFFFFFu), 6);
 			q = l400_put_str(q, " miss=");
-			q = l400_put_cnt(q, s_l400_miss, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_miss, 0xFFFFFFu), 6);
 			q = l400_put_str(q, " skip=");
-			q = l400_put_cnt(q, s_l400_skip, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_skip, 0xFFFFFFu), 6);
 			q = l400_put_str(q, " txd=");
-			q = l400_put_cnt(q, s_l400_txd, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_txd, 0xFFFFFFu), 6);
 			q = l400_put_str(q, " cyc=");
-			q = l400_put_cnt(q, s_l400_cyc_max, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_cyc_max, 0xFFFFu), 4);
 			*q++ = '/';
-			q = l400_put_cnt(q, s_l400_cyc_peak, L400_CNT_MAX);
+			q = l400_put_hex(q, l400_cap(s_l400_cyc_peak, 0xFFFFu), 4);
+			q = l400_put_str(q, " late=");
+			q = l400_put_hex(q, l400_cap(late_avg, 0xFFFFu), 4);
+			*q++ = '/';
+			q = l400_put_hex(q, l400_cap(s_l400_late_max_us, 0xFFFFu), 4);
+			q = l400_put_str(q, " exec=");
+			q = l400_put_hex(q, l400_cap(exec_avg, 0xFFFFu), 4);
+			*q++ = '/';
+			q = l400_put_hex(q, l400_cap(s_l400_exec_max_us, 0xFFFFu), 4);
+			q = l400_put_str(q, " rx=");
+			q = l400_put_hex(q, l400_cap(rx_avg, 0xFFFFu), 4);
+			*q++ = '/';
+			q = l400_put_hex(q, l400_cap(s_l400_rx_max_us, 0xFFFFu), 4);
+			q = l400_put_str(q, " tx=");
+			q = l400_put_hex(q, l400_cap(tx_avg, 0xFFFFu), 4);
+			*q++ = '/';
+			q = l400_put_hex(q, l400_cap(s_l400_tx_max_us, 0xFFFFu), 4);
 			*q++ = '\n';
 			UartDbgSend((unsigned char *)buf, (u8)(q - buf));
 
@@ -2393,6 +2494,17 @@ static void L400_Process(void)
 			s_l400_tx_tick = t_tx0 + L400_REPORT_TICKS;   // 这一拍不再发观察行
 			s_l400_cyc_max = 0;
 			s_l400_gap_max_tick = 0;
+			s_l400_late_sum_us = 0;
+			s_l400_late_max_us = 0;
+			s_l400_exec_sum_us = 0;
+			s_l400_exec_max_us = 0;
+			s_l400_rx_sum_us = 0;
+			s_l400_rx_max_us = 0;
+			s_l400_tx_sum_us = 0;
+			s_l400_tx_max_us = 0;
+			s_l400_tick_cnt = 0;
+			s_l400_rx_cnt = 0;
+			s_l400_tx_cnt = 0;
 			sent = 1;
 		} else if ((s32)(t_tx0 - s_l400_tx_tick) >= 0) {
 			char buf[UART_DATA_LEN];
@@ -2445,12 +2557,18 @@ static void L400_Process(void)
 			sent = 1;
 		}
 
-		// 串口输出是否把下一拍推迟了：发送前未到截止、发送后已过截止，
-		// 才算这一次输出造成的推迟；本来就已经迟到的不算
+		// 串口报告开销：本拍从拼文本到 UartDbgSend 提交完成；
+		// 同时判断这次输出是否把下一拍推迟了（发前未到截止、发后已过截止）。
+		t_tx1 = clock_time();
 		if (sent
 			&& (s32)(t_tx0 - s_l400_next_tick) < 0
-			&& (s32)(clock_time() - s_l400_next_tick) >= 0) {
+			&& (s32)(t_tx1 - s_l400_next_tick) >= 0) {
 			s_l400_txd++;
+		}
+		if (sent) {
+			l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us,
+							(t_tx1 - t_tx0) / L400_TICKS_PER_US);
+			s_l400_tx_cnt++;
 		}
 	}
 
