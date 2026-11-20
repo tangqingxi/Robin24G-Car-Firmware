@@ -559,12 +559,16 @@ void Rxdata_Handler(void)
 		if((u16KeyPressed_Flag & RfSendKey_StuntShow)==0)
 		{
 			u16KeyPressed_Flag |= RfSendKey_StuntShow;
-			//★v25：暂时屏蔽特技表演真实功能，改为触发 flash 黑匣子读出
-			//	（落地停机后按一下 → 从 UART 发出 0x10000 起的录制数据）
+			//★v25：特技键改触发 flash 黑匣子读出（落地停机后按一下，
+			//	从 UART 发出 0x10000 起的录制数据）。
+			//	黑匣子属于旧控制固件（FlightCtrl.c），台架/维护/联调镜像都不编译，
+			//	这里一并排除，否则联调镜像链接时会找不到符号。
+#if (!C_ATT_BENCH_EN)
 			{
 				extern void BlackBox_DumpStart(void);
 				BlackBox_DumpStart();
 			}
+#endif
 		}
 	}
 	else if(u16RemotorKeyVal & RfSendKey_MicroAdj)
@@ -1039,7 +1043,7 @@ void RxdFunction_loop(void)
 
 // 台架姿态估计整块只在姿态镜像里编译；维护镜像用 -DC_MAINT_269A_EN=1 构建，
 // 这块整体不参与，省 Flash 也避免"定义了没人用"的告警。
-#if (!C_MAINT_269A_EN)
+#if (!C_MAINT_269A_EN) && (!C_RC_BRINGUP_EN)
 //**************************************************************
 // 台架姿态估计（原独立模块已合入本文件）
 //   T-3488 直读 → FRD 映射与校准 → 加计一阶低通 → 四元数姿态 → 串口文本
@@ -1765,13 +1769,163 @@ static void Maint_Process(void)
 }
 #endif /* C_MAINT_269A_EN */
 
+#if (C_RC_BRINGUP_EN)
+// =====================================================================================
+// 遥控输入联调：只做 2.4G 收包 → 通道解码 → 映射 → 低频串口观察，电机保持停转
+//   无线报文与配对沿用现有流程（d24_rx_main_loop / car_work / Rxdata_Handler），
+//   只在接收端把原始通道重新映射成四个控制指令：
+//     右杆上下 FBmove   → 油门（推上 = 指令增大）
+//     右杆左右 LRmove   → 偏航（推右 = 机头右转）
+//     左杆上下 Throttle → 俯仰（推前 = 机头下俯）
+//     左杆左右 Rotation → 横滚（推右 = 机体右倾）
+//   实机拨杆若发现某轴方向相反，把下面对应的 SIGN 改成 -1 即可。
+// =====================================================================================
+#define RC_BRINGUP_HZ          5
+#define RC_BRINGUP_TICKS       (CLOCK_SYS_CLOCK_HZ / RC_BRINGUP_HZ)
+
+// 每轴符号（按实际拨杆读数确认；方向相反就改成 -1）
+#define RC_SIGN_THROTTLE       (+1)
+#define RC_SIGN_YAW            (+1)
+#define RC_SIGN_PITCH          (+1)
+#define RC_SIGN_ROLL           (+1)
+
+// 映射后的四轴指令（±307 量级，供后续 400Hz 控制环使用）
+static volatile s16 s_rc_cmd_throttle;
+static volatile s16 s_rc_cmd_yaw;
+static volatile s16 s_rc_cmd_pitch;
+static volatile s16 s_rc_cmd_roll;
+static volatile u8  s_rc_cmd_valid;         // 1 = 收到有效包；0 = 失联
+
+static u32 s_rc_report_tick;
+
+// 字符串 → 文本
+static char *rc_put_str(char *p, const char *s)
+{
+	while (*s) *p++ = *s++;
+	return p;
+}
+
+// 无符号整数 → 文本
+static char *rc_put_u32(char *p, u32 v)
+{
+	char tmp[10];
+	u8 n = 0;
+
+	if (v == 0) {
+		*p++ = '0';
+		return p;
+	}
+	while (v && n < sizeof(tmp)) {
+		tmp[n++] = (char)('0' + (v % 10));
+		v /= 10;
+	}
+	while (n) *p++ = tmp[--n];
+	return p;
+}
+
+// 四位十六进制（键值用）
+static char *rc_put_hex4(char *p, u16 v)
+{
+	u8 i;
+
+	for (i = 4; i > 0; i--) {
+		u8 nib = (u8)((v >> ((u8)((i - 1) * 4))) & 0x0Fu);
+
+		*p++ = (char)((nib < 10) ? ('0' + nib) : ('A' + nib - 10));
+	}
+	return p;
+}
+
+// 带符号整数 → 文本
+static char *rc_put_s16(char *p, s16 v)
+{
+	if (v < 0) {
+		*p++ = '-';
+		return rc_put_u32(p, (u32)(-v));
+	}
+	*p++ = '+';
+	return rc_put_u32(p, (u32)v);
+}
+
+// 每圈调用：收到有效包就刷新指令，失联就清零并标记无效
+static void RcBringup_Update(void)
+{
+	s16 fb  = RxdDataConvert(u16FBmove_Rxd, 1, 10);    // 右杆上下
+	s16 lr  = RxdDataConvert(u16LRmove_Rxd, 1, 10);    // 右杆左右
+	s16 thr = RxdDataConvert(u16Throttle_Rxd, 1, 10);  // 左杆上下
+	s16 rot = RxdDataConvert(u16Rotation_Rxd, 1, 10);  // 左杆左右
+
+	if (link_ok_flag) {
+		s_rc_cmd_throttle = (s16)(RC_SIGN_THROTTLE * fb);
+		s_rc_cmd_yaw      = (s16)(RC_SIGN_YAW * lr);
+		s_rc_cmd_pitch    = (s16)(RC_SIGN_PITCH * thr);
+		s_rc_cmd_roll     = (s16)(RC_SIGN_ROLL * rot);
+		s_rc_cmd_valid    = 1;
+	} else {
+		// 失联：指令回零并标记无效，后续控制环据此保持停转
+		s_rc_cmd_throttle = 0;
+		s_rc_cmd_yaw      = 0;
+		s_rc_cmd_pitch    = 0;
+		s_rc_cmd_roll     = 0;
+		s_rc_cmd_valid    = 0;
+	}
+}
+
+// 低频输出一行：原始四通道、映射后四轴、按键、链路状态
+static void RcBringup_Report(void)
+{
+	u32 now = clock_time();
+	char buf[128];
+	char *q;
+
+	if ((s32)(now - s_rc_report_tick) < 0) {
+		return;
+	}
+	s_rc_report_tick = now + RC_BRINGUP_TICKS;
+
+	q = buf;
+	q = rc_put_str(q, "RC lk=");
+	q = rc_put_u32(q, link_ok_flag ? 1u : 0u);
+	q = rc_put_str(q, " vld=");
+	q = rc_put_u32(q, s_rc_cmd_valid ? 1u : 0u);
+	q = rc_put_str(q, " raw=");
+	q = rc_put_u32(q, u16Throttle_Rxd);      // 左杆上下（原始）
+	*q++ = '/';
+	q = rc_put_u32(q, u16Rotation_Rxd);      // 左杆左右（原始）
+	*q++ = '/';
+	q = rc_put_u32(q, u16FBmove_Rxd);        // 右杆上下（原始）
+	*q++ = '/';
+	q = rc_put_u32(q, u16LRmove_Rxd);        // 右杆左右（原始）
+	q = rc_put_str(q, " cmd=");
+	q = rc_put_s16(q, s_rc_cmd_throttle);
+	*q++ = '/';
+	q = rc_put_s16(q, s_rc_cmd_yaw);
+	*q++ = '/';
+	q = rc_put_s16(q, s_rc_cmd_pitch);
+	*q++ = '/';
+	q = rc_put_s16(q, s_rc_cmd_roll);
+	q = rc_put_str(q, " key=");
+	q = rc_put_hex4(q, u16RemotorKeyVal);
+	*q++ = '\n';
+	UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+}
+#endif /* C_RC_BRINGUP_EN */
+
 //**************************************************************
 void User_main_loop_process(void)
 {
 	wd_32k_feed();
 
 #if (C_ATT_BENCH_EN)
-#if (C_MAINT_269A_EN)
+#if (C_RC_BRINGUP_EN)
+	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转
+	d24_rx_main_loop();
+	TimeBaseGenerate();          // 10ms 时基，失联计数在这里累加
+	car_work();                  // 现有收包处理：解码原始通道与按键
+	RcBringup_Update();          // 更新映射后的四轴指令
+	RcBringup_Report();          // 约 5Hz 输出观察行
+	return;
+#elif (C_MAINT_269A_EN)
 	// 地面维护入口：只读 T-3488 原始六轴 + 0x269A 二进制帧（校准用）
 	Maint_Process();
 #else

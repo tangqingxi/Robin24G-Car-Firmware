@@ -30,6 +30,12 @@
 #define C_MAINT_269A_EN           0
 #endif
 
+// 遥控输入联调镜像开关：1 = 只跑 2.4G 收包 + 通道映射 + 低频串口观察
+//	联调镜像用 -DC_RC_BRINGUP_EN=1 单独构建；电机保持停转。
+#ifndef C_RC_BRINGUP_EN
+#define C_RC_BRINGUP_EN           0
+#endif
+
 // ---- 采样与串口 ----
 #define C_ATT_SAMPLE_HZ           400       // MCU 读取率（台架实测目标 400Hz）
 #define C_ATT_SAMPLE_US           (1000000 / C_ATT_SAMPLE_HZ)   // 标称采样周期 2500us
