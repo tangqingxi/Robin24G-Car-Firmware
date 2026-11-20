@@ -1177,6 +1177,21 @@ static char *bench_put_u32(char *p, u32 v)
 	return p;
 }
 
+// 输出定宽十六进制（用移位取每个字符，避免引入 printf）
+//   v      : 数值（负数按补码输出）
+//   digits : 固定宽度（1..8）
+static char *bench_put_hex(char *p, u32 v, u8 digits)
+{
+	u8 i;
+
+	for (i = digits; i > 0; i--) {
+		u8 nib = (u8)((v >> ((u8)((i - 1) * 4))) & 0x0Fu);
+
+		*p++ = (char)((nib < 10) ? ('0' + nib) : ('A' + nib - 10));
+	}
+	return p;
+}
+
 // 输出带符号整数（四元数分量用）
 static char *bench_put_s32(char *p, s32 v)
 {
@@ -1578,56 +1593,51 @@ static void BenchAtt_Process(void)
 			char *q;
 			u32 t_sta0 = clock_time();       // STA 单独计时的起点：开始拼文本
 
+			// 定宽十六进制：板端只发原始计数、累加值和峰值，平均耗时与
+			// Z 轴均值都交给上位机算；字段宽度固定，最长约 148 字节，
+			// 能放进 UART_DATA_LEN（160）缓冲区
 			q = buf;
 			q = bench_put_str(q, "STA n=");
-			q = bench_put_u32(q, s_bench_stat.valid);
+			q = bench_put_hex(q, s_bench_stat.valid, 6);
 			q = bench_put_str(q, " f=");
-			q = bench_put_u32(q, s_bench_stat.fail);
+			q = bench_put_hex(q, s_bench_stat.fail, 4);
 			q = bench_put_str(q, " g=");
-			q = bench_put_u32(q, s_bench_stat.gap);
+			q = bench_put_hex(q, s_bench_stat.gap, 4);
 			q = bench_put_str(q, " dt=");
-			q = bench_put_u32(q, s_bench_stat.dt_min_us == 0xFFFF ? 0 : s_bench_stat.dt_min_us);
+			q = bench_put_hex(q, (s_bench_stat.dt_min_us == 0xFFFF ? 0 : s_bench_stat.dt_min_us), 4);
 			*q++ = '/';
-			q = bench_put_u32(q, s_bench_stat.dt_max_us);
+			q = bench_put_hex(q, s_bench_stat.dt_max_us, 4);
 			q = bench_put_str(q, " rd=");
-			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.rd_sum_us / s_bench_stat.valid) : 0);
+			q = bench_put_hex(q, s_bench_stat.rd_sum_us, 8);
 			*q++ = '/';
-			q = bench_put_u32(q, s_bench_stat.rd_max_us);
+			q = bench_put_hex(q, s_bench_stat.rd_max_us, 4);
 			q = bench_put_str(q, " up=");
-			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.up_sum_us / s_bench_stat.valid) : 0);
+			q = bench_put_hex(q, s_bench_stat.up_sum_us, 8);
 			*q++ = '/';
-			q = bench_put_u32(q, s_bench_stat.up_max_us);
-			// 以下为 400Hz 验收字段：整拍耗时 / 截止超期 / 跳过节拍 / 姿态更新次数
+			q = bench_put_hex(q, s_bench_stat.up_max_us, 4);
 			q = bench_put_str(q, " cyc=");
-			q = bench_put_u32(q, s_bench_stat.valid ? (s_bench_stat.cyc_sum_us / s_bench_stat.valid) : 0);
+			q = bench_put_hex(q, s_bench_stat.cyc_sum_us, 8);
 			*q++ = '/';
-			q = bench_put_u32(q, s_bench_stat.cyc_max_us);
+			q = bench_put_hex(q, s_bench_stat.cyc_max_us, 4);
 			q = bench_put_str(q, " miss=");
-			q = bench_put_u32(q, s_bench_stat.miss);
+			q = bench_put_hex(q, s_bench_stat.miss, 6);
 			q = bench_put_str(q, " skip=");
-			q = bench_put_u32(q, s_bench_stat.skip);
+			q = bench_put_hex(q, s_bench_stat.skip, 6);
 			q = bench_put_str(q, " eul=");
-			q = bench_put_u32(q, s_bench_stat.euler_ok);
+			q = bench_put_hex(q, s_bench_stat.euler_ok, 6);
 
-			// FRD Z 轴窗口均值（0.01 LSB）：扣偏前 / 扣偏后，静置时看后者是否接近 0
-			{
-				att_i32 pre_c = 0, post_c = 0;
+			// Z 轴：这一秒的累加值（扣偏前 LSB / 扣偏后 1/64 LSB）与样本数，
+			// 均值由上位机算；写完清零，下一行重新累计
+			q = bench_put_str(q, " z=");
+			q = bench_put_hex(q, (u32)s_bench_z_pre_sum, 8);
+			*q++ = '/';
+			q = bench_put_hex(q, (u32)s_bench_z_post_sum, 8);
+			*q++ = '/';
+			q = bench_put_hex(q, s_bench_z_cnt, 6);
+			s_bench_z_pre_sum = 0;
+			s_bench_z_post_sum = 0;
+			s_bench_z_cnt = 0;
 
-				if (s_bench_z_cnt) {
-					att_i32 pre_mean = s_bench_z_pre_sum / (att_i32)s_bench_z_cnt;    // LSB
-					att_i32 post_q6  = s_bench_z_post_sum / (att_i32)s_bench_z_cnt;   // 1/64 LSB
-
-					pre_c  = pre_mean * 100;
-					post_c = (post_q6 * 100) / 64;
-					s_bench_z_pre_sum = 0;
-					s_bench_z_post_sum = 0;
-					s_bench_z_cnt = 0;
-				}
-				q = bench_put_str(q, " zb=");
-				q = bench_put_fixed2(q, pre_c);
-				*q++ = '/';
-				q = bench_put_fixed2(q, post_c);
-			}
 			*q++ = '\n';
 			bench_send(buf, (int)(q - buf));
 

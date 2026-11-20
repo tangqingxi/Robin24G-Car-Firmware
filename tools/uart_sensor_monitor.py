@@ -262,7 +262,8 @@ class SimSource:
 #   ATT ready: r=+0.00 p=+0.00 (still 500ms)
 #   ATT t=12345 rdy=1 q=32768/0/0/0                  ← 新：Q15 四元数 w/x/y/z
 #   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 旧：姿态样本，字段已是度
-#   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48
+#   STA n=0012C0 f=0000 ... z=FFFFFDF0/00000000/0190   ← 新：定宽十六进制原始值
+#   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48   ← 旧：十进制（含均值）
 #   STA2 c0=12000/410/0 ... sta=210/260 diag=120 mrg=1800 lat=0
 #                                                     ← 分项计时（四类拍 + STA 单项 + 诊断）
 # ----------------------------------------------------------------------------
@@ -323,6 +324,15 @@ def quat_q15_to_euler_deg(qw, qx, qy, qz):
     yaw = math.degrees(math.atan2(r10, r00))
     return roll, pitch, yaw
 
+
+# 定宽十六进制 STA：n/f/g/dt/rd/up/cyc/miss/skip/eul 全是原始值，
+# 平均值与 Z 轴均值由上位机算；旧固件的十进制行仍走下面的 _STA_LINE_RE
+_STA_HEX_RE = re.compile(
+    r"^STA\s+n=([0-9A-F]{6})\s+f=([0-9A-F]{4})\s+g=([0-9A-F]{4})\s+"
+    r"dt=([0-9A-F]{4})/([0-9A-F]{4})\s+rd=([0-9A-F]{8})/([0-9A-F]{4})\s+"
+    r"up=([0-9A-F]{8})/([0-9A-F]{4})\s+cyc=([0-9A-F]{8})/([0-9A-F]{4})\s+"
+    r"miss=([0-9A-F]{6})\s+skip=([0-9A-F]{6})\s+eul=([0-9A-F]{6})\s+"
+    r"z=([0-9A-F]{8})/([0-9A-F]{8})/([0-9A-F]{6})\s*$")
 
 _STA2_LINE_RE = re.compile(
     r"^STA2"
@@ -386,6 +396,32 @@ def parse_attitude_line(line):
             "pitch": float(m.group(4)),
             "yaw": float(m.group(5)),
         })
+    m = _STA_HEX_RE.match(line)
+    if m:
+        g = [int(x, 16) for x in m.groups()]
+        n = g[0]
+        z_cnt = g[16]
+
+        def _s32(v):
+            """按 32 位补码解释有符号字段"""
+            return v - 0x100000000 if v >= 0x80000000 else v
+
+        return ("sta", {
+            "valid": g[0], "fail": g[1], "gap": g[2],
+            "dt_min_us": g[3], "dt_max_us": g[4],
+            # 平均值由累加值 / 样本数现算，和旧固件板端算的一致
+            "rd_avg_us": (g[5] // n) if n else 0,
+            "rd_max_us": g[6],
+            "up_avg_us": (g[7] // n) if n else 0,
+            "up_max_us": g[8],
+            "cyc_avg_us": (g[9] // n) if n else 0,
+            "cyc_max_us": g[10],
+            "miss": g[11], "skip": g[12], "euler_ok": g[13],
+            # Z 轴：累加值 / 样本数，扣偏后是 1/64 LSB
+            "z_pre_lsb": round(_s32(g[14]) / z_cnt, 2) if z_cnt else None,
+            "z_post_lsb": round((_s32(g[15]) / z_cnt) / 64.0, 2) if z_cnt else None,
+        })
+
     m = _STA_LINE_RE.match(line)
     if m:
         # 扩展字段是可选的：缺失时保持 None，界面/CSV 里不显示
@@ -429,6 +465,11 @@ def parse_attitude_line(line):
     if attitude_state_of(line):
         return ("status", line)
     return None
+
+
+def _hex(v, digits):
+    """按固定宽度输出十六进制（模拟源用，与固件一致）"""
+    return f"{v & ((1 << (4 * digits)) - 1):0{digits}X}"
 
 
 def euler_deg_to_quat_q15(roll_deg, pitch_deg, yaw_deg):
@@ -501,9 +542,14 @@ class SimAttitudeSource:
                 self.n_sta += 1
                 valid = self.n_att
                 # 与 400Hz 固件的扩展 STA 一致（含整拍/超期/跳拍/更新次数）
-                self._push(f"STA n={valid} f=0 g=0 dt=2499/2501 "
-                           f"rd=110/130 up=30/42 cyc=620/780 miss=0 skip=0 eul={valid} "
-                           f"zb=-1.32/+0.00")
+                # 与固件一致：定宽十六进制原始值，均值交给接收端算
+                self._push(f"STA n={_hex(valid, 6)} f={_hex(0, 4)} g={_hex(0, 4)} "
+                           f"dt={_hex(2499, 4)}/{_hex(2501, 4)} "
+                           f"rd={_hex(110 * valid, 8)}/{_hex(130, 4)} "
+                           f"up={_hex(30 * valid, 8)}/{_hex(42, 4)} "
+                           f"cyc={_hex(620 * valid, 8)}/{_hex(780, 4)} "
+                           f"miss={_hex(0, 6)} skip={_hex(0, 6)} eul={_hex(valid, 6)} "
+                           f"z={_hex(int(round(-1.32 * valid)) & 0xFFFFFFFF, 8)}/{_hex(0, 8)}/{_hex(valid, 6)}")
                 # 分项：普通拍/只 ATT/只 STA/两者，以及 STA 单项耗时
                 self._push(f"STA2 c0={max(0, valid - 28)}/410/0 c1=28/520/0 "
                            f"c2=0/0/0 c3=0/0/0 sta=210/260 diag=120 mrg=1800 lat=0")
