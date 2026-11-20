@@ -263,7 +263,8 @@ class SimSource:
 #   ATT t=12345 rdy=1 q=32768/0/0/0                  ← 新：Q15 四元数 w/x/y/z
 #   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 旧：姿态样本，字段已是度
 #   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48
-#   STA2 c0=12000/410/0 ... sta=210/260              ← 分项计时（四类拍 + STA 单项）
+#   STA2 c0=12000/410/0 ... sta=210/260 diag=120 mrg=1800 lat=0
+#                                                     ← 分项计时（四类拍 + STA 单项 + 诊断）
 # ----------------------------------------------------------------------------
 ATT_CSV_FIELDS = ["recv_s", "recv_epoch", "t_ms", "rdy",
                   "roll_deg", "pitch_deg", "yaw_deg"]
@@ -272,7 +273,8 @@ ATT_CAT_FIELDS = ["recv_s", "recv_epoch",
                   "c1_cnt", "c1_max_us", "c1_over",
                   "c2_cnt", "c2_max_us", "c2_over",
                   "c3_cnt", "c3_max_us", "c3_over",
-                  "sta_avg_us", "sta_max_us"]
+                  "sta_avg_us", "sta_max_us",
+                  "diag_us", "margin_us", "lat_ms"]
 
 ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
@@ -326,7 +328,8 @@ _STA2_LINE_RE = re.compile(
     r"^STA2"
     r"\s+c0=(\d+)/(\d+)/(\d+)\s+c1=(\d+)/(\d+)/(\d+)"
     r"\s+c2=(\d+)/(\d+)/(\d+)\s+c3=(\d+)/(\d+)/(\d+)"
-    r"\s+sta=(\d+)/(\d+)\s*$")
+    r"\s+sta=(\d+)/(\d+)"
+    r"(?:\s+diag=(\d+)\s+mrg=(\d+)\s+lat=(\d+))?\s*$")
 
 
 def attitude_state_of(line):
@@ -412,13 +415,15 @@ def parse_attitude_line(line):
         return ("sta", stat)
     m = _STA2_LINE_RE.match(line)
     if m:
-        g = [int(x) for x in m.groups()]
+        g = [int(x) if x is not None else None for x in m.groups()]
         return ("sta2", {
             "c0_cnt": g[0], "c0_max_us": g[1], "c0_over": g[2],
             "c1_cnt": g[3], "c1_max_us": g[4], "c1_over": g[5],
             "c2_cnt": g[6], "c2_max_us": g[7], "c2_over": g[8],
             "c3_cnt": g[9], "c3_max_us": g[10], "c3_over": g[11],
             "sta_avg_us": g[12], "sta_max_us": g[13],
+            # 诊断：上一回 STA2 的生成耗时、发完余量、排队时长
+            "diag_us": g[14], "margin_us": g[15], "lat_ms": g[16],
         })
 
     if attitude_state_of(line):
@@ -501,7 +506,7 @@ class SimAttitudeSource:
                            f"zb=-1.32/+0.00")
                 # 分项：普通拍/只 ATT/只 STA/两者，以及 STA 单项耗时
                 self._push(f"STA2 c0={max(0, valid - 28)}/410/0 c1=28/520/0 "
-                           f"c2=0/0/0 c3=0/0/0 sta=210/260")
+                           f"c2=0/0/0 c3=0/0/0 sta=210/260 diag=120 mrg=1800 lat=0")
 
     def read(self):
         self._fill()
@@ -614,13 +619,19 @@ class AttitudeWorker(threading.Thread):
             if cat_writer is not None:
                 row = {"recv_s": f"{now - self.start_wall:.3f}",
                        "recv_epoch": f"{now:.3f}"}
+                for key in ("diag_us", "margin_us", "lat_ms"):
+                    if payload.get(key) is None:
+                        payload[key] = ""
                 row.update(payload)
                 cat_writer.writerow(row)
             print(f"[分项] 普通 {payload['c0_cnt']}/{payload['c0_max_us']}us/超{payload['c0_over']}  "
                   f"只ATT {payload['c1_cnt']}/{payload['c1_max_us']}us/超{payload['c1_over']}  "
                   f"只STA {payload['c2_cnt']}/{payload['c2_max_us']}us/超{payload['c2_over']}  "
                   f"ATT+STA {payload['c3_cnt']}/{payload['c3_max_us']}us/超{payload['c3_over']}  "
-                  f"STA单项 {payload['sta_avg_us']}/{payload['sta_max_us']}us", flush=True)
+                  f"STA单项 {payload['sta_avg_us']}/{payload['sta_max_us']}us"
+                  + (f"  诊断 耗时{payload['diag_us']}us 余量{payload['margin_us']}us"
+                     f" 排队{payload['lat_ms']}ms"
+                     if payload.get("diag_us") not in (None, "") else ""), flush=True)
             return
 
         # 状态行

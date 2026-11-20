@@ -1104,10 +1104,48 @@ static struct {
 } s_bench_cat;
 static const char *s_bench_cat_name[4] = { " c0=", " c1=", " c2=", " c3=" };
 
+// 分项快照：STA 那拍把分项统计存成快照，等 UART 空闲、且离下一拍还有余量时
+// 才生成 STA2 并发送；发送失败（忙）就保留快照，下次再试
+static struct {
+	u8  pending;
+	u32 cnt[4];
+	u32 over[4];
+	u16 max_us[4];
+	u32 sta_cnt;
+	u32 sta_sum_us;
+	u16 sta_max_us;
+	u32 t_ms;                // 快照生成时刻（毫秒），用来算排队时长
+} s_bench_cat_snap;
+
+// 上一次 STA2 发送的诊断值：写入这一行要等下一次发送才知道，所以显示"上一回"
+static u16 s_bench_cat_diag_us;       // 生成 + 提交 DMA 的耗时
+static u16 s_bench_cat_diag_margin_us; // 发送完成时距下一拍的余量
+static u16 s_bench_cat_diag_lat_ms;   // 快照排队等待时长
+
 // STA 单独计时：从开始生成 STA 文本到尝试提交 DMA
 static u32 s_bench_sta_cnt;
 static u32 s_bench_sta_sum_us;
 static u16 s_bench_sta_max_us;
+
+// 距离下一拍至少留这么多时钟（半格采样周期 ≈1.25ms）才发 STA2，
+// 保证诊断输出不会把下一拍的读取挤晚
+#define BENCH_CAT_SEND_MARGIN_TICKS   (BENCH_SAMPLE_TICKS / 2)
+
+// 现在能不能发分项快照：有待发快照、串口空闲、且离下一拍还有余量
+// 返回 0 = 继续等（快照保留），1 = 可以生成并发送
+static u8 bench_cat_can_send(u8 pending, u8 uart_idle, u32 remain_ticks)
+{
+	if (!pending) {
+		return 0;
+	}
+	if (!uart_idle) {
+		return 0;
+	}
+	if (remain_ticks < BENCH_CAT_SEND_MARGIN_TICKS) {
+		return 0;
+	}
+	return 1;
+}
 
 // 加速度一阶低通系数缓存（Q15）：α 只与 dt 有关，dt 变化超过 50us 才重算
 static att_i32 s_bench_lpf_alpha;
@@ -1258,6 +1296,10 @@ static void BenchAtt_Init(void)
 	s_bench_sta_cnt = 0;
 	s_bench_sta_sum_us = 0;
 	s_bench_sta_max_us = 0;
+	s_bench_cat_snap.pending = 0;
+	s_bench_cat_diag_us = 0;
+	s_bench_cat_diag_margin_us = 0;
+	s_bench_cat_diag_lat_ms = 0;
 
 	s_bench_next_tick = clock_time() + BENCH_SAMPLE_TICKS;
 	s_bench_inited = 1;
@@ -1307,6 +1349,64 @@ static void BenchAtt_Startup(att_i32 acc_mg[3], att_i32 gyr_q10[3], u32 dt_ticks
 	s_bench_prev_ok = 1;
 }
 
+// 在采样间隙尝试发送分项快照（STA2）
+//   * 串口忙 / 离下一拍太近：直接返回，快照原样保留；
+//   * 发送成功：清除快照，并记录本次诊断开销（生成+DMA 提交、余量、排队时长）
+static void BenchAtt_CatPoll(u32 now)
+{
+	u32 remain_ticks = s_bench_next_tick - now;
+	u32 t0, us;
+	char buf[128];
+	char *r;
+	u8 k;
+
+	if (!bench_cat_can_send(s_bench_cat_snap.pending,
+	                        (u8)(uart_send_end ? 1 : 0), remain_ticks)) {
+		return;
+	}
+
+	t0 = clock_time();
+	r = buf;
+	r = bench_put_str(r, "STA2");
+	for (k = 0; k < 4; k++) {
+		r = bench_put_str(r, s_bench_cat_name[k]);
+		r = bench_put_u32(r, s_bench_cat_snap.cnt[k]);
+		*r++ = '/';
+		r = bench_put_u32(r, s_bench_cat_snap.max_us[k]);
+		*r++ = '/';
+		r = bench_put_u32(r, s_bench_cat_snap.over[k]);
+	}
+	r = bench_put_str(r, " sta=");
+	r = bench_put_u32(r, s_bench_cat_snap.sta_cnt
+	                     ? (s_bench_cat_snap.sta_sum_us / s_bench_cat_snap.sta_cnt) : 0);
+	*r++ = '/';
+	r = bench_put_u32(r, s_bench_cat_snap.sta_max_us);
+	// 诊断：上一回 STA2 的生成耗时 / 发完的余量 / 排队时长
+	r = bench_put_str(r, " diag=");
+	r = bench_put_u32(r, s_bench_cat_diag_us);
+	r = bench_put_str(r, " mrg=");
+	r = bench_put_u32(r, s_bench_cat_diag_margin_us);
+	r = bench_put_str(r, " lat=");
+	r = bench_put_u32(r, s_bench_cat_diag_lat_ms);
+	*r++ = '\n';
+
+	if (!UartTrySend((unsigned char *)buf, (u8)(r - buf))) {
+		// 极小概率：检查后刚好被别的输出抢走，快照仍保留
+		return;
+	}
+	s_bench_cat_snap.pending = 0;
+
+	us = (clock_time() - t0) / BENCH_TICKS_PER_US;
+	s_bench_cat_diag_us = (u16)us;
+	{
+		u32 left = s_bench_next_tick - clock_time();
+		s_bench_cat_diag_margin_us = (u16)(left / BENCH_TICKS_PER_US);
+	}
+	// 排队时长：快照生成到真正发出的毫秒数（验证延后发送是否生效）
+	s_bench_cat_diag_lat_ms = (u16)((u32)(clock_time() / BENCH_TICKS_PER_MS)
+	                                - s_bench_cat_snap.t_ms);
+}
+
 // 台架主处理：主循环每圈调用一次，内部按 200Hz 采样
 static void BenchAtt_Process(void)
 {
@@ -1329,6 +1429,8 @@ static void BenchAtt_Process(void)
 
 	now = clock_time();
 	if ((s32)(now - s_bench_next_tick) < 0) {
+		// 采样间隙：UART 空闲且离下一拍还有余量时，把待发的 STA2 发掉
+		BenchAtt_CatPoll(now);
 		return;
 	}
 	s_bench_next_tick += BENCH_SAMPLE_TICKS;
@@ -1567,38 +1669,6 @@ static void BenchAtt_Process(void)
 			s_bench_sta_sum_us += us;
 			s_bench_sta_cnt++;
 		}
-
-		// ---- 分项汇总（1Hz，与 STA 同频）：四类拍的拍数/最大耗时/超期次数 ----
-		{
-			char buf2[96];
-			char *r = buf2;
-			u8 k;
-
-			r = bench_put_str(r, "STA2");
-			for (k = 0; k < 4; k++) {
-				r = bench_put_str(r, s_bench_cat_name[k]);
-				r = bench_put_u32(r, s_bench_cat.cnt[k]);
-				*r++ = '/';
-				r = bench_put_u32(r, s_bench_cat.max_us[k]);
-				*r++ = '/';
-				r = bench_put_u32(r, s_bench_cat.over[k]);
-			}
-			r = bench_put_str(r, " sta=");
-			r = bench_put_u32(r, s_bench_sta_cnt ? (s_bench_sta_sum_us / s_bench_sta_cnt) : 0);
-			*r++ = '/';
-			r = bench_put_u32(r, s_bench_sta_max_us);
-			*r++ = '\n';
-			bench_send(buf2, (int)(r - buf2));
-
-			for (k = 0; k < 4; k++) {
-				s_bench_cat.cnt[k] = 0;
-				s_bench_cat.max_us[k] = 0;
-				s_bench_cat.over[k] = 0;
-			}
-			s_bench_sta_cnt = 0;
-			s_bench_sta_sum_us = 0;
-			s_bench_sta_max_us = 0;
-		}
 	}
 
 	// ---- 7) 整拍耗时：从本次读取前到本拍串口格式化与提交 DMA 之后 ----
@@ -1611,6 +1681,29 @@ static void BenchAtt_Process(void)
 		s_bench_cat.cnt[cat]++;
 		if (us > s_bench_cat.max_us[cat]) s_bench_cat.max_us[cat] = us;
 		if (us > C_ATT_SAMPLE_US) s_bench_cat.over[cat]++;
+
+		// 本拍是 STA 拍：把这一秒的分项统计存成快照并清零，等空闲时再发 STA2。
+		// 快照里带上生成时刻，用来算排队等待了多久
+		if (did_sta) {
+			u8 k;
+
+			for (k = 0; k < 4; k++) {
+				s_bench_cat_snap.cnt[k] = s_bench_cat.cnt[k];
+				s_bench_cat_snap.max_us[k] = s_bench_cat.max_us[k];
+				s_bench_cat_snap.over[k] = s_bench_cat.over[k];
+				s_bench_cat.cnt[k] = 0;
+				s_bench_cat.max_us[k] = 0;
+				s_bench_cat.over[k] = 0;
+			}
+			s_bench_cat_snap.sta_cnt = s_bench_sta_cnt;
+			s_bench_cat_snap.sta_sum_us = s_bench_sta_sum_us;
+			s_bench_cat_snap.sta_max_us = s_bench_sta_max_us;
+			s_bench_sta_cnt = 0;
+			s_bench_sta_sum_us = 0;
+			s_bench_sta_max_us = 0;
+			s_bench_cat_snap.t_ms = (u32)(clock_time() / BENCH_TICKS_PER_MS);
+			s_bench_cat_snap.pending = 1;
+		}
 
 		if (us < s_bench_stat.cyc_min_us) s_bench_stat.cyc_min_us = us;
 		if (us > s_bench_stat.cyc_max_us) s_bench_stat.cyc_max_us = us;
