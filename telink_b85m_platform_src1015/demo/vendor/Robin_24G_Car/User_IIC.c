@@ -54,7 +54,9 @@
 #define IIC_REG_OUT_CLR		reg_gpio_out_clear(IIC_SDA_Pin)
 
 //**************************************************************
-// 时序标定（按 -O2 生成的汇编估算）
+// 旧接口（iic_start / iic_write_byte ...）的位延时标定
+//	只有旧 IIC_* 路径用 iic_delay()（volatile 空循环）；新路径 i2c_*_s1/s2
+//	用的是文件后半段独立的 tnop 位时序，两边互不影响。
 //	1 个 SCL 位 = 3 次 iic_delay() + 约 15 个时钟周期的 IO 操作；
 //	1 次空循环(volatile 计数，约 10 个时钟周期/次) + 进出开销约 5 个周期。
 //	故：位周期 ≈ 30 × 循环次数 + 30 (系统时钟周期数)
@@ -65,12 +67,12 @@
 #define IIC_DLY_LOOPS		(((IIC_BIT_CYCLES) > 45u) ? (((IIC_BIT_CYCLES) - 30u) / 30u) : 1u)
 
 //**************************************************************
-// 方向寄存器影子（bit=1: 释放/输入； bit=0: 拉低/输出）
+// 引脚方向控制（开漏：bit=1 释放=高；bit=0 拉低）
+//	不用静态影子变量：直接对方向寄存器读-改-写，只动 SDA/SCL 两位。
+//	影子值只要被别的代码改过同组引脚就会过期，写回去会把别人的方向覆盖掉。
 //**************************************************************
-static unsigned char u8IicOeShadow;
-
-#define IIC_DRIVE_LOW(msk)	do{ u8IicOeShadow &= (unsigned char)(~(msk)); IIC_REG_OE = u8IicOeShadow; }while(0)
-#define IIC_RELEASE(msk)	do{ u8IicOeShadow |= (unsigned char)(msk);     IIC_REG_OE = u8IicOeShadow; }while(0)
+#define IIC_DRIVE_LOW(msk)	do{ IIC_REG_OE = (unsigned char)(IIC_REG_OE & (unsigned char)(~(msk))); }while(0)
+#define IIC_RELEASE(msk)	do{ IIC_REG_OE = (unsigned char)(IIC_REG_OE | (unsigned char)(msk)); }while(0)
 
 //**************************************************************
 // IIC 位延时（volatile 计数：防止编译器把空循环展开/优化掉，保证时序稳定）
@@ -103,10 +105,8 @@ void iic_pin_init(void)
 	gpio_write(P_IIC_SCL, 0);
 	gpio_write(P_IIC_SDA, 0);
 
-	// 记录方向寄存器初值，之后两脚进入"释放"态（总线空闲为高）
-	u8IicOeShadow = IIC_REG_OE;
-	u8IicOeShadow |= (unsigned char)(IIC_SDA_MSK | IIC_SCL_MSK);
-	IIC_REG_OE = u8IicOeShadow;
+	// 两脚进入"释放"态（总线空闲为高）：只置这两位，不碰同组其他引脚
+	IIC_RELEASE(IIC_SDA_MSK | IIC_SCL_MSK);
 }
 
 
@@ -596,175 +596,161 @@ void IIC_Read_nByte_S(u8 device, u8 addr, u8 *p, u8 len)
 /// i2c:
 ////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * @brief I2C延时（半周期 / 全周期）
- *		改为按 IIC_SCL_FREQ_KHZ 计算，不再固定 1uS
- */
-static inline void i2c_delay_half(void)
+// ---------------------------------------------------------------------------
+// 新路径（i2c_*_s1/s2）的位时序：Fast-mode，目标 SCL 接近但不超过 400kHz
+//
+// 24MHz 下 1 个系统时钟 ≈ 41.7ns，I2C Fast-mode 要求：
+//   tLOW ≥ 1.3us（≈32 拍）、tHIGH ≥ 0.6us（≈15 拍）、
+//   tSU;DAT ≥ 100ns、tSU;STA / tSU;STO ≥ 0.6us、tBUF ≥ 1.3us。
+//
+// 延时不用循环、不碰内存：全部由内联的 tnop（_ASM_NOP_）拼成，
+// -O2 反汇编里热路径只有固定条数的 nop，没有计数器栈读写；
+// 每次改方向寄存器的读-改-写和循环分支另算约 5~8 拍，已计入下面的常数。
+//
+// 位周期估算（按 -O2 反汇编逐条数）：写位循环体 45 条指令 =
+//   30 个低电平 nop + 12 个高电平 nop + 3 次方向寄存器读改写(约 6 拍/次)
+//   + 循环分支；按访存 2 拍、其余 1 拍估 ≈ 70 拍 ≈ 2.9us → SCL ≈ 340kHz，
+//   tLOW ≈ 1.7us、tHIGH ≈ 0.8us，满足 Fast-mode 下限且不超过 400kHz。
+// ★ 这是纸面估算，最终以引脚波形为准：上板量 SCL，偏高就加大
+//   NOPS_LOW/NOPS_HIGH，偏低就减小，别让位周期低于 60 拍（400kHz）。
+// ---------------------------------------------------------------------------
+#define IIC_NOPS_LOW        30      // SCL 低电平保持（含 SDA 数据建立）
+#define IIC_NOPS_HIGH       12      // SCL 高电平保持
+#define IIC_NOPS_SU         12      // START / STOP 的建立与保持时间
+#define IIC_NOPS_BUF        32      // STOP 之后的总线空闲（tBUF）
+
+static inline void iic_nop2(void)  { _ASM_NOP_; _ASM_NOP_; }
+static inline void iic_nop4(void)  { iic_nop2(); iic_nop2(); }
+static inline void iic_nop8(void)  { iic_nop4(); iic_nop4(); }
+static inline void iic_nop16(void) { iic_nop8(); iic_nop8(); }
+
+// SCL 低电平保持：16+8+4+2 = 30 个 nop
+static inline void iic_low_phase(void)  { iic_nop16(); iic_nop8(); iic_nop4(); iic_nop2(); }
+// SCL 高电平保持：8+4 = 12 个 nop
+static inline void iic_high_phase(void) { iic_nop8(); iic_nop4(); }
+// START/STOP 建立时间：8+4 = 12 个 nop
+static inline void iic_su_phase(void)   { iic_nop8(); iic_nop4(); }
+// STOP 后的总线空闲：16+16 = 32 个 nop
+static inline void iic_buf_phase(void)  { iic_nop16(); iic_nop16(); }
+
+// 读回 SDA 电平（只读一次输入寄存器）
+static inline uint8_t iic_sda_level(void)
 {
-    iic_delay();
+	return (IIC_REG_IN & IIC_SDA_MSK) ? 1 : 0;
 }
 
-static inline void i2c_delay_full(void)
+// 写一位：进入时 SCL 为低；SDA 只写一次，然后 SCL 高→低
+static inline void i2c_write_bit(uint8_t bit)
 {
-    iic_delay();
-    iic_delay();
+	if (bit) {
+		IIC_RELEASE(IIC_SDA_MSK);
+	} else {
+		IIC_DRIVE_LOW(IIC_SDA_MSK);
+	}
+	iic_low_phase();                // tLOW + SDA 数据建立
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_high_phase();               // tHIGH
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
 }
 
-/**
- * @brief SDA输出模式（拉低）
- */
-static inline void sda_output_mode(void)
+// 读一位：进入时 SCL 为低、SDA 已释放；采样点落在高电平中段
+static inline uint8_t i2c_read_bit(void)
 {
-    IIC_DRIVE_LOW(IIC_SDA_MSK);
+	uint8_t bit;
+
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_nop8();                     // 等上拉拉高 SCL，再采 SDA
+	bit = iic_sda_level();
+	iic_nop4();                     // 补足高电平时间
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
+	iic_low_phase();
+	return bit;
 }
 
-/**
- * @brief SDA输入模式（释放，由上拉拉高）
- */
-static inline void sda_input_mode(void)
+// 首次 START：从 SCL/SDA 都释放的空闲状态开始，SCL 高时只产生一次 SDA 下降沿
+static void i2c_start_first(void)
 {
-    IIC_RELEASE(IIC_SDA_MSK);
+	IIC_RELEASE(IIC_SDA_MSK);
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_buf_phase();                // 满足 STOP 到 START 的总线空闲
+	IIC_DRIVE_LOW(IIC_SDA_MSK);     // SCL 高时 SDA 下降沿 = START
+	iic_su_phase();                 // tHD;STA
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
+	iic_low_phase();
 }
 
-/**
- * @brief SCL高电平（释放）
- */
-static inline void scl_high(void)
+// 重复 START：进入时 SCL 为低；先释放 SDA 留建立时间，再释放 SCL
+static void i2c_start_rep(void)
 {
-    IIC_RELEASE(IIC_SCL_MSK);
+	IIC_RELEASE(IIC_SDA_MSK);       // SCL 低时先放开 SDA
+	iic_su_phase();                 // tSU;DAT
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_high_phase();               // tHIGH
+	IIC_DRIVE_LOW(IIC_SDA_MSK);     // SCL 高时 SDA 下降沿 = 重复 START
+	iic_su_phase();                 // tHD;STA
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
+	iic_low_phase();
 }
 
-/**
- * @brief SCL低电平（拉低）
- */
-static inline void scl_low(void)
-{
-    IIC_DRIVE_LOW(IIC_SCL_MSK);
-}
-
-/**
- * @brief SDA高电平（释放）
- */
-static inline void sda_high(void)
-{
-    IIC_RELEASE(IIC_SDA_MSK);
-}
-
-/**
- * @brief SDA低电平（拉低）
- */
-static inline void sda_low(void)
-{
-    IIC_DRIVE_LOW(IIC_SDA_MSK);
-}
-
-/**
- * @brief 读取SDA电平
- */
-static inline uint8_t sda_read(void)
-{
-    return (IIC_REG_IN & IIC_SDA_MSK) ? 1 : 0;
-}
-
-/**
- * @brief I2C起始信号
- */
-static void i2c_start(void)
-{
-    sda_output_mode();
-    sda_high();
-    scl_high();
-    i2c_delay_half();
-    sda_low();
-    i2c_delay_half();
-    scl_low();
-}
-
-/**
- * @brief I2C停止信号
- */
+// STOP：SCL 低时确保 SDA 为低，释放 SCL 等建立时间后再释放 SDA
 static void i2c_stop(void)
 {
-    sda_output_mode();
-    sda_low();
-    scl_high();
-    i2c_delay_half();
-    sda_high();
-    i2c_delay_half();
+	IIC_DRIVE_LOW(IIC_SDA_MSK);
+	iic_low_phase();
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_su_phase();                 // tSU;STO
+	IIC_RELEASE(IIC_SDA_MSK);       // STOP：SCL 高时 SDA 上升沿
+	iic_buf_phase();                // tBUF
 }
 
-/**
- * @brief I2C发送一个字节
- * @param byte 要发送的字节
- * @return 0:成功收到ACK, 1:收到NACK
- */
+// 写一个字节并读 ACK：返回 0=ACK，1=NACK
 static uint8_t i2c_write_byte(uint8_t byte)
 {
-    uint8_t i, ack;
+	u32 i;
+	uint8_t ack;
 
-    sda_output_mode();
+	for (i = 0; i < 8; i++) {
+		i2c_write_bit((uint8_t)(byte & 0x80));
+		byte <<= 1;
+	}
 
-    for (i = 0; i < 8; i++) {
-        if (byte & 0x80) {
-            sda_high();
-        } else {
-            sda_low();
-        }
-        byte <<= 1;
-        i2c_delay_half();
-        scl_high();
-        i2c_delay_half();
-        scl_low();
-        i2c_delay_half();
-    }
+	/* 第 9 个时钟：只释放一次 SDA，让从机拉低 */
+	IIC_RELEASE(IIC_SDA_MSK);
+	iic_low_phase();
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_nop8();
+	ack = iic_sda_level();
+	iic_nop4();
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
 
-    /* 读取ACK */
-    sda_input_mode();
-    scl_high();
-    i2c_delay_half();
-    ack = sda_read();
-    scl_low();
-    i2c_delay_half();
-
-    return ack;  /* 0=ACK, 1=NACK */
+	return ack;
 }
 
-/**
- * @brief I2C读取一个字节
- * @param ack 是否发送ACK (0: ACK, 1: NACK)
- * @return 读取到的字节
- */
-static uint8_t i2c_read_byte(uint8_t ack)
+// 读一个字节并发 ACK/NACK：nack=1 时 SDA 保持释放（NACK）
+static uint8_t i2c_read_byte(uint8_t nack)
 {
-    uint8_t i, byte = 0;
+	u32 i;
+	uint8_t byte = 0;
 
-    sda_input_mode();
+	IIC_RELEASE(IIC_SDA_MSK);       /* 整个读字节只释放一次 */
 
-    for (i = 0; i < 8; i++) {
-        byte <<= 1;
-        scl_high();
-        i2c_delay_half();
-        if (sda_read()) {
-            byte |= 0x01;
-        }
-        scl_low();
-        i2c_delay_half();
-    }
+	for (i = 0; i < 8; i++) {
+		byte <<= 1;
+		byte |= i2c_read_bit();
+	}
 
-    /* 发送ACK/NACK */
-    sda_output_mode();
-    if (ack) {
-        sda_high();  /* NACK */
-    } else {
-        sda_low();   /* ACK */
-    }
-    scl_high();
-    i2c_delay_half();
-    scl_low();
-    i2c_delay_half();
+	if (!nack) {
+		IIC_DRIVE_LOW(IIC_SDA_MSK); /* ACK：只拉低这一次 */
+	}
+	iic_low_phase();
+	IIC_RELEASE(IIC_SCL_MSK);
+	iic_high_phase();
+	IIC_DRIVE_LOW(IIC_SCL_MSK);
+	if (!nack) {
+		IIC_RELEASE(IIC_SDA_MSK);   /* ACK 之后放开，交给 STOP 或下一字节 */
+	}
 
-    return byte;
+	return byte;
 }
 
 // ---------------------------------------------------------------------------
@@ -778,7 +764,7 @@ uint8_t i2c_write_reg_s1(uint8_t reg, uint8_t value)
 {
     uint8_t ret;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x00);  /* 写地址 */
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
@@ -794,7 +780,7 @@ uint8_t i2c_write_reg_s2(uint8_t reg, uint8_t value)
 {
     uint8_t ret;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x00);  /* 写地址 */
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
@@ -817,13 +803,13 @@ uint8_t i2c_read_reg_s1(uint8_t reg, uint8_t *value)
 {
     uint8_t ret;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x00);  /* 写地址 */
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
     if (ret) { i2c_stop(); return 1; }
 
-    i2c_start();
+    i2c_start_rep();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x01);  /* 读地址 */
     if (ret) { i2c_stop(); return 1; }
 
@@ -837,13 +823,13 @@ uint8_t i2c_read_reg_s2(uint8_t reg, uint8_t *value)
 {
     uint8_t ret;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x00);  /* 写地址 */
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
     if (ret) { i2c_stop(); return 1; }
 
-    i2c_start();
+    i2c_start_rep();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x01);  /* 读地址 */
     if (ret) { i2c_stop(); return 1; }
 
@@ -867,13 +853,13 @@ uint8_t i2c_read_regs_s1(uint8_t reg, uint8_t *data, uint8_t len)
 
     if (len == 0) return 0;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x00);
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
     if (ret) { i2c_stop(); return 1; }
 
-    i2c_start();
+    i2c_start_rep();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x01);
     if (ret) { i2c_stop(); return 1; }
 
@@ -891,13 +877,13 @@ uint8_t i2c_read_regs_s2(uint8_t reg, uint8_t *data, uint8_t len)
 
     if (len == 0) return 0;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x00);
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
     if (ret) { i2c_stop(); return 1; }
 
-    i2c_start();
+    i2c_start_rep();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x01);
     if (ret) { i2c_stop(); return 1; }
 
@@ -923,7 +909,7 @@ uint8_t i2c_write_regs_s1(uint8_t reg, uint8_t *data, uint8_t len)
 
     if (len == 0) return 0;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress1 << 1) | 0x00);
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
@@ -944,7 +930,7 @@ uint8_t i2c_write_regs_s2(uint8_t reg, uint8_t *data, uint8_t len)
 
     if (len == 0) return 0;
 
-    i2c_start();
+    i2c_start_first();
     ret = i2c_write_byte((SlaveAddress2 << 1) | 0x00);
     if (ret) { i2c_stop(); return 1; }
     ret = i2c_write_byte(reg);
