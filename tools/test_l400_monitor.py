@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 import uart_sensor_monitor as mon
 
@@ -128,6 +129,9 @@ class L400WorkerTest(unittest.TestCase):
             self.assertEqual(worker.stats, 1)
             self.assertEqual(worker.bad, 0)
             self.assertIn("初始化完成", worker.state)
+            # 有效观察帧要记录主机单调时间，供界面判断状态是否过期
+            self.assertGreater(worker.last_obs_mono, 0.0)
+            self.assertLess(abs(time.monotonic() - worker.last_obs_mono), 2.0)
 
             with open(obs_path, newline="", encoding="utf-8-sig") as fp:
                 rows = list(csv.DictReader(fp))
@@ -193,6 +197,107 @@ class L400SimulationTest(unittest.TestCase):
             self.assertGreaterEqual(len(stat_rows), 1)
             self.assertIn("gx_dps", obs_rows[0])
             self.assertIn("cyc_peak_us", stat_rows[0])
+
+
+class L400StatusStaleTest(unittest.TestCase):
+    """串口停发 1s 后状态栏必须标过期，恢复新帧后回到正常显示"""
+
+    def _worker(self, age_s):
+        obs = {
+            "rdy": 1, "lk": 1, "vld": 1,
+            "alk_ms": 35, "avld_ms": 18, "gpk_ms": 31,
+            "g_q10": [0, 0, 0], "c_q10": [0, 0, 0],
+            "g_dps": [0.0, 0.0, 0.0], "c_dps": [0.0, 0.0, 0.0],
+        }
+        stat = {"cyc_peak_us": 3100}
+        return SimpleNamespace(
+            last_obs=obs, last_obs_mono=time.monotonic() - age_s,
+            last_stat=stat, frames=10, stats=1,
+            state="初始化完成", detail="", error="")
+
+    def test_stale_then_recover(self):
+        monitor = mon.SensorMonitor(self._worker(1.3), "", mode="l400")
+        stale = monitor._status_l400()
+        self.assertIn("串口数据中断", stale)
+        self.assertIn("已过期", stale)
+        # 过期时不能再显示“遥控 连接 / 指令 有效”
+        self.assertNotIn("遥控 连接", stale)
+        self.assertNotIn("指令 有效", stale)
+
+        fresh = mon.SensorMonitor(self._worker(0.4), "", mode="l400")
+        text = fresh._status_l400()
+        self.assertNotIn("串口数据中断", text)
+        self.assertIn("遥控 连接", text)
+        self.assertIn("指令 有效", text)
+
+    def test_threshold_is_about_one_second(self):
+        # 刚过 1s 就标过期，0.5s 内仍按新帧显示
+        self.assertEqual(mon.L400_STALE_S, 1.0)
+        self.assertIn("串口数据中断",
+                      mon.SensorMonitor(self._worker(1.05), "", mode="l400")._status_l400())
+        self.assertNotIn("串口数据中断",
+                         mon.SensorMonitor(self._worker(0.5), "", mode="l400")._status_l400())
+
+
+class CsvSameFileTest(unittest.TestCase):
+    """--csv 与 --stats-csv 指向同一文件时必须先报错，不能截断已有内容"""
+
+    def setUp(self):
+        self.script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "uart_sensor_monitor.py")
+        self.env = dict(os.environ, PYTHONIOENCODING="utf-8")
+
+    def _run(self, args):
+        return subprocess.run(
+            [sys.executable, self.script] + args,
+            cwd=os.path.dirname(self.script), timeout=20,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace", env=self.env)
+
+    def _write_keep(self, path):
+        with open(path, "w", encoding="utf-8") as fp:
+            fp.write("KEEP")
+
+    def _read_keep(self, path):
+        with open(path, encoding="utf-8") as fp:
+            return fp.read()
+
+    def test_same_path_rejected_in_all_modes(self):
+        # L400、姿态、默认六轴三种模式都要在打开文件前拦住
+        for mode_args in (["--l400", "--simulate"], ["--attitude", "--simulate"], ["--simulate"]):
+            with self.subTest(mode=mode_args), tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "same.csv")
+                self._write_keep(path)
+                result = self._run(mode_args + ["--no-plot", "--duration", "0.2",
+                                                "--csv", path, "--stats-csv", path])
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("同一文件", result.stdout)
+                self.assertEqual(self._read_keep(path), "KEEP")
+
+    def test_relative_alias_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sub = os.path.join(tmp, "sub")
+            os.makedirs(sub)
+            path = os.path.join(tmp, "same.csv")
+            alias = os.path.join(sub, "..", "same.csv")
+            self._write_keep(path)
+            result = self._run(["--l400", "--simulate", "--no-plot", "--duration", "0.2",
+                                "--csv", path, "--stats-csv", alias])
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("同一文件", result.stdout)
+            self.assertEqual(self._read_keep(path), "KEEP")
+
+    def test_check_runs_before_opening_serial(self):
+        # 用不存在的 COM99 证明：先报路径重复，而不是先报打开串口失败
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "same.csv")
+            self._write_keep(path)
+            result = self._run(["--l400", "--port", "COM99", "--no-plot", "--duration", "0.2",
+                                "--csv", path, "--stats-csv", path])
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("同一文件", result.stdout)
+            self.assertNotIn("打开串口", result.stdout)
+            self.assertEqual(self._read_keep(path), "KEEP")
 
 
 if __name__ == "__main__":

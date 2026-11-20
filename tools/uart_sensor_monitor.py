@@ -306,6 +306,10 @@ ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
 # Q10 rad/s → °/s：1 rad/s = 180/π °/s，Q10 的 1024 对应 1 rad/s
 Q10_RAD_S_TO_DPS = 180.0 / math.pi / 1024.0
 
+# 超过这么久没有新的 L400 观察帧，就把 lk/vld 标为已过期。
+# 用主机单调时间（time.monotonic），不受系统改时间影响。
+L400_STALE_S = 1.0
+
 L400_CSV_FIELDS = [
     "recv_s", "recv_epoch", "t_ms",
     "rdy", "lk", "vld",
@@ -960,6 +964,7 @@ class L400Worker(threading.Thread):
         self.detail = ""
         self.last_stat = None    # 最近一条 L400S
         self.last_obs = None     # 最近一条 L400
+        self.last_obs_mono = 0.0 # 最近一条有效观察帧的主机单调时间（秒）
         self.error = ""
         self.start_wall = time.time()
         self._buf = b""
@@ -983,6 +988,7 @@ class L400Worker(threading.Thread):
         if kind == "l400":
             self.frames += 1
             self.last_obs = payload
+            self.last_obs_mono = time.monotonic()
             t_ms = int((now - self.start_wall) * 1000)
             payload["t_ms"] = t_ms
             writer.writerow({
@@ -1577,6 +1583,18 @@ class SensorMonitor:
                 msg += f" | 串口错误：{w.error}"
             return msg
 
+        # 串口停发后 worker.last_obs 不会变；若只看它，会一直显示旧的
+        # “遥控连接/指令有效”。用最近一条观察帧的主机单调时间判断过期。
+        age = time.monotonic() - w.last_obs_mono
+        if age > L400_STALE_S:
+            msg = (f"串口数据中断（{age:.1f}s 无新观察帧） | "
+                   f"遥控/指令状态已过期 | "
+                   f"有效包龄 {o['avld_ms']}ms（旧） | 整拍峰值 {peak}")
+            msg += " | F 跟随 / Q 退出"
+            if w.error:
+                msg += f" | 串口错误：{w.error}"
+            return msg
+
         msg = (f"姿态 {'就绪' if o['rdy'] else '未就绪'} | "
                f"遥控 {'连接' if o['lk'] else '失联'} | "
                f"指令 {'有效' if o['vld'] else '失效'} | "
@@ -1819,6 +1837,30 @@ def make_perf_csv_path(explicit, data_csv):
     return f"{base}_perf.csv"
 
 
+def ensure_distinct_outputs(named_paths):
+    """
+    检查多个输出 CSV 是否指向同一文件。
+
+    named_paths: [(界面显示名, 路径), ...]
+    只做路径判断，不打开、不写入任何文件；发现重复直接退出，
+    这样已有的 CSV 内容不会被截断。同时处理大小写、相对路径和硬链接。
+    """
+    seen = []
+    for name, path in named_paths:
+        real = os.path.normcase(os.path.realpath(os.path.abspath(path)))
+        for other_name, other_path, other_real in seen:
+            same = (real == other_real)
+            if not same and os.path.exists(path) and os.path.exists(other_path):
+                try:
+                    same = os.path.samefile(path, other_path)
+                except OSError:
+                    same = False
+            if same:
+                sys.exit(f"错误：{name} 与 {other_name} 指向同一文件：{path}\n"
+                         "请改用不同的输出路径；已有文件不会被修改。")
+        seen.append((name, path, real))
+
+
 def run_no_plot(worker, duration):
     """无界面模式：只采集 + 写 CSV"""
     worker.start()
@@ -1861,6 +1903,14 @@ def make_att_stat_path(explicit, data_csv):
 
 def run_attitude(args):
     """--attitude：按台架固件的文本协议（ATT/STA）采集与显示"""
+    csv_path = make_attitude_csv_path(args.csv)
+    stat_path = make_att_stat_path(args.stats_csv, csv_path)
+    cat_path = f"{os.path.splitext(csv_path)[0]}_cat.csv"
+    # 先检查三份输出，再打开串口/文件，避免把同一文件截断两次
+    ensure_distinct_outputs([("--csv", csv_path),
+                             ("--stats-csv", stat_path),
+                             ("分项 CSV", cat_path)])
+
     if args.simulate:
         source = SimAttitudeSource()
         port_name = "模拟台架数据源"
@@ -1868,9 +1918,6 @@ def run_attitude(args):
         port_name = pick_port(args.port)
         source = SerialSource(port_name, args.baud)
 
-    csv_path = make_attitude_csv_path(args.csv)
-    stat_path = make_att_stat_path(args.stats_csv, csv_path)
-    cat_path = f"{os.path.splitext(csv_path)[0]}_cat.csv"
     sample_queue = queue.Queue(maxsize=2000)
     worker = AttitudeWorker(source, csv_path, stat_path, sample_queue, cat_path)
 
@@ -1922,6 +1969,12 @@ def make_l400_stat_path(explicit, data_csv):
 
 def run_l400(args):
     """--l400：按 7d01167 联调固件的 L400/L400S 文本协议采集与显示"""
+    csv_path = make_l400_csv_path(args.csv)
+    stat_path = make_l400_stat_path(args.stats_csv, csv_path)
+    # 先检查两份输出，再打开串口/文件，避免把同一文件截断两次
+    ensure_distinct_outputs([("--csv", csv_path),
+                             ("--stats-csv", stat_path)])
+
     if args.simulate:
         source = SimL400Source()
         port_name = "模拟 L400 数据源"
@@ -1929,8 +1982,6 @@ def run_l400(args):
         port_name = pick_port(args.port)
         source = SerialSource(port_name, args.baud)
 
-    csv_path = make_l400_csv_path(args.csv)
-    stat_path = make_l400_stat_path(args.stats_csv, csv_path)
     sample_queue = queue.Queue(maxsize=2000)
     worker = L400Worker(source, csv_path, stat_path, sample_queue)
 
@@ -1968,6 +2019,13 @@ def run(args):
     if args.attitude:
         run_attitude(args)
         return
+
+    csv_path = make_csv_path(args.csv)
+    perf_path = make_perf_csv_path(args.stats_csv, csv_path)
+    # 先检查两份输出，再打开串口/文件，避免把同一文件截断两次
+    ensure_distinct_outputs([("--csv", csv_path),
+                             ("--stats-csv", perf_path)])
+
     if args.simulate:
         source = SimSource()
         port_name = "模拟数据源"
@@ -1975,8 +2033,6 @@ def run(args):
         port_name = pick_port(args.port)
         source = SerialSource(port_name, args.baud)
 
-    csv_path = make_csv_path(args.csv)
-    perf_path = make_perf_csv_path(args.stats_csv, csv_path)
     frame_queue = queue.Queue(maxsize=2000)
     worker = SensorWorker(source, csv_path, perf_path, frame_queue,
                           args.acc_lsb_per_g, args.gyro_lsb_per_dps)

@@ -88,6 +88,22 @@ Get-FileHash "firmware_delivery\daily\Robin_24G_Car_maint_269a.bin" -Algorithm S
 
 期望值就是第 1 节表格里的两个 SHA256。
 
+也可以直接跑清单核对：
+
+```powershell
+python firmware_delivery\verify_hashes.py
+```
+
+**退出码口径**：只由受版本管理的日常镜像、归档镜像和原始基线决定。构建目录里的
+`Robin_24G_Car_Flash.bin` 会被重编覆盖，干净检出时也可能不存在，脚本只打印
+`[参考-缺失]` / `[参考-变化]` / `[OK]`，**不影响退出码**；交付镜像仍能通过核对。
+
+这两个场景（构建产物缺失/哈希变化仍通过，日常镜像变化才失败）的自测：
+
+```powershell
+python firmware_delivery\test_verify_hashes.py
+```
+
 ## 6. 和监视器/校准脚本的对应关系
 
 | 镜像 | 监视器参数 | 校准脚本 |
