@@ -42,6 +42,8 @@ import threading
 import time
 
 from uart_proto import FrameParser
+from calib_common import (MAP_FORMAT, SerialSource, list_ports, pick_port,
+                          unique_path)
 
 # ----------------------------------------------------------------------------
 # 参数集中定义
@@ -129,59 +131,6 @@ class FrameReader(threading.Thread):
                 self.q.get_nowait()
             except queue.Empty:
                 return
-
-
-class SerialSource:
-    def __init__(self, port, baud):
-        try:
-            import serial
-        except ImportError:
-            sys.exit("缺少 pyserial：请先执行  python -m pip install pyserial")
-        try:
-            self.ser = serial.Serial(port, baud, timeout=0.05)
-        except Exception as exc:
-            sys.exit(f"打开串口 {port} 失败：{exc}")
-
-    def read(self):
-        return self.ser.read(4096)
-
-    def close(self):
-        try:
-            self.ser.close()
-        except Exception:
-            pass
-
-
-def list_ports():
-    import serial.tools.list_ports
-    ports = sorted(serial.tools.list_ports.comports(), key=lambda p: p.device)
-    if not ports:
-        print("未发现任何串口设备")
-        return
-    print("可用串口：")
-    for p in ports:
-        print(f"  {p.device:<8} {p.description}")
-
-
-def pick_port(explicit):
-    if explicit:
-        return explicit
-    import serial.tools.list_ports
-    ports = list(serial.tools.list_ports.comports())
-    if not ports:
-        sys.exit("未发现串口，请用 --port 指定")
-    for p in ports:
-        text = f"{p.description} {p.manufacturer or ''} {p.hwid or ''}".upper()
-        if any(k in text for k in ("CH340", "CH341", "CP210", "FT232", "FTDI", "PL2303", "USB 串行")):
-            print(f"自动选择串口：{p.device} ({p.description})")
-            return p.device
-    if len(ports) == 1:
-        print(f"自动选择串口：{ports[0].device} ({ports[0].description})")
-        return ports[0].device
-    print("检测到多个串口，请用 --port 指定：")
-    for p in ports:
-        print(f"  {p.device:<8} {p.description}")
-    sys.exit(1)
 
 
 # ----------------------------------------------------------------------------
@@ -432,20 +381,9 @@ def collect_all(reader, cfg, only_ids=None):
 # ----------------------------------------------------------------------------
 # 结果输出
 # ----------------------------------------------------------------------------
-def unique_path(path):
-    """同名文件不覆盖：自动加 _1、_2 后缀"""
-    if not os.path.exists(path):
-        return path
-    root, ext = os.path.splitext(path)
-    i = 1
-    while os.path.exists(f"{root}_{i}{ext}"):
-        i += 1
-    return f"{root}_{i}{ext}"
-
-
 def write_json(path, records, matrix, mapping, det):
     data = {
-        "format": "robin24g_imu_axis_map_frd",
+        "format": MAP_FORMAT,
         "version": 1,
         "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "sensor": {"model": "T-3488", "accel_lsb_per_g": CONFIG["lsb_per_g"]},

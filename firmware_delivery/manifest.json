@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-11-20T18:45:00+08:00",
   "flash_address_car_app": "0x4000",
-  "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的 Robin_24G_Car_Flash.bin 是通用产物，当前等于 L400 镜像，不能按文件名判断用途。",
+  "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的通用 .bin 与命名副本已清理，重新编译才生成，不能按文件名判断用途。",
   "daily": [
     {
       "role": "400hz_l400",
@@ -56,7 +56,8 @@
     "generic_bin": "Robin_24G_Car_Flash.bin",
     "generic_bin_bytes": 25156,
     "generic_bin_sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
-    "generic_bin_mode": "L400 (identical to daily 400Hz image)"
+    "generic_bin_mode": "reference only; file removed by cleanup, regenerated on build",
+    "retained": false
   },
   "baseline": {
     "file": "firmware_baseline/Robin_24G_Car_Flash/Robin_24G_Car_Flash.bin",

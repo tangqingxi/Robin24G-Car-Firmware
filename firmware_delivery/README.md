@@ -46,28 +46,29 @@
 telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 ```
 
-里面的 `Robin_24G_Car_Flash.bin`、`Robin_24G_Car_Flash.lst`、`TC_PLATFORM_SDK_122X.elf`
-是**通用构建产物**，每次编译都会被覆盖。当前这三份对应的是 L400 构建：
+这里的通用 `.bin` 与按模式命名的构建副本**已清理**，不再作为交付路径保留：
+`Robin_24G_Car_Flash.bin`、`Robin_24G_Car_rc_loop400.bin`、`Robin_24G_Car_maint_269a.bin`、
+`Robin_24G_Car_rc_bringup.bin`、`Robin_24G_Remote_Flash.bin`、
+`Robin_24G_Bootloader_Flash.bin` 共 6 份，删除前都已与下方保留件逐个核对哈希。
+
+构建目录目前只保留：
 
 ```text
-Robin_24G_Car_Flash.bin   25156 字节
-SHA256 3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821
+Robin_24G_Car_rc_loop400_sched.bin   26644 字节
+SHA256 CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16
 ```
 
-它和 `Robin_24G_Car_rc_loop400.bin` **内容完全相同**，也就是说“通用名”现在实际是 L400 镜像。
-因此：
+它是 `2b7d3c3` 调度测试版的唯一仓库内副本，暂不退役。
 
-- **不要**按文件名 `Robin_24G_Car_Flash.bin` 判断它是姿态版、维护版还是 L400 版；
-- 烧录优先使用 `firmware_delivery/daily/` 下的交付副本，并按上表的 SHA256 核对；
-- 构建目录里的 `Robin_24G_Car_maint_269a.bin`、`Robin_24G_Car_rc_bringup.bin`、
-  `Robin_24G_Car_rc_loop400.bin` 是历史上从构建结果复制出来的命名副本，可能被后续编译覆盖，
-  不作为稳定交付路径。
+以后重新编译仍会生成 `Robin_24G_Car_Flash.bin`、`.lst`、`.elf` 等通用产物，
+**不要**按文件名判断它是姿态版、维护版还是 L400 版；烧录优先使用
+`firmware_delivery/daily/` 下的交付副本，并按上表的 SHA256 核对。
 
 ## 4. 构建模式核对方法
 
 本轮不是只看文件名，做了三层核对：
 
-1. **哈希**：对现存每个 .bin 计算 SHA256（见上表）。
+1. **哈希**：对受版本管理的日常/归档件、三份基线和 `_sched.bin` 分别计算 SHA256。
 2. **镜像内字符串**：
    - L400：包含 `L400 rdy=`、`L400S bad=`、`L400 init ok`；
    - RC 联调：包含 `RC lk=`；
@@ -95,8 +96,9 @@ python firmware_delivery\verify_hashes.py
 ```
 
 **退出码口径**：只由受版本管理的日常镜像、归档镜像和原始基线决定。构建目录里的
-`Robin_24G_Car_Flash.bin` 会被重编覆盖，干净检出时也可能不存在，脚本只打印
-`[参考-缺失]` / `[参考-变化]` / `[OK]`，**不影响退出码**；交付镜像仍能通过核对。
+通用 `Robin_24G_Car_Flash.bin` 已清理，重新编译才可能出现，干净检出时也不存在；
+脚本只打印 `[参考-缺失]` / `[参考-变化]` / `[OK]`，**不影响退出码**，
+交付镜像仍能通过核对。
 
 这两个场景（构建产物缺失/哈希变化仍通过，日常镜像变化才失败）的自测：
 
