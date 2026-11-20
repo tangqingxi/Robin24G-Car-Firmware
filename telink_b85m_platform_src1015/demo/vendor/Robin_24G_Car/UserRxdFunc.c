@@ -1783,11 +1783,13 @@ static void Maint_Process(void)
 #define RC_BRINGUP_HZ          5
 #define RC_BRINGUP_TICKS       (CLOCK_SYS_CLOCK_HZ / RC_BRINGUP_HZ)
 
-// 每轴符号（按实际拨杆读数确认；方向相反就改成 -1）
+// 每轴符号（已按 2026-11-20 实机拨杆读数确认）
+//   只有横滚与协议假设相反：实际推右时 Rotation 原始值给出的是负方向，
+//   这里取 -1 之后才是"推右 = 机体右倾"，其余三轴保持 +1
 #define RC_SIGN_THROTTLE       (+1)
 #define RC_SIGN_YAW            (+1)
 #define RC_SIGN_PITCH          (+1)
-#define RC_SIGN_ROLL           (+1)
+#define RC_SIGN_ROLL           (-1)
 
 // 映射后的四轴指令（±307 量级，供后续 400Hz 控制环使用）
 static volatile s16 s_rc_cmd_throttle;
