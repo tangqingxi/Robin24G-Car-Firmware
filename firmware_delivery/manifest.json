@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-11-20T18:45:00+08:00",
+  "flash_address_car_app": "0x4000",
+  "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的 Robin_24G_Car_Flash.bin 是通用产物，当前等于 L400 镜像，不能按文件名判断用途。",
+  "daily": [
+    {
+      "role": "400hz_l400",
+      "file": "daily/Robin_24G_Car_rc_loop400.bin",
+      "bytes": 25156,
+      "sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
+      "build_commit": "7d01167",
+      "build_flag": "-DC_RC_LOOP_400_EN=1",
+      "monitor": "--l400",
+      "serial_protocol": "L400/L400S text"
+    },
+    {
+      "role": "maint_269a",
+      "file": "daily/Robin_24G_Car_maint_269a.bin",
+      "bytes": 17716,
+      "sha256": "F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38",
+      "build_flag": "-DC_MAINT_269A_EN=1",
+      "monitor": "default binary 0x269A",
+      "calibration_scripts": [
+        "tools/imu_axis_map.py",
+        "tools/accel_six_face_cal.py",
+        "tools/gyro_bias_cal.py"
+      ],
+      "serial_protocol": "0x269A binary frames, ~100 Hz"
+    }
+  ],
+  "archive": [
+    {
+      "role": "rc_bringup",
+      "file": "archive/Robin_24G_Car_rc_bringup.bin",
+      "bytes": 18228,
+      "sha256": "476628BD9A3FE679E857104A36956E611ECCE775E327FD8D3CC76235EE152F0F",
+      "build_commit": "dad49ff",
+      "build_flag": "-DC_RC_BRINGUP_EN=1",
+      "serial_protocol": "RC lk=... text",
+      "monitor": "not parsed by current monitor"
+    },
+    {
+      "role": "attitude_bench_rebuilt",
+      "file": "archive/Robin_24G_Car_att_bench_dad49ff_rebuilt.bin",
+      "bytes": 24852,
+      "sha256": "54CE488F2F0AB045A924CFF2CFF25772798D0F02D12F841AD88276746D781BD1",
+      "build_commit": "dad49ff",
+      "build_flag": "none (C_ATT_BENCH_EN=1 default bench mode)",
+      "monitor": "--attitude",
+      "serial_protocol": "ATT/STA text",
+      "note": "原 24852 字节姿态件已被 40cae79 的 L400 构建覆盖；本文件是 dad49ff 源码重建的回退件，不是逐字节原件。原件 SHA256 前缀记录为 DFFB6463..."
+    }
+  ],
+  "build_artifacts": {
+    "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
+    "generic_bin": "Robin_24G_Car_Flash.bin",
+    "generic_bin_bytes": 25156,
+    "generic_bin_sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
+    "generic_bin_mode": "L400 (identical to daily 400Hz image)"
+  },
+  "baseline": {
+    "file": "firmware_baseline/Robin_24G_Car_Flash/Robin_24G_Car_Flash.bin",
+    "bytes": 34404,
+    "sha256": "504042715AF62E84EB8580E35016FF0434992BC0867510C920425424BC9421DF",
+    "note": "原始整机固件回退件，不是当前联调/校准镜像"
+  }
+}

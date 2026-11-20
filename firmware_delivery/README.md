@@ -1,0 +1,100 @@
+# Robin_24G_Car 烧录镜像交付说明
+
+本目录只放**实际可烧录的镜像副本**和清单；构建目录里的同名文件是编译产物，不作为交付依据。
+所有 Car 应用镜像都烧到 **0x4000**（bootloader 占 0x0–0x3FFF，0x10000 以上区域不动）。
+当前板上运行的是 **7d01167 联调固件**，继续使用即可，不需要因为本轮文档改动而重烧。
+
+## 1. 日常只列这两份
+
+| 用途 | 交付文件 | 字节 | SHA256 | 烧录地址 | 上位机 |
+|---|---|---|---|---|---|
+| **当前 400Hz 联调版** | [`daily/Robin_24G_Car_rc_loop400.bin`](daily/Robin_24G_Car_rc_loop400.bin) | 25156 | `3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821` | 0x4000 | `uart_sensor_monitor.py --l400` |
+| **六轴校准维护版** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 | 三个校准脚本；默认 0x269A 六轴模式 |
+
+- **400Hz 联调版**：对应提交 `7d01167`，构建开关 `-DC_RC_LOOP_400_EN=1`；串口输出
+  10Hz 的 `L400 ...` 和 1Hz 的 `L400S ...`。监视器用 `--l400`，画 g/c 三轴角速度（°/s），
+  **不是欧拉角**。
+- **六轴校准维护版**：构建开关 `-DC_MAINT_269A_EN=1`；只发 0x269A 原始六轴二进制帧，
+  约 100Hz。`imu_axis_map.py`、`accel_six_face_cal.py`、`gyro_bias_cal.py` 三个脚本都用它；
+  默认（不加 `--attitude` / `--l400`）的监视器也能看原始六轴波形。
+
+> 维护版是历史原件，SHA256 以现存文件为准。用 e5f07f5/6395fba/当前源码做干净重建会得到
+> 同样 17716 字节但哈希为 `E08B51FE...` 的文件，说明历史件不是用当前 makefile 的链接顺序生成的；
+> **不要用重建件覆盖这份已在用的原件**，除非先上板验证。
+
+## 2. 归档参考（保留可回退原件）
+
+| 用途 | 文件 | 字节 | SHA256 | 烧录地址 | 说明 |
+|---|---|---|---|---|---|
+| 单独的 RC 联调版 | [`archive/Robin_24G_Car_rc_bringup.bin`](archive/Robin_24G_Car_rc_bringup.bin) | 18228 | `476628BD9A3FE679E857104A36956E611ECCE775E327FD8D3CC76235EE152F0F` | 0x4000 | 构建开关 `-DC_RC_BRINGUP_EN=1`，串口输出 `RC lk=...`；当前监视器未解析这种文本，仅归档 |
+| 历史姿态版（重建回退件） | [`archive/Robin_24G_Car_att_bench_dad49ff_rebuilt.bin`](archive/Robin_24G_Car_att_bench_dad49ff_rebuilt.bin) | 24852 | `54CE488F2F0AB045A924CFF2CFF25772798D0F02D12F841AD88276746D781BD1` | 0x4000 | 默认台架姿态模式（`C_ATT_BENCH_EN=1`，无联调宏），串口输出 `ATT ...` / `STA ...`；监视器用 `--attitude` |
+
+历史姿态版的说明要单独看：
+
+- 原来的 `Robin_24G_Car_Flash.bin`（24852 字节，提交 `766ae75` 记录 SHA256 前缀 `DFFB6463...`）
+  在 `40cae79` 的 L400 构建中被同名通用文件覆盖，仓库和构建目录里都已经找不到原件。
+- 本目录的归档件是用 `dad49ff` 源码重新构建的姿态回退件，大小同为 24852 字节、模式为
+  `ATT/STA` 文本，但**没有和丢失的原件逐字节比对过**，哈希是新文件的 `54CE488F...`。
+  它能作为 `--attitude` 的回退镜像，但不能冒充原件。
+- 如果以后从旧电脑/旧烧录目录找回原件，应先比对 `DFFB6463...` 前缀和 24852 字节，再替换本归档件。
+
+## 3. 构建产物 ≠ 交付镜像
+
+构建目录：
+
+```text
+telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
+```
+
+里面的 `Robin_24G_Car_Flash.bin`、`Robin_24G_Car_Flash.lst`、`TC_PLATFORM_SDK_122X.elf`
+是**通用构建产物**，每次编译都会被覆盖。当前这三份对应的是 L400 构建：
+
+```text
+Robin_24G_Car_Flash.bin   25156 字节
+SHA256 3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821
+```
+
+它和 `Robin_24G_Car_rc_loop400.bin` **内容完全相同**，也就是说“通用名”现在实际是 L400 镜像。
+因此：
+
+- **不要**按文件名 `Robin_24G_Car_Flash.bin` 判断它是姿态版、维护版还是 L400 版；
+- 烧录优先使用 `firmware_delivery/daily/` 下的交付副本，并按上表的 SHA256 核对；
+- 构建目录里的 `Robin_24G_Car_maint_269a.bin`、`Robin_24G_Car_rc_bringup.bin`、
+  `Robin_24G_Car_rc_loop400.bin` 是历史上从构建结果复制出来的命名副本，可能被后续编译覆盖，
+  不作为稳定交付路径。
+
+## 4. 构建模式核对方法
+
+本轮不是只看文件名，做了三层核对：
+
+1. **哈希**：对现存每个 .bin 计算 SHA256（见上表）。
+2. **镜像内字符串**：
+   - L400：包含 `L400 rdy=`、`L400S bad=`、`L400 init ok`；
+   - RC 联调：包含 `RC lk=`；
+   - 姿态：包含 `ATT t=`、`STA n=`；
+   - 维护：以上文本都没有，只有 0x269A 二进制帧逻辑。
+3. **重建对照**：
+   - 当前 L400 在 `7d01167` + `-DC_RC_LOOP_400_EN=1` 下干净重建两次，哈希都是 `3F8F6209...`；
+   - 维护/RC/姿态的历史原件与“同源码 + 当前 makefile 链接顺序”的重建件大小相同、哈希不同，
+     说明历史件使用了不同的链接顺序/构建环境。历史件保留原样，不用重建件替换。
+
+## 5. 快速核对
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code"
+Get-FileHash "firmware_delivery\daily\Robin_24G_Car_rc_loop400.bin" -Algorithm SHA256
+Get-FileHash "firmware_delivery\daily\Robin_24G_Car_maint_269a.bin" -Algorithm SHA256
+```
+
+期望值就是第 1 节表格里的两个 SHA256。
+
+## 6. 和监视器/校准脚本的对应关系
+
+| 镜像 | 监视器参数 | 校准脚本 |
+|---|---|---|
+| 400Hz 联调版 | `--l400` | 不适用（发 L400 文本，不是 0x269A） |
+| 六轴校准维护版 | 默认二进制帧模式（不加 `--attitude` / `--l400`） | `imu_axis_map.py`、`accel_six_face_cal.py`、`gyro_bias_cal.py` |
+| 历史姿态版（归档） | `--attitude` | 不适用 |
+| RC 联调版（归档） | 当前未解析（文本 `RC lk=...`） | 不适用 |
+
+具体串口命令见 [`../tools/README.md`](../tools/README.md) 第 4 节。

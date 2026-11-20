@@ -41,6 +41,13 @@ Robin_24G_Car 六轴传感器串口监视器（配合固件 0x26 0x9A 波形帧�
   python uart_sensor_monitor.py --port COM3 --attitude --duration 120 --csv att.csv
   * 文本行形如 ATT t=... rdy=1 r=+12.34 p=-45.67 y=+120.15 与 STA n=...，
     r/p/y 已经是度；--attitude 下不解析 0x269A/0x269B 二进制帧。
+
+400Hz 地面联调固件（文本协议，--l400，对应 7d01167）：
+  python uart_sensor_monitor.py --port COM12 --l400
+  python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv l400.csv
+  * 解析 10Hz 的 L400 行和 1Hz 的 L400S 行；
+  * g/c 是 Q10 rad/s，界面换算成 °/s 显示，它们不是欧拉角；
+  * 观察数据写 --csv，统计写 --stats-csv（默认在观察文件名后加 _stats）。
 """
 
 import argparse
@@ -284,6 +291,37 @@ ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "cyc_avg_us", "cyc_max_us", "miss", "skip", "euler_ok",
                    "z_pre_lsb", "z_post_lsb"]
 
+# ----------------------------------------------------------------------------
+# 400Hz 地面联调固件文本协议（--l400，按 7d01167 的实际输出解析）
+#   L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+12/-3/+0 c=-3/+0/-0
+#   L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
+#   L400 init ok lpf_rb=3
+#   L400 init fail st=N lpf_rb=M
+# 说明：
+#   * g 是扣偏后的三轴角速度，c 是目标角速度 0 的 P 环纠偏量，二者都是
+#     Q10 rad/s；上位机按 °/s 画图，不能当欧拉角。
+#   * L400 没有设备时间戳，观察 CSV 与曲线的时间轴用上位机接收时刻。
+#   * L400S 是累计统计，1Hz 一行；cyc 是“本统计周期最大 / 上电以来峰值”，us。
+# ----------------------------------------------------------------------------
+# Q10 rad/s → °/s：1 rad/s = 180/π °/s，Q10 的 1024 对应 1 rad/s
+Q10_RAD_S_TO_DPS = 180.0 / math.pi / 1024.0
+
+L400_CSV_FIELDS = [
+    "recv_s", "recv_epoch", "t_ms",
+    "rdy", "lk", "vld",
+    "alk_ms", "avld_ms", "gpk_ms",
+    "gx_q10", "gy_q10", "gz_q10",
+    "cx_q10", "cy_q10", "cz_q10",
+    "gx_dps", "gy_dps", "gz_dps",
+    "cx_dps", "cy_dps", "cz_dps",
+]
+
+L400_STAT_FIELDS = [
+    "recv_s", "recv_epoch",
+    "bad_pkt", "n", "f", "gap", "eul", "miss", "skip", "txd",
+    "cyc_max_us", "cyc_peak_us",
+]
+
 _ATT_LINE_RE = re.compile(
     r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+r=([+-]?\d+\.\d+)\s+p=([+-]?\d+\.\d+)"
     r"\s+y=([+-]?\d+\.\d+)\s*$")
@@ -467,6 +505,88 @@ def parse_attitude_line(line):
     return None
 
 
+# L400 观察行：rdy/lk/vld、两种包龄、最大包间隔、g/c 三轴 Q10 rad/s
+_L400_LINE_RE = re.compile(
+    r"^L400\s+rdy=([01])\s+lk=([01])\s+vld=([01])\s+"
+    r"alk=(\d+)\s+avld=(\d+)\s+gpk=(\d+)\s+"
+    r"g=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+"
+    r"c=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s*$")
+
+# L400S 统计行：累计计数 + 整拍耗时（本周期最大 / 上电峰值，us）
+_L400_STAT_RE = re.compile(
+    r"^L400S\s+bad=(\d+)\s+n=(\d+)\s+f=(\d+)\s+gap=(\d+)\s+"
+    r"eul=(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+txd=(\d+)\s+"
+    r"cyc=(\d+)/(\d+)\s*$")
+
+
+def q10_rad_s_to_dps(value):
+    """Q10 rad/s → °/s（1024 = 1 rad/s，1 rad/s = 180/π °/s）"""
+    return value * Q10_RAD_S_TO_DPS
+
+
+def l400_state_of(line):
+    """把 L400 初始化状态文字归类成界面显示的状态"""
+    if line.startswith("L400 init fail"):
+        return "初始化失败"
+    if line.startswith("L400 init ok"):
+        return "初始化完成"
+    return None
+
+
+def l400_detail_of(line):
+    """从 L400 初始化行里取 st / lpf_rb，放在状态栏说明里"""
+    if line.startswith("L400 init fail"):
+        m = re.search(r"st=(\d+)\s+lpf_rb=(\d+)", line)
+        return f"st={m.group(1)} 回读={m.group(2)}" if m else ""
+    if line.startswith("L400 init ok"):
+        m = re.search(r"lpf_rb=(\d+)", line)
+        return f"低通回读={m.group(1)}" if m else ""
+    return ""
+
+
+def parse_l400_line(line):
+    """
+    解析一行 L400 文本：
+      返回 ("l400", 观察数据) / ("l400s", 统计数据) / ("status", 原文) / None
+    观察数据同时保留 Q10 原值和换算后的 °/s，CSV 两种都写，方便复核。
+    """
+    m = _L400_LINE_RE.match(line)
+    if m:
+        g_q10 = [int(m.group(i)) for i in (7, 8, 9)]
+        c_q10 = [int(m.group(i)) for i in (10, 11, 12)]
+        return ("l400", {
+            "rdy": int(m.group(1)),
+            "lk": int(m.group(2)),
+            "vld": int(m.group(3)),
+            "alk_ms": int(m.group(4)),
+            "avld_ms": int(m.group(5)),
+            "gpk_ms": int(m.group(6)),
+            "g_q10": g_q10,
+            "c_q10": c_q10,
+            "g_dps": [q10_rad_s_to_dps(v) for v in g_q10],
+            "c_dps": [q10_rad_s_to_dps(v) for v in c_q10],
+        })
+
+    m = _L400_STAT_RE.match(line)
+    if m:
+        return ("l400s", {
+            "bad_pkt": int(m.group(1)),
+            "n": int(m.group(2)),
+            "f": int(m.group(3)),
+            "gap": int(m.group(4)),
+            "eul": int(m.group(5)),
+            "miss": int(m.group(6)),
+            "skip": int(m.group(7)),
+            "txd": int(m.group(8)),
+            "cyc_max_us": int(m.group(9)),
+            "cyc_peak_us": int(m.group(10)),
+        })
+
+    if l400_state_of(line):
+        return ("status", line)
+    return None
+
+
 def _hex(v, digits):
     """按固定宽度输出十六进制（模拟源用，与固件一致）"""
     return f"{v & ((1 << (4 * digits)) - 1):0{digits}X}"
@@ -561,6 +681,98 @@ class SimAttitudeSource:
             return b""
         # 故意只取一小段，甚至切断一行，模拟串口分块到达
         n = min(len(self.buf), 1 + (self.n_att * 7 + self.n_sta * 3) % 23)
+        chunk, self.buf = self.buf[:n], self.buf[n:]
+        return chunk
+
+    def close(self):
+        pass
+
+
+class SimL400Source:
+    """
+    模拟 7d01167 联调固件的文本输出（无硬件自测）：
+      init ok → 0.5s 内 rdy=0 → rdy=1；10Hz L400 + 1Hz L400S。
+      g/c 用 Q10 rad/s 的正弦量，c 约为 -g/4；读取时故意把行切碎，
+      验证串口分块到达时的粘包处理。
+    """
+
+    def __init__(self, hz=10.0):
+        self.dt = 1.0 / hz
+        self.t0 = time.time()
+        self.buf = b""
+        self.n_line = 0
+        self.n_stat = 0
+        self.sent_init = False
+        self._next_line = 0.0
+        self._next_stat = 0.0
+        self.sample = 0
+        self.euler = 0
+        self.miss = 0
+        self.skip = 0
+        self.txd = 0
+        self.peak = 2400
+
+    def _push(self, text):
+        self.buf += (text + "\n").encode("ascii", "replace")
+
+    def _fill(self):
+        now = time.time()
+        el = now - self.t0
+        if not self.sent_init:
+            self.sent_init = True
+            self._push("L400 init ok lpf_rb=3")
+
+        # 10Hz 观察行：g/c 用缓慢正弦，数值量级与静止/轻晃时接近
+        if el >= self._next_line:
+            self._next_line = el + self.dt
+            self.n_line += 1
+            gx = int(360 * math.sin(2 * math.pi * 0.50 * el))
+            gy = int(220 * math.sin(2 * math.pi * 0.35 * el + 1.0))
+            gz = int(90 * math.sin(2 * math.pi * 0.20 * el + 2.0))
+            # 与固件一致：corr = -(g * 64) >> 8，即约 -g/4
+            cx = -((gx * 64) >> 8)
+            cy = -((gy * 64) >> 8)
+            cz = -((gz * 64) >> 8)
+            rdy = 1 if el >= 0.5 else 0
+            avld = 8 + (self.n_line * 7) % 45
+            alk = avld + 5
+            gpk = 25 + (self.n_line * 3) % 12
+            self.sample += 40
+            if rdy:
+                self.euler += 40
+            # 偶尔累加统计量，验证界面数字变化；频率远低于 1Hz
+            if self.n_line % 97 == 0:
+                self.miss += 1
+            if self.n_line % 131 == 0:
+                self.skip += 1
+            if self.n_line % 149 == 0:
+                self.txd += 1
+            cyc = 2350 + (self.n_line * 13) % 300
+            if cyc > self.peak:
+                self.peak = cyc
+            self._push(
+                f"L400 rdy={rdy} lk=1 vld=1 alk={alk} avld={avld} gpk={gpk} "
+                f"g={gx:+d}/{gy:+d}/{gz:+d} c={cx:+d}/{cy:+d}/{cz:+d}")
+
+        # 1Hz 统计行：n/eul 与上面的 400Hz 计数保持同一比例
+        if el >= self._next_stat:
+            self._next_stat = el + 1.0
+            self.n_stat += 1
+            cyc = 2350 + (self.n_stat * 41) % 300
+            if cyc > self.peak:
+                self.peak = cyc
+            self._push(
+                f"L400S bad=0 n={self.sample} f=0 gap=0 eul={self.euler} "
+                f"miss={self.miss} skip={self.skip} txd={self.txd} "
+                f"cyc={cyc}/{self.peak}")
+
+    def read(self):
+        self._fill()
+        if not self.buf:
+            time.sleep(0.01)
+            return b""
+        # 故意只取一小段，甚至切断一行，模拟串口分块到达
+        n = min(len(self.buf), 1 + (self.n_line * 11 + self.n_stat * 5) % 37)
         chunk, self.buf = self.buf[:n], self.buf[n:]
         return chunk
 
@@ -724,6 +936,143 @@ class AttitudeWorker(threading.Thread):
                     cat_fp.close()
             except Exception:
                 pass
+            try:
+                self.source.close()
+            except Exception:
+                pass
+
+
+class L400Worker(threading.Thread):
+    """400Hz 联调文本采集线程：拆行 → 解析 L400/L400S → 两份 CSV → 观察样本入队"""
+
+    def __init__(self, source, csv_path, stat_path, sample_queue):
+        super().__init__(daemon=True)
+        self.source = source
+        self.csv_path = csv_path
+        self.stat_path = stat_path
+        self.queue = sample_queue
+        self.stop_event = threading.Event()
+
+        self.frames = 0          # L400 观察行条数
+        self.stats = 0           # L400S 统计行条数
+        self.bad = 0             # 无法识别的行数
+        self.state = "等待数据"  # 初始化完成 / 初始化失败 / 等待数据
+        self.detail = ""
+        self.last_stat = None    # 最近一条 L400S
+        self.last_obs = None     # 最近一条 L400
+        self.error = ""
+        self.start_wall = time.time()
+        self._buf = b""
+
+    def stop(self):
+        self.stop_event.set()
+
+    def summary_line(self):
+        return (f"L400 {self.frames} 条  统计 {self.stats} 条  "
+                f"无法识别 {self.bad} 行  状态 {self.state}")
+
+    def _handle_line(self, line, writer, stat_writer):
+        parsed = parse_l400_line(line)
+        if parsed is None:
+            self.bad += 1
+            return
+
+        kind, payload = parsed
+        now = time.time()
+
+        if kind == "l400":
+            self.frames += 1
+            self.last_obs = payload
+            t_ms = int((now - self.start_wall) * 1000)
+            payload["t_ms"] = t_ms
+            writer.writerow({
+                "recv_s": f"{now - self.start_wall:.3f}",
+                "recv_epoch": f"{now:.3f}",
+                "t_ms": t_ms,
+                "rdy": payload["rdy"],
+                "lk": payload["lk"],
+                "vld": payload["vld"],
+                "alk_ms": payload["alk_ms"],
+                "avld_ms": payload["avld_ms"],
+                "gpk_ms": payload["gpk_ms"],
+                "gx_q10": payload["g_q10"][0],
+                "gy_q10": payload["g_q10"][1],
+                "gz_q10": payload["g_q10"][2],
+                "cx_q10": payload["c_q10"][0],
+                "cy_q10": payload["c_q10"][1],
+                "cz_q10": payload["c_q10"][2],
+                "gx_dps": f"{payload['g_dps'][0]:.3f}",
+                "gy_dps": f"{payload['g_dps'][1]:.3f}",
+                "gz_dps": f"{payload['g_dps'][2]:.3f}",
+                "cx_dps": f"{payload['c_dps'][0]:.3f}",
+                "cy_dps": f"{payload['c_dps'][1]:.3f}",
+                "cz_dps": f"{payload['c_dps'][2]:.3f}",
+            })
+            try:
+                self.queue.put_nowait(payload)
+            except queue.Full:
+                pass
+            return
+
+        if kind == "l400s":
+            self.stats += 1
+            self.last_stat = payload
+            stat_writer.writerow({
+                "recv_s": f"{now - self.start_wall:.3f}",
+                "recv_epoch": f"{now:.3f}",
+                "bad_pkt": payload["bad_pkt"],
+                "n": payload["n"],
+                "f": payload["f"],
+                "gap": payload["gap"],
+                "eul": payload["eul"],
+                "miss": payload["miss"],
+                "skip": payload["skip"],
+                "txd": payload["txd"],
+                "cyc_max_us": payload["cyc_max_us"],
+                "cyc_peak_us": payload["cyc_peak_us"],
+            })
+            print(f"[L400统计] 采样{payload['n']} 姿态更新{payload['eul']} "
+                  f"读失败{payload['f']} 长间断{payload['gap']} 坏包{payload['bad_pkt']} "
+                  f"超时{payload['miss']} 跳拍{payload['skip']} 串口推迟{payload['txd']} "
+                  f"整拍{payload['cyc_max_us']}/{payload['cyc_peak_us']}us", flush=True)
+            return
+
+        # 初始化状态行
+        self.state = l400_state_of(line) or self.state
+        self.detail = l400_detail_of(line)
+        print(f"[联调] {line}", flush=True)
+
+    def run(self):
+        try:
+            with open(self.csv_path, "w", newline="", encoding="utf-8-sig") as fp, \
+                    open(self.stat_path, "w", newline="", encoding="utf-8-sig") as sfp:
+                writer = csv.DictWriter(fp, fieldnames=L400_CSV_FIELDS)
+                writer.writeheader()
+                stat_writer = csv.DictWriter(sfp, fieldnames=L400_STAT_FIELDS)
+                stat_writer.writeheader()
+
+                while not self.stop_event.is_set():
+                    data = self.source.read()
+                    if not data:
+                        continue
+                    self._buf += data
+                    # 串口分块到达时，残行留在缓冲里等下一块
+                    while b"\n" in self._buf:
+                        raw, self._buf = self._buf.split(b"\n", 1)
+                        line = raw.decode("utf-8", "replace").strip()
+                        if line:
+                            self._handle_line(line, writer, stat_writer)
+                    if len(self._buf) > 512:
+                        # 迟迟没有换行：多半是波特率/接线不对，丢掉避免无限增长
+                        self.bad += 1
+                        self._buf = b""
+                    # 10Hz 观察行，约每 10 条落一次盘；1Hz 统计行每条都落盘
+                    if self.frames and self.frames % 10 == 0:
+                        fp.flush()
+                        sfp.flush()
+        except Exception as exc:          # 串口异常：记录下来给界面/控制台
+            self.error = f"{type(exc).__name__}: {exc}"
+        finally:
             try:
                 self.source.close()
             except Exception:
@@ -907,17 +1256,20 @@ class SensorMonitor:
         self.csv_path = csv_path
         self.window = window
         self.duration = duration
-        self.mode = mode          # "sensor"=六轴二进制帧；"attitude"=台架文本
+        # "sensor"=六轴二进制帧；"attitude"=台架文本；"l400"=400Hz 联调文本
+        self.mode = mode
 
         self.follow = True          # 是否自动跟随最新数据
         self.fig = None
         self.axes = []
         self.lines = []
         self.text = None
+        self.stat_text = None       # L400 统计区（多行文字），其他模式为 None
         self.timer = None
         self.toolbar = None
         self._ticks = 0             # 定时器回调次数（自测用）
         self._last_text = ""        # 状态栏缓存，文字没变就不重画
+        self._last_stat_text = ""   # 统计区缓存
         self.t0 = 0                 # 首帧的设备毫秒（时间轴零点）
         self._bg = None             # blit 用的背景位图（整图）
         self._ax_bgs = None         # 每个子图的背景位图
@@ -930,6 +1282,9 @@ class SensorMonitor:
         self.hist = [deque(maxlen=self.cap) for _ in range(3)]   # 加速度 g
         self.hist_gyro = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺原始 dps
         self.hist_gyro_c = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺扣零偏 dps
+        self.hist_g = [deque(maxlen=self.cap) for _ in range(3)]     # L400 实测角速度 dps
+        self.hist_c = [deque(maxlen=self.cap) for _ in range(3)]     # L400 P 环纠偏 dps
+        self.last_l400 = None
         self.bias = (0, 0, 0)
         self.flags = 0
 
@@ -959,6 +1314,26 @@ class SensorMonitor:
             for line in lines:
                 line.set_animated(True)
             self.lines.append(lines)
+        elif self.mode == "l400":
+            # 400Hz 联调模式：两张图，分别是实测角速度 g 与 P 环纠偏 c。
+            # 二者都是 Q10 rad/s 换算来的 °/s，不是欧拉角，标签写清楚量纲。
+            # 高度取 6.2in：150% 缩放的 1080p 屏幕上也能完整放下
+            # 两张图 + 统计区 + 状态栏，不会被任务栏/窗口底边裁掉
+            self.fig, axes = plt.subplots(2, 1, sharex=True, figsize=(11, 6.2))
+            self.fig.canvas.manager.set_window_title(
+                "Robin_24G_Car 400Hz 联调监视器（g/c 为角速度量，不是欧拉角）")
+            self.axes = list(axes)
+            ax_g, ax_c = self.axes
+            for ax_obj, ylabel, lab in (
+                    (ax_g, "实测角速度 g (°/s)", ("g-X", "g-Y", "g-Z")),
+                    (ax_c, "P 环纠偏 c (°/s)", ("c-X", "c-Y", "c-Z"))):
+                ax_obj.grid(True, alpha=0.3)
+                ax_obj.set_ylabel(ylabel)
+                lines = [ax_obj.plot([], [], color=color, lw=0.9, label=name)[0]
+                         for color, name in zip(colors, lab)]
+                for line in lines:
+                    line.set_animated(True)
+                self.lines.append(lines)
         else:
             self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 8))
             self.fig.canvas.manager.set_window_title("Robin_24G_Car 六轴传感器监视器")
@@ -987,9 +1362,18 @@ class SensorMonitor:
             ax_obj.set_xlim(-self.window, 0)
 
         # 状态栏用默认无衬线中文字体（不要用 monospace，否则中文是方块）
-        self.text = self.fig.text(0.01, 0.005, "等待数据…", fontsize=9)
+        self.text = self.fig.text(0.01, 0.010, "等待数据…", fontsize=9)
         self.text.set_animated(True)      # 同曲线，避免文字变短时留残影
-        self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08)
+        if self.mode == "l400":
+            # L400 统计区：采样/姿态更新/读失败/超时/跳拍/串口推迟等累计量。
+            # 放到状态栏上方，底部留出 22% 空间给两行统计文字和 x 轴标签。
+            self.stat_text = self.fig.text(
+                0.01, 0.045, "统计：等待 L400S（1Hz）…",
+                fontsize=9, va="bottom")
+            self.stat_text.set_animated(True)
+            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.22)
+        else:
+            self.fig.subplots_adjust(left=0.07, right=0.99, top=0.95, bottom=0.08)
 
         self.toolbar = self.fig.canvas.toolbar
         self.fig.canvas.mpl_connect("close_event", self._on_close)
@@ -1002,6 +1386,21 @@ class SensorMonitor:
         self.timer = self.fig.canvas.new_timer(interval=PLOT_PERIOD_MS)
         self.timer.add_callback(self._on_timer)
         self.timer.start()
+
+        if self.mode == "l400":
+            # 高 DPI 屏幕上窗口可能被窗口管理器放到屏幕外，底部统计区被裁掉；
+            # 这里只设一次初始大小/位置，之后仍可正常拖动、缩放。
+            try:
+                win = self.fig.canvas.manager.window
+                screen_w = win.winfo_screenwidth()
+                screen_h = win.winfo_screenheight()
+                fig_w = int(self.fig.get_size_inches()[0] * self.fig.dpi)
+                fig_h = int(self.fig.get_size_inches()[1] * self.fig.dpi)
+                win_w = min(fig_w + 20, screen_w - 80)
+                win_h = min(fig_h + 90, screen_h - 120)
+                win.geometry(f"{win_w}x{win_h}+40+40")
+            except Exception:
+                pass
 
         if self.duration > 0:
             self.fig.canvas.get_tk_widget().after(
@@ -1056,6 +1455,15 @@ class SensorMonitor:
             self.t0 = fr["t_ms"]
         t = (fr["t_ms"] - self.t0) / 1000.0
         self.hist_t.append(t)
+        if self.mode == "l400":
+            # g/c 已在解析时换算成 °/s；这里只负责入环形缓冲
+            for arr, val in zip(self.hist_g, fr["g_dps"]):
+                arr.append(val)
+            for arr, val in zip(self.hist_c, fr["c_dps"]):
+                arr.append(val)
+            self.last_l400 = fr
+            self._dirty = True
+            return
         if self.mode == "attitude":
             # 文本协议里的 r/p/y 已经是度，直接进三条曲线
             for arr, val in zip(self.hist, (fr["roll"], fr["pitch"], fr["yaw"])):
@@ -1082,9 +1490,12 @@ class SensorMonitor:
         self._dirty = True
 
     def _series_pairs(self):
-        """返回 [(数据序列组, 曲线组)]：姿态模式只有一组（三条角度曲线）"""
+        """返回 [(数据序列组, 曲线组)]，顺序与 self.axes 一一对应"""
         if self.mode == "attitude":
             return [(self.hist, self.lines[0])]
+        if self.mode == "l400":
+            return [(self.hist_g, self.lines[0]),
+                    (self.hist_c, self.lines[1])]
         return [(self.hist, self.lines[0]),
                 (self.hist_gyro, self.lines[1]),
                 (self.hist_gyro_c, self.lines[2])]
@@ -1092,6 +1503,8 @@ class SensorMonitor:
     def _status(self):
         if self.mode == "attitude":
             return self._status_attitude()
+        if self.mode == "l400":
+            return self._status_l400()
         if not self.hist_t:
             return (f"等待数据…（六轴 {self.worker.frames} 帧 / 性能 {self.worker.perf_frames} 帧，"
                     f"校验错 {self.worker.bad}）")
@@ -1147,27 +1560,82 @@ class SensorMonitor:
             msg += f" | 串口错误：{w.error}"
         return msg
 
+    def _status_l400(self):
+        """L400 状态栏：姿态就绪、遥控连接、指令有效、有效包龄、整拍峰值"""
+        w = self.worker
+        # 用 worker 的最新观察行，而不是绘图缓冲：关闭“跟随”时状态栏仍然实时
+        o = w.last_obs or self.last_l400
+        s = w.last_stat
+        peak = f"{s['cyc_peak_us']}us" if s else "--"
+        if o is None:
+            msg = f"等待 L400 数据…（{w.state}）"
+            if w.detail:
+                msg += f" {w.detail}"
+            msg += f" | 观察 {w.frames} 条 统计 {w.stats} 条"
+            msg += " | F 跟随 / Q 退出"
+            if w.error:
+                msg += f" | 串口错误：{w.error}"
+            return msg
+
+        msg = (f"姿态 {'就绪' if o['rdy'] else '未就绪'} | "
+               f"遥控 {'连接' if o['lk'] else '失联'} | "
+               f"指令 {'有效' if o['vld'] else '失效'} | "
+               f"有效包龄 {o['avld_ms']}ms | 整拍峰值 {peak}")
+        msg += " | F 跟随 / Q 退出"
+        if w.error:
+            msg += f" | 串口错误：{w.error}"
+        return msg
+
+    def _stat_text(self):
+        """L400 统计区：累计采样/更新/失败/超时/跳拍/串口推迟等"""
+        w = self.worker
+        s = w.last_stat
+        if s is None:
+            return f"统计：等待 L400S（1Hz）…  已收观察 {w.frames} 条"
+        return (f"统计  采样 n={s['n']}  姿态更新 eul={s['eul']}  "
+                f"读失败 f={s['f']}  长间断 gap={s['gap']}  坏包 bad={s['bad_pkt']}\n"
+                f"      超时 miss={s['miss']}  跳拍 skip={s['skip']}  "
+                f"串口推迟 txd={s['txd']}  "
+                f"整拍 cyc={s['cyc_max_us']}/{s['cyc_peak_us']}us")
+
+    def _compose_texts(self):
+        """生成状态栏与统计区文字（统计区只有 L400 模式才有）"""
+        msg = self._status()
+        stat_msg = self._stat_text() if self.stat_text is not None else None
+        return msg, stat_msg
+
+    def _apply_texts(self, msg, stat_msg):
+        """把文字写到画布对象上，返回是否有变化；真正 blit 由调用方决定"""
+        changed = False
+        if msg != self._last_text:
+            self._last_text = msg
+            self.text.set_text(msg)
+            changed = True
+        if stat_msg is not None and stat_msg != self._last_stat_text:
+            self._last_stat_text = stat_msg
+            self.stat_text.set_text(stat_msg)
+            changed = True
+        return changed
+
     def _refresh(self):
         if not self.hist_t:
-            # 没有数据时只更新一次状态栏，避免空转重画拖慢窗口
-            msg = self._status()
-            if msg != self._last_text:
-                self._last_text = msg
-                self.text.set_text(msg)
+            # 没有数据时只更新一次状态栏/统计区，避免空转重画拖慢窗口
+            msg, stat_msg = self._compose_texts()
+            if self._apply_texts(msg, stat_msg):
                 self._blit_dynamic(True)
             return
 
-        # 没有新数据（例如已冻结）且状态栏没变：什么都不用画，事件循环保持空闲
+        # 没有新数据（例如已冻结）且文字没变：什么都不用画，事件循环保持空闲
         if not self._dirty:
-            msg = self._status()
-            if msg == self._last_text:
+            msg, stat_msg = self._compose_texts()
+            if msg == self._last_text and (stat_msg is None
+                                           or stat_msg == self._last_stat_text):
                 return
             now = time.time()
-            if now - self._text_ts < 1.0:   # 状态栏也限到 1Hz，冻结时不影响操作
+            if now - self._text_ts < 1.0:   # 状态栏/统计区限到 1Hz
                 return
             self._text_ts = now
-            self._last_text = msg
-            self.text.set_text(msg)
+            self._apply_texts(msg, stat_msg)
             self._blit_dynamic(True)
             return
         self._dirty = False
@@ -1190,8 +1658,13 @@ class SensorMonitor:
 
         # 只有量程真的变了才重画对应子图；否则 blit，10Hz 刷新几乎不占事件循环
         changed_axes = self._auto_ylim() if self.follow else []
-        self._last_text = self._status()
-        self.text.set_text(self._last_text)
+        msg, stat_msg = self._compose_texts()
+        stat_changed = (self.stat_text is not None
+                        and stat_msg != self._last_stat_text)
+        if self._apply_texts(msg, stat_msg) and stat_changed:
+            # 统计区是 1Hz 累计量，变化时立刻整图 blit；状态栏仍按 1Hz 节流，
+            # 避免 avld 每 100ms 变一次就把 400Hz 窗口拖进 10Hz 全图重绘
+            self._text_ts = 0.0
 
         now = time.time()
         if self._bg is None or changed_axes:
@@ -1254,12 +1727,12 @@ class SensorMonitor:
         self._dirty = True      # 重画后曲线也不在画面上，逼下一次刷新补画
 
     def _draw_dynamic_artists(self, ax_obj, line_set):
-        """补画 9 条曲线（图例在坐标框外，曲线不会压到它，无需重画）"""
+        """补画当前子图的三条曲线（图例在坐标框外，曲线不会压到它，无需重画）"""
         for line in line_set:
             ax_obj.draw_artist(line)
 
     def _blit_lines(self):
-        """只补画 9 条曲线：恢复各子图背景 → 画曲线 → blit 子图区域（不碰状态栏）"""
+        """只补画曲线：恢复各子图背景 → 画曲线 → blit 子图区域（不碰状态栏）"""
         if self._ax_bgs is None:
             self._redraw_static()
             return
@@ -1284,7 +1757,10 @@ class SensorMonitor:
             for ax_obj, line_set in zip(self.axes, self.lines):
                 self._draw_dynamic_artists(ax_obj, line_set)
             if show_text:
-                self.text.draw(self.fig.canvas.get_renderer())
+                renderer = self.fig.canvas.get_renderer()
+                self.text.draw(renderer)
+                if self.stat_text is not None:
+                    self.stat_text.draw(renderer)
             self.fig.canvas.blit(self.fig.bbox)
         except Exception:
             self._bg = None
@@ -1428,7 +1904,67 @@ def run_attitude(args):
     print(f"分项 CSV：{cat_path}")
 
 
+def make_l400_csv_path(explicit):
+    """L400 观察 CSV 默认文件名：l400_年月日_时分秒.csv"""
+    if explicit:
+        return explicit
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"l400_{stamp}.csv"
+
+
+def make_l400_stat_path(explicit, data_csv):
+    """L400 统计 CSV：--stats-csv 指定则用它，否则观察 CSV 名后加 _stats"""
+    if explicit:
+        return explicit
+    base, _ = os.path.splitext(data_csv)
+    return f"{base}_stats.csv"
+
+
+def run_l400(args):
+    """--l400：按 7d01167 联调固件的 L400/L400S 文本协议采集与显示"""
+    if args.simulate:
+        source = SimL400Source()
+        port_name = "模拟 L400 数据源"
+    else:
+        port_name = pick_port(args.port)
+        source = SerialSource(port_name, args.baud)
+
+    csv_path = make_l400_csv_path(args.csv)
+    stat_path = make_l400_stat_path(args.stats_csv, csv_path)
+    sample_queue = queue.Queue(maxsize=2000)
+    worker = L400Worker(source, csv_path, stat_path, sample_queue)
+
+    print(f"数据源：{port_name}（L400 文本，10Hz 观察 + 1Hz 统计）")
+    print(f"观察 CSV：{csv_path}")
+    print(f"统计 CSV：{stat_path}")
+    print("提示：g/c 是 Q10 rad/s，界面按 °/s 显示，不是欧拉角。")
+
+    if args.no_plot:
+        run_no_plot(worker, args.duration)
+        print(f"观察 CSV：{csv_path}（{worker.frames} 条 L400）")
+        print(f"统计 CSV：{stat_path}（{worker.stats} 条 L400S，"
+              f"无法识别 {worker.bad} 行）")
+        return
+
+    worker.start()
+    monitor = SensorMonitor(worker, csv_path, args.window, args.duration,
+                            mode="l400")
+    try:
+        monitor.run()
+    except KeyboardInterrupt:
+        print("\n用户中断")
+    finally:
+        worker.stop()
+        worker.join(timeout=2.0)
+    print(f"观察 CSV：{csv_path}（{worker.frames} 条 L400）")
+    print(f"统计 CSV：{stat_path}（{worker.stats} 条 L400S，"
+          f"无法识别 {worker.bad} 行）")
+
+
 def run(args):
+    if args.l400:
+        run_l400(args)
+        return
     if args.attitude:
         run_attitude(args)
         return
@@ -1470,12 +2006,13 @@ def run(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Robin_24G_Car 六轴 / 台架姿态串口监视与记录")
+        description="Robin_24G_Car 六轴 / 台架姿态 / 400Hz 联调串口监视与记录")
     ap.add_argument("--list", action="store_true", help="列出所有串口后退出")
-    ap.add_argument("--port", help="串口号，例如 COM3；不填则自动选择")
+    ap.add_argument("--port", help="串口号，例如 COM12；不填则自动选择")
     ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
-    ap.add_argument("--csv", help="六轴 CSV 保存路径；默认按时间戳生成")
-    ap.add_argument("--stats-csv", help="性能统计 CSV 路径；默认在六轴 CSV 名后加 _perf")
+    ap.add_argument("--csv", help="观察数据 CSV 路径；默认按模式和时间戳生成")
+    ap.add_argument("--stats-csv",
+                    help="统计 CSV 路径；默认在观察 CSV 名后加 _perf（六轴）或 _stats（文本模式）")
     ap.add_argument("--window", type=float, default=10.0, help="曲线显示窗口秒数（默认 10s）")
     ap.add_argument("--no-plot", action="store_true", help="不画图，只写 CSV")
     ap.add_argument("--duration", type=float, default=0, help="采集时长秒，0=一直采")
@@ -1485,8 +2022,11 @@ def main():
                     help="加速度灵敏度（默认 2048 LSB/g，±16g）")
     ap.add_argument("--gyro-lsb-per-dps", type=float, default=DEFAULT_GYRO_LSB_PER_DPS,
                     help="陀螺灵敏度（默认 16.4 LSB/dps，±2000dps）")
-    ap.add_argument("--attitude", action="store_true",
-                    help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--attitude", action="store_true",
+                      help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
+    mode.add_argument("--l400", action="store_true",
+                      help="按 400Hz 联调固件的文本协议采集（L400/L400S，画 g/c 角速度，单位 °/s）")
     args = ap.parse_args()
 
     if args.list:

@@ -1,14 +1,15 @@
 # Robin_24G_Car 传感器校准与监视工具（操作手册）
 
-四个命令行工具 + 一个共用协议模块：
+四个命令行工具 + 一个共用协议模块 + 一个自测脚本：
 
 | 文件 | 用途 |
 |---|---|
 | `imu_axis_map.py` | 传感器轴 → 机体 FRD 映射（六面摆法） |
 | `accel_six_face_cal.py` | 加速度计六面校准 / 单面补测 |
 | `gyro_bias_cal.py` | 陀螺仪静止零偏 |
-| `uart_sensor_monitor.py` | 六轴波形监视与 CSV 记录（只查看，不校准） |
+| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与 400Hz 联调（`--l400`）监视与 CSV 记录（只查看，不校准） |
 | `uart_proto.py` | 0x269A / 0x269B 帧解析（纯标准库，被上面几个工具共用） |
+| `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 
 ---
 
@@ -20,7 +21,7 @@
 python -m pip install pyserial
 ```
 
-（只有 `uart_sensor_monitor.py` 画曲线时还需要 `matplotlib`、`numpy`；三个校准工具不需要。）
+（只有 `uart_sensor_monitor.py` 画曲线时还需要 `matplotlib`、`numpy`；`--no-plot` 和三个校准工具不需要。）
 
 **接线**：飞机 UART **TX → USB 串口 RX**，两板**共地（GND）**，115200-8-N1。
 工具**只接收**，不向飞机发送任何指令。
@@ -115,15 +116,21 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 
 ### 3.1 先刷地面维护镜像（校准专用）
 
-校准脚本吃的是 **0x269A 原始六轴帧**，普通姿态固件发的是四元数文本，所以标定前必须换成维护镜像：
+校准脚本吃的是 **0x269A 原始六轴帧**，当前 400Hz 联调固件发的是 L400 文本，两者不兼容，
+所以标定前必须换成维护镜像：
 
-| 镜像 | 用途 | 串口输出 |
+| 用途 | 交付镜像 | 串口输出 |
 |---|---|---|
-| `Robin_24G_Car_maint_269a.bin` | **校准用**（本节目录下的三个脚本都要它） | 只有 0x269A 二进制帧，约 100 Hz |
-| `Robin_24G_Car_Flash.bin` | 台架姿态验证 | 只有 ATT 四元数文本 + STA/STA2 统计 |
+| 六轴校准（本节目录下的三个脚本） | `firmware_delivery/daily/Robin_24G_Car_maint_269a.bin` | 只有 0x269A 二进制帧，约 100 Hz |
+| 400Hz 联调（`--l400`） | `firmware_delivery/daily/Robin_24G_Car_rc_loop400.bin` | L400 / L400S 文本 |
 
-两份都在 `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\` 下，
-统一烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
+两份都烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
+完整的路径、字节数、SHA256、归档镜像和构建模式说明见
+[`firmware_delivery/README.md`](../firmware_delivery/README.md)。
+
+**注意**：构建目录里的 `Robin_24G_Car_Flash.bin` 是通用构建产物，当前已被 L400 构建覆盖，
+它和 `Robin_24G_Car_rc_loop400.bin` 内容相同；**不能按文件名判断用途**，烧录请以交付目录里的
+文件名和 SHA256 为准。
 
 维护镜像的特性：沿用台架固件的 T-3488 初始化（±16g、±2000°/s、800 Hz ODR、片内低通 SEL=3），
 电机保持停转；帧里的六轴是**传感器原坐标系、轴映射/扣偏/软件滤波之前**的原始计数，
@@ -167,6 +174,38 @@ python uart_sensor_monitor.py --port COM12
 
 加 `--no-plot --duration 60 --csv "..\data\monitor.csv"` 可以不画图、定时记录。
 
+### 400Hz 联调固件（文本协议，--l400）
+
+当前 7d01167 固件输出 10Hz 的 `L400 ...` 观察行和 1Hz 的 `L400S ...` 统计行。
+图形监视命令：
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\l400.csv"
+```
+
+- 两张图：上图 **实测角速度 g (°/s)**，下图 **P 环纠偏 c (°/s)**。g/c 是机体 FRD
+  三轴角速度量和目标角速度 0 的 P 环纠偏量，**不是欧拉角**；固件里的 Q10 rad/s
+  已在接收端换算成 °/s，图例写成 g-X/g-Y/g-Z、c-X/c-Y/c-Z，避免和横滚/俯仰/偏航混淆。
+- 状态栏：姿态就绪、遥控连接、指令有效、有效包龄、整拍峰值。
+  包龄最大显示 9999ms，从未收到过对应包时也显示 9999。
+- 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、长间断 `gap`、坏包 `bad`、
+  超时 `miss`、跳拍 `skip`、串口推迟 `txd`，以及整拍 `cyc=本周期最大/上电峰值`。
+- 观察数据写 `--csv`（默认 `l400_时间戳.csv`），统计写 `--stats-csv`
+  （默认在观察文件名后加 `_stats.csv`），两份分开保存。
+- 实际串口行样例：
+
+  ```text
+  L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+512/-256/+0 c=-128/+64/-0
+  L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
+  ```
+
+- 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
+  只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
+- 解析/分块收包/CSV 自测：`python test_l400_monitor.py`。
+- 已在 7d01167 固件 + COM12 上实机抓取验证：28 条 `L400`、3 条 `L400S`，
+  0 行无法识别；图形窗口的状态栏/统计区、两份 CSV 均正常。
+
 ### 台架姿态固件（文本协议，--attitude）
 
 ```powershell
@@ -180,7 +219,18 @@ python uart_sensor_monitor.py --port COM12 --attitude --duration 120 --csv "..\d
 - 状态栏还显示最新一条 STA 的有效帧数、读失败、长间断与 dt/rd/up 耗时；
 - 姿态样本存 `att.csv`，统计存 `att_stats.csv`，分项计时（四类拍的拍数/最大耗时/超期
   次数，来自固件的 `STA2` 行）存 `att_cat.csv`，两分钟静置验收直接看这三个文件；
-- 不加 `--attitude` 时仍是原来的 0x269A / 0x269B 二进制帧模式，行为和参数不变。
+- 不加文本模式参数时，仍是原来的 0x269A / 0x269B 二进制帧模式，行为和参数不变。
+
+### 三种模式对照
+
+| 烧录镜像 | 监视器参数 | 图形内容 |
+|---|---|---|
+| 400Hz 联调版（当前 7d01167） | `--l400` | g / c 三轴角速度，单位 °/s |
+| 历史姿态版（归档） | `--attitude` | 横滚 / 俯仰 / 相对偏航，单位 ° |
+| 六轴校准维护版 | 不加文本参数（默认二进制帧） | 加速度 g / 陀螺 dps |
+
+镜像路径、SHA256 与烧录地址见 [`firmware_delivery/README.md`](../firmware_delivery/README.md)；
+**当前板上固件是 7d01167 联调版，直接用 `--l400` 即可，不需要重烧。**
 
 ---
 
@@ -199,4 +249,5 @@ python uart_sensor_monitor.py --port COM12 --attitude --duration 120 --csv "..\d
 | 机体系 | FRD：+X 前、+Y 右、+Z 下（右手系） |
 | 加速度 | ±16g，**2048 LSB/g**；1g 按本地重力约 9.788 m/s²（与标准值差 0.19%，可忽略） |
 | 陀螺 | ±2000 dps，**16.4 LSB/dps**；1 LSB ≈ 0.0010641 rad/s |
+| 联调 g/c | 固件里是 Q10 rad/s；上位机按 `°/s = Q10 × 180/π ÷ 1024` 换算，只在界面/CSV 显示，**不是欧拉角** |
 | 固件接入 | 先映射到 FRD，再扣 FRD 零偏，最后换算：`omega = (R·g - bias_frd) * 0.0010641` |
