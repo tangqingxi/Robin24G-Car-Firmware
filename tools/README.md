@@ -120,7 +120,7 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 | 镜像 | 用途 | 串口输出 |
 |---|---|---|
 | `Robin_24G_Car_maint_269a.bin` | **校准用**（本节目录下的三个脚本都要它） | 只有 0x269A 二进制帧，约 100 Hz |
-| `Robin_24G_Car_attitude_400hz.bin` | 台架姿态验证 | 只有 ATT 四元数文本 + STA/STA2 统计 |
+| `Robin_24G_Car_Flash.bin` | 台架姿态验证 | 只有 ATT 四元数文本 + STA/STA2 统计 |
 
 两份都在 `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\` 下，
 统一烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
