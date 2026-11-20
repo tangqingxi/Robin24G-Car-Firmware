@@ -627,6 +627,9 @@ unsigned short u16RemotorKeyVal=0;
 //UserRfRcvBuffer[19] = km_ptr->dat[9]	u16LRmove_Rxd;
 //*************************************************************************
 #if 1
+#if (C_RC_LOOP_400_EN)
+void RcLoop_OnPacket(void);
+#endif
 void car_work(void)
 {
 	if( RxdNewFlag)		//收到new RF数据
@@ -655,6 +658,10 @@ void car_work(void)
 		u16LRmove_Rxd = (UserRfRcvBuffer[18]<<8) + UserRfRcvBuffer[19];
 
 		Rxdata_Handler();
+#if (C_RC_LOOP_400_EN)
+		// 整包解码并校验完成：一次性提交四轴、按键与收包时间
+		RcLoop_OnPacket();
+#endif
 	}
 	else
 	{
@@ -1913,13 +1920,195 @@ static void RcBringup_Report(void)
 }
 #endif /* C_RC_BRINGUP_EN */
 
+#if (C_RC_LOOP_400_EN)
+// =====================================================================================
+// 400Hz 地面联调：收包 + 姿态估计 + 角速度 P 环（电机始终停转）
+//   目标角速度固定为 0，纠偏量 = Kp × (0 − 实测角速度)，只观察不出力。
+// =====================================================================================
+#define L400_TICKS            (CLOCK_SYS_CLOCK_HZ / 400)
+#define L400_TICKS_PER_MS     (CLOCK_SYS_CLOCK_HZ / 1000)
+#define L400_TICKS_PER_US     (CLOCK_SYS_CLOCK_HZ / 1000000)
+
+// 指令超时：超过这么久没有有效摇杆包，指令失效（松杆实测约 20~30ms 一包）
+#define L400_CMD_TIMEOUT_MS   200
+// P 环增益：纠偏量 = 误差 × KP / 256（1/4）
+#define L400_KP_Q8            64
+// 摇杆指令有效范围（±307 满杆），超出判为无效包
+#define L400_STICK_MAX        400
+
+static s32 s_l400_cmd[4];          // 油门/偏航/俯仰/横滚（±307）
+static u16 s_l400_key;
+static u8  s_l400_cmd_ok;          // 摇杆指令有效
+static u8  s_l400_link;            // 无线连接状态（心跳也算）
+static u32 s_l400_pkt_ms;          // 最近一次有效摇杆包时刻
+static u32 s_l400_link_ms;         // 最近一次任何包时刻
+
+static euler_q_t s_l400_att;
+static u8  s_l400_ready;
+static u8  s_l400_inited;
+static u32 s_l400_next_tick;
+static u32 s_l400_last_tick;
+static u32 s_l400_dt_rem;
+
+static s32 s_l400_rate[3];         // 扣偏后角速度 Q10 rad/s
+static s32 s_l400_corr[3];         // P 环纠偏量 Q10 rad/s
+static u16 s_l400_cyc_max;
+static u16 s_l400_cyc_peak;
+static u32 s_l400_over;
+static u32 s_l400_tx_tick;
+
+// 整包解码完成后的提交：全零心跳只更新连接状态
+void RcLoop_OnPacket(void)
+{
+	u16 thr = u16Throttle_Rxd, rot = u16Rotation_Rxd, fb = u16FBmove_Rxd, lr = u16LRmove_Rxd;
+	u32 now = clock_time() / L400_TICKS_PER_MS;
+
+	s_l400_link = 1;
+	s_l400_link_ms = now;
+
+	if (thr == 0 && rot == 0 && fb == 0 && lr == 0) {
+		return;                    // 心跳帧：不动摇杆指令
+	}
+
+	// 实机确认的映射：FB→油门、LR→偏航、Throttle→俯仰、Rotation→横滚(-1)
+	s_l400_cmd[0] = RxdDataConvert(fb, 1, 10);
+	s_l400_cmd[1] = RxdDataConvert(lr, 1, 10);
+	s_l400_cmd[2] = RxdDataConvert(thr, 1, 10);
+	s_l400_cmd[3] = -RxdDataConvert(rot, 1, 10);
+	if (s_l400_cmd[0] > L400_STICK_MAX || s_l400_cmd[0] < -L400_STICK_MAX ||
+	    s_l400_cmd[1] > L400_STICK_MAX || s_l400_cmd[1] < -L400_STICK_MAX ||
+	    s_l400_cmd[2] > L400_STICK_MAX || s_l400_cmd[2] < -L400_STICK_MAX ||
+	    s_l400_cmd[3] > L400_STICK_MAX || s_l400_cmd[3] < -L400_STICK_MAX) {
+		return;                    // 越界包：不采信
+	}
+	s_l400_key = u16RemotorKeyVal;
+	s_l400_pkt_ms = now;
+	s_l400_cmd_ok = 1;
+}
+
+static void L400_Init(void)
+{
+	u8 rb = 0;
+
+	if (t3488_bench_init(C_GYRO_LPF_SEL, &rb)) {
+		return;
+	}
+	Euler_Reset(&s_l400_att);
+	s_l400_ready = 0;
+	s_l400_inited = 1;
+	s_l400_next_tick = clock_time();
+}
+
+static char *l400_put_str(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+
+static char *l400_put_u32(char *p, u32 v)
+{
+	char t[10]; u8 n = 0;
+	if (!v) { *p++ = '0'; return p; }
+	while (v && n < sizeof(t)) { t[n++] = (char)('0' + v % 10); v /= 10; }
+	while (n) *p++ = t[--n];
+	return p;
+}
+static char *l400_put_s32(char *p, s32 v)
+{
+	if (v < 0) { *p++ = '-'; return l400_put_u32(p, (u32)(-v)); }
+	*p++ = '+'; return l400_put_u32(p, (u32)v);
+}
+
+static void L400_Process(void)
+{
+	int16_t raw_a[3], raw_g[3];
+	att_i32 acc_frd[3], acc_mg[3], gyr_q10[3];
+	u32 now, t0, dt_ticks;
+	att_i32 dt_100us;
+	u16 us;
+
+	if (!s_l400_inited) { L400_Init(); return; }
+
+	now = clock_time();
+	if ((s32)(now - s_l400_next_tick) < 0) return;
+	t0 = now;
+	s_l400_next_tick += L400_TICKS;
+	if ((s32)(clock_time() - s_l400_next_tick) > 0) {
+		s_l400_over++;
+		s_l400_next_tick = clock_time() + L400_TICKS;
+	}
+
+	if (t3488_read_6axis(raw_a, raw_g)) return;
+
+	acc_frd[0] = raw_a[0]; acc_frd[1] = -raw_a[1]; acc_frd[2] = -raw_a[2];
+	gyr_q10[0] = Euler_GyroToQ10(raw_g[0], s_bench_gyro_bias_q6[0], &s_bench_gyro_rem[0]);
+	gyr_q10[1] = Euler_GyroToQ10(-raw_g[1], s_bench_gyro_bias_q6[1], &s_bench_gyro_rem[1]);
+	gyr_q10[2] = Euler_GyroToQ10(-raw_g[2], s_bench_gyro_bias_q6[2], &s_bench_gyro_rem[2]);
+	for (u8 i = 0; i < 3; i++) {
+		att_i32 lsb = (acc_frd[i] - s_bench_acc_off_lsb[i]) * s_bench_acc_scale_q14[i] >> 14;
+		acc_mg[i] = (lsb * 125) >> 8;
+		s_l400_rate[i] = gyr_q10[i];
+		s_l400_corr[i] = -(gyr_q10[i] * L400_KP_Q8) >> 8;   // 目标 0 - 实测
+	}
+
+	if (!s_l400_ready) {
+		if (Euler_InitFromAccel(&s_l400_att, acc_mg, now / L400_TICKS_PER_MS)) s_l400_ready = 1;
+	} else {
+		dt_ticks = now - s_l400_last_tick;
+		s_l400_dt_rem += dt_ticks;
+		dt_100us = (att_i32)(s_l400_dt_rem / (L400_TICKS_PER_US * 100));
+		s_l400_dt_rem -= (u32)dt_100us * (L400_TICKS_PER_US * 100);
+		if (dt_100us > 0) Euler_Update(&s_l400_att, acc_mg, gyr_q10, dt_100us,
+		                               now / L400_TICKS_PER_MS);
+	}
+	s_l400_last_tick = now;
+
+	us = (u16)((clock_time() - t0) / L400_TICKS_PER_US);
+	if (us > s_l400_cyc_max) s_l400_cyc_max = us;
+	if (us > s_l400_cyc_peak) s_l400_cyc_peak = us;
+
+	// 低频率报告：链路/指令有效/包龄/角速度/纠偏/整拍峰值/超时
+	if ((s32)(clock_time() - s_l400_tx_tick) >= 0) {
+		char buf[128]; char *q = buf; u32 age;
+		s_l400_tx_tick = clock_time() + CLOCK_SYS_CLOCK_HZ / 10;
+		if (now / L400_TICKS_PER_MS - s_l400_pkt_ms > L400_CMD_TIMEOUT_MS) s_l400_cmd_ok = 0;
+		age = s_l400_link ? (now / L400_TICKS_PER_MS - s_l400_link_ms) : 9999;
+		q = l400_put_str(q, "L400 lk=");
+		q = l400_put_u32(q, s_l400_link);
+		q = l400_put_str(q, " vld=");
+		q = l400_put_u32(q, s_l400_cmd_ok);
+		q = l400_put_str(q, " age=");
+		q = l400_put_u32(q, age > 999 ? 999 : age);
+		q = l400_put_str(q, " g=");
+		q = l400_put_s32(q, s_l400_rate[0]); *q++ = '/';
+		q = l400_put_s32(q, s_l400_rate[1]); *q++ = '/';
+		q = l400_put_s32(q, s_l400_rate[2]);
+		q = l400_put_str(q, " c=");
+		q = l400_put_s32(q, s_l400_corr[0]); *q++ = '/';
+		q = l400_put_s32(q, s_l400_corr[1]); *q++ = '/';
+		q = l400_put_s32(q, s_l400_corr[2]);
+		q = l400_put_str(q, " cyc=");
+		q = l400_put_u32(q, s_l400_cyc_max);
+		q = l400_put_str(q, "/");
+		q = l400_put_u32(q, s_l400_cyc_peak);
+		q = l400_put_str(q, " ov=");
+		q = l400_put_u32(q, s_l400_over);
+		*q++ = '\n';
+		UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+		s_l400_cyc_max = 0;
+	}
+}
+#endif
+
 //**************************************************************
 void User_main_loop_process(void)
 {
 	wd_32k_feed();
 
 #if (C_ATT_BENCH_EN)
-#if (C_RC_BRINGUP_EN)
+#if (C_RC_LOOP_400_EN)
+	d24_rx_main_loop();
+	TimeBaseGenerate();
+	car_work();
+	L400_Process();
+	return;
+#elif (C_RC_BRINGUP_EN)
 	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转
 	d24_rx_main_loop();
 	TimeBaseGenerate();          // 10ms 时基，失联计数在这里累加

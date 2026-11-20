@@ -36,6 +36,12 @@
 #define C_RC_BRINGUP_EN           0
 #endif
 
+// 400Hz 地面联调镜像：收包 + 姿态 + 角速度 P 环（电机停转）
+//	用 -DC_RC_LOOP_400_EN=1 单独构建
+#ifndef C_RC_LOOP_400_EN
+#define C_RC_LOOP_400_EN          0
+#endif
+
 // ---- 采样与串口 ----
 #define C_ATT_SAMPLE_HZ           400       // MCU 读取率（台架实测目标 400Hz）
 #define C_ATT_SAMPLE_US           (1000000 / C_ATT_SAMPLE_HZ)   // 标称采样周期 2500us
