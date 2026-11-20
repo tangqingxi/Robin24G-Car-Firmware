@@ -1060,9 +1060,10 @@ void RxdFunction_loop(void)
 // 采集时按这个符号置换直接重排变号，不再做通用矩阵乘法
 static const s32 s_bench_acc_off_lsb[3]     = { -3, -8, -29 };
 static const s32 s_bench_acc_scale_q14[3]   = { 16436, 16429, 16357 };
-// 陀螺零偏（机体 FRD，1/64 LSB）：实测 -1.1552 / -2.982 / -1.3231 LSB
-// 保留小数 LSB，换算到 Q10 前扣掉，避免整数截断带来的常值漂移
-static const s32 s_bench_gyro_bias_q6[3]    = { -74, -191, -85 };
+// 陀螺零偏（机体 FRD，1/64 LSB）：实测 -1.4531 / -3.6250 / -5.9531 LSB
+//   即 -93/64、-232/64、-381/64；保留小数 LSB，换算到 Q10 前扣掉，
+//   避免整数截断带来的常值漂移
+static const s32 s_bench_gyro_bias_q6[3]    = { -93, -232, -381 };
 
 #define BENCH_MG_PER_LSB        1000        // 1g = 2048 LSB → mg = lsb*1000/2048
 #define BENCH_LSB_PER_G         2048
