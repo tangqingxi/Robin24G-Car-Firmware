@@ -1114,7 +1114,7 @@ static struct {
 	u32 sta_cnt;
 	u32 sta_sum_us;
 	u16 sta_max_us;
-	u32 t_ms;                // 快照生成时刻（毫秒），用来算排队时长
+	u32 t_tick;              // 快照生成时刻的原始 tick，用来算排队时长
 } s_bench_cat_snap;
 
 // 上一次 STA2 发送的诊断值：写入这一行要等下一次发送才知道，所以显示"上一回"
@@ -1130,6 +1130,27 @@ static u16 s_bench_sta_max_us;
 // 距离下一拍至少留这么多时钟（半格采样周期 ≈1.25ms）才发 STA2，
 // 保证诊断输出不会把下一拍的读取挤晚
 #define BENCH_CAT_SEND_MARGIN_TICKS   (BENCH_SAMPLE_TICKS / 2)
+
+// 距下次采样的余量（微秒）
+//   入参是"下次采样 tick - 当前 tick"的有符号差：
+//   已经到点或超期时 left_ticks <= 0，直接给 0，绝不把回绕后的巨大无符号值报成余量
+static u16 bench_cat_margin_us(s32 left_ticks)
+{
+	if (left_ticks <= 0) {
+		return 0;
+	}
+	return (u16)((u32)left_ticks / BENCH_TICKS_PER_US);
+}
+
+// 快照排队时长（毫秒）
+//   入参是"当前 tick - 快照 tick"的原始无符号差，32 位相减天然处理回绕，
+//   再换算成毫秒；超过 u16 上限时截断，避免溢出翻转
+static u16 bench_cat_latency_ms(u32 lat_ticks)
+{
+	u32 ms = lat_ticks / BENCH_TICKS_PER_MS;
+
+	return (ms > 0xFFFFu) ? 0xFFFFu : (u16)ms;
+}
 
 // 现在能不能发分项快照：有待发快照、串口空闲、且离下一拍还有余量
 // 返回 0 = 继续等（快照保留），1 = 可以生成并发送
@@ -1297,6 +1318,7 @@ static void BenchAtt_Init(void)
 	s_bench_sta_sum_us = 0;
 	s_bench_sta_max_us = 0;
 	s_bench_cat_snap.pending = 0;
+	s_bench_cat_snap.t_tick = 0;
 	s_bench_cat_diag_us = 0;
 	s_bench_cat_diag_margin_us = 0;
 	s_bench_cat_diag_lat_ms = 0;
@@ -1398,13 +1420,14 @@ static void BenchAtt_CatPoll(u32 now)
 
 	us = (clock_time() - t0) / BENCH_TICKS_PER_US;
 	s_bench_cat_diag_us = (u16)us;
-	{
-		u32 left = s_bench_next_tick - clock_time();
-		s_bench_cat_diag_margin_us = (u16)(left / BENCH_TICKS_PER_US);
-	}
-	// 排队时长：快照生成到真正发出的毫秒数（验证延后发送是否生效）
-	s_bench_cat_diag_lat_ms = (u16)((u32)(clock_time() / BENCH_TICKS_PER_MS)
-	                                - s_bench_cat_snap.t_ms);
+
+	// 余量：先做有符号差，已到点/超期按 0 报，避免无符号回绕成天文数字
+	s_bench_cat_diag_margin_us =
+	    bench_cat_margin_us((s32)(s_bench_next_tick - clock_time()));
+
+	// 排队时长：先做原始 tick 的无符号差，跨时钟回绕也不会误报
+	s_bench_cat_diag_lat_ms =
+	    bench_cat_latency_ms(clock_time() - s_bench_cat_snap.t_tick);
 }
 
 // 台架主处理：主循环每圈调用一次，内部按 200Hz 采样
@@ -1701,7 +1724,7 @@ static void BenchAtt_Process(void)
 			s_bench_sta_cnt = 0;
 			s_bench_sta_sum_us = 0;
 			s_bench_sta_max_us = 0;
-			s_bench_cat_snap.t_ms = (u32)(clock_time() / BENCH_TICKS_PER_MS);
+			s_bench_cat_snap.t_tick = clock_time();
 			s_bench_cat_snap.pending = 1;
 		}
 
