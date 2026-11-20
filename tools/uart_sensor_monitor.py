@@ -260,7 +260,8 @@ class SimSource:
 #   ATT init fail st=N lpf_rb=M
 #   ATT wait still 0.32/0.50s
 #   ATT ready: r=+0.00 p=+0.00 (still 500ms)
-#   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 姿态样本，字段已是度
+#   ATT t=12345 rdy=1 q=32768/0/0/0                  ← 新：Q15 四元数 w/x/y/z
+#   ATT t=12345 rdy=1 r=+12.34 p=-45.67 y=+120.15    ← 旧：姿态样本，字段已是度
 #   STA n=1200 f=0 g=0 dt=4999/5001 rd=210/260 up=35/48
 # ----------------------------------------------------------------------------
 ATT_CSV_FIELDS = ["recv_s", "recv_epoch", "t_ms", "rdy",
@@ -276,11 +277,41 @@ _ATT_LINE_RE = re.compile(
     r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+r=([+-]?\d+\.\d+)\s+p=([+-]?\d+\.\d+)"
     r"\s+y=([+-]?\d+\.\d+)\s*$")
 # 基础字段（旧固件）+ 可选扩展字段（400Hz 验收：整拍耗时/超期/跳拍/更新次数）
+_ATT_QUAT_RE = re.compile(
+    r"^ATT\s+t=(\d+)\s+rdy=(\d)\s+q=(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)\s*$")
+
 _STA_LINE_RE = re.compile(
     r"^STA\s+n=(\d+)\s+f=(\d+)\s+g=(\d+)\s+dt=(\d+)/(\d+)\s+"
     r"rd=(\d+)/(\d+)\s+up=(\d+)/(\d+)"
     r"(?:\s+cyc=(\d+)/(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+eul=(\d+))?"
     r"(?:\s+zb=([+-]\d+\.\d+)/([+-]\d+\.\d+))?\s*$")
+
+
+def quat_q15_to_euler_deg(qw, qx, qy, qz):
+    """
+    Q15 四元数（w/x/y/z，32768 = 1.0）→ 欧拉角（度）。
+    约定与固件一致：右侧下沉横滚为正、抬头俯仰为正、俯视顺时针偏航为正。
+    先归一化；全零（或过短）四元数返回 None，由调用方按无效帧丢弃。
+    """
+    n = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+    if n < 1e-6:
+        return None
+
+    w, x, y, z = qw / n, qx / n, qy / n, qz / n
+
+    # 机体 FRD → 水平系的旋转矩阵（ZYX 欧拉角）
+    r00 = 1.0 - 2.0 * (y * y + z * z)
+    r10 = 2.0 * (x * y + w * z)
+    r20 = 2.0 * (x * z - w * y)
+    r21 = 2.0 * (y * z + w * x)
+    r22 = 1.0 - 2.0 * (x * x + y * y)
+
+    roll = math.degrees(math.atan2(r21, r22))
+    # 数值误差可能让 |sin(pitch)| 略超 1，限幅后再做反正弦
+    sin_p = max(-1.0, min(1.0, -r20))
+    pitch = math.degrees(math.asin(sin_p))
+    yaw = math.degrees(math.atan2(r10, r00))
+    return roll, pitch, yaw
 
 
 def attitude_state_of(line):
@@ -308,12 +339,26 @@ def attitude_detail_of(line):
         parts = line.split()
         return parts[3] if len(parts) > 3 else ""
     if line.startswith("ATT ready"):
-        return line[len("ATT ready: "):].strip() if line.startswith("ATT ready: ") else ""
+        return line[len("ATT ready"):].strip(" :")
     return ""
 
 
 def parse_attitude_line(line):
     """解析一行文本，返回 ("att", dict) / ("sta", dict) / ("status", 原文) / None"""
+    m = _ATT_QUAT_RE.match(line)
+    if m:
+        angles = quat_q15_to_euler_deg(int(m.group(3)), int(m.group(4)),
+                                       int(m.group(5)), int(m.group(6)))
+        if angles is None:
+            return None               # 全零四元数：无效帧
+        return ("att", {
+            "t_ms": int(m.group(1)),
+            "rdy": int(m.group(2)),
+            "roll": angles[0],
+            "pitch": angles[1],
+            "yaw": angles[2],
+        })
+
     m = _ATT_LINE_RE.match(line)
     if m:
         return ("att", {
@@ -355,6 +400,22 @@ def parse_attitude_line(line):
     return None
 
 
+def euler_deg_to_quat_q15(roll_deg, pitch_deg, yaw_deg):
+    """欧拉角（度，ZYX 顺序）→ Q15 四元数 w/x/y/z，与固件约定一致"""
+    hr = math.radians(roll_deg) * 0.5
+    hp = math.radians(pitch_deg) * 0.5
+    hy = math.radians(yaw_deg) * 0.5
+    cr, sr = math.cos(hr), math.sin(hr)
+    cp, sp = math.cos(hp), math.sin(hp)
+    cy, sy = math.cos(hy), math.sin(hy)
+    w = cr * cp * cy + sr * sp * sy
+    x = sr * cp * cy - cr * sp * sy
+    y = cr * sp * cy + sr * cp * sy
+    z = cr * cp * sy - sr * sp * cy
+    return (int(round(w * 32768)), int(round(x * 32768)),
+            int(round(y * 32768)), int(round(z * 32768)))
+
+
 class SimAttitudeSource:
     """
     模拟台架固件的文本输出（无硬件自测）：
@@ -391,17 +452,19 @@ class SimAttitudeSource:
         elif not self.sent_ready:
             self.sent_ready = True
             self.t_ready = now
-            self._push("ATT ready: r=+0.00 p=+0.00 (still 500ms)")
+            self._push("ATT ready (still 500ms)")
         else:
             if now >= self._next_att:
                 self._next_att = now + self.dt
                 self.n_att += 1
                 t_ms = int((now - self.t_ready) * 1000)
-                # 缓慢变化的姿态：偏航慢慢漂，横滚/俯仰小幅摆动
+                # 缓慢变化的姿态：偏航慢慢漂，横滚/俯仰小幅摆动；
+                # 与固件一样只发四元数，欧拉角由接收端换算
                 yaw = 0.8 * (now - self.t_ready) % 360.0
                 roll = 3.0 * math.sin(now * 0.7)
                 pitch = -5.0 + 2.0 * math.cos(now * 0.5)
-                self._push(f"ATT t={t_ms} rdy=1 r={roll:+.2f} p={pitch:+.2f} y={yaw:+.2f}")
+                qw, qx, qy, qz = euler_deg_to_quat_q15(roll, pitch, yaw)
+                self._push(f"ATT t={t_ms} rdy=1 q={qw}/{qx}/{qy}/{qz}")
             if now >= self._next_sta:
                 self._next_sta = now + 1.0
                 self.n_sta += 1

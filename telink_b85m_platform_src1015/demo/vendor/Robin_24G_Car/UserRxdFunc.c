@@ -1130,6 +1130,16 @@ static char *bench_put_u32(char *p, u32 v)
 	return p;
 }
 
+// 输出带符号整数（四元数分量用）
+static char *bench_put_s32(char *p, s32 v)
+{
+	if (v < 0) {
+		*p++ = '-';
+		return bench_put_u32(p, (u32)(-v));
+	}
+	return bench_put_u32(p, (u32)v);
+}
+
 // 输出带符号定点数：v 的单位是 0.01
 static char *bench_put_fixed2(char *p, s32 v)
 {
@@ -1250,17 +1260,12 @@ static void BenchAtt_Startup(att_i32 acc_mg[3], att_i32 gyr_q10[3], u32 dt_ticks
 			avg[1] = s_bench_still_sum[1] / (att_i32)s_bench_still_n;
 			avg[2] = s_bench_still_sum[2] / (att_i32)s_bench_still_n;
 			if (Euler_InitFromAccel(&s_bench_att, avg, ts / BENCH_TICKS_PER_MS)) {
-				att_i32 r, p, y;
-				char buf[96];
+				char buf[64];
 				char *q;
 
-				Euler_GetEulerDeg100(&s_bench_att, &r, &p, &y);
+				// 这里不再算欧拉角：姿态角统一由上位机从四元数换算
 				q = buf;
-				q = bench_put_str(q, "ATT ready: r=");
-				q = bench_put_fixed2(q, r);
-				q = bench_put_str(q, " p=");
-				q = bench_put_fixed2(q, p);
-				q = bench_put_str(q, " (still ");
+				q = bench_put_str(q, "ATT ready (still ");
 				q = bench_put_u32(q, s_bench_still_ticks / BENCH_TICKS_PER_MS);
 				q = bench_put_str(q, "ms)\n");
 				bench_send(buf, (int)(q - buf));
@@ -1443,24 +1448,24 @@ static void BenchAtt_Process(void)
 	// ---- 6) 串口输出（在估计更新之外，先拼到独立缓冲）----
 	now = clock_time();
 	if (s_bench_att.ready && (u32)(now - s_bench_tx_tick) >= BENCH_TX_TICKS) {
-		char buf[96];
+		char buf[80];
 		char *q;
-		att_i32 roll, pitch, yaw;
 
 		s_bench_tx_tick = now;
-		Euler_GetEulerDeg100(&s_bench_att, &roll, &pitch, &yaw);
 
+		// 只发 Q15 四元数（w/x/y/z，32768 = 1.0），欧拉角交给上位机换算，
+		// 这样 14Hz 输出这一拍不做 atan2，也不会挤占下一拍的采样预算
 		q = buf;
 		q = bench_put_str(q, "ATT t=");
 		q = bench_put_u32(q, now / BENCH_TICKS_PER_MS);
-		q = bench_put_str(q, " rdy=");
-		q = bench_put_u32(q, s_bench_att.ready);
-		q = bench_put_str(q, " r=");
-		q = bench_put_fixed2(q, roll);
-		q = bench_put_str(q, " p=");
-		q = bench_put_fixed2(q, pitch);
-		q = bench_put_str(q, " y=");
-		q = bench_put_fixed2(q, yaw);
+		q = bench_put_str(q, " rdy=1 q=");
+		q = bench_put_s32(q, s_bench_att.q[0]);
+		*q++ = '/';
+		q = bench_put_s32(q, s_bench_att.q[1]);
+		*q++ = '/';
+		q = bench_put_s32(q, s_bench_att.q[2]);
+		*q++ = '/';
+		q = bench_put_s32(q, s_bench_att.q[3]);
 		*q++ = '\n';
 		bench_send(buf, (int)(q - buf));
 	}
