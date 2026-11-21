@@ -52,6 +52,33 @@ static void test_pitch_sign(void)
 		   large_mix.front, large_mix.rear);
 }
 
+// 正偏航：左右两路之和 > 前后两路之和；负偏航反过来。
+// 同时覆盖小信号和差动限幅后的情况，确认 dy 只翻一次符号。
+static void test_yaw_sign(void)
+{
+	L400MMix pos, neg, pos_lim, neg_lim;
+
+	L400M_Mix(190, 0, 0, 2048, &pos);
+	check(pos.left + pos.right > pos.front + pos.rear,
+		  "positive yaw: left+right > front+rear");
+	L400M_Mix(190, 0, 0, -2048, &neg);
+	check(neg.left + neg.right < neg.front + neg.rear,
+		  "negative yaw: left+right < front+rear");
+
+	L400M_Mix(190, 0, 0, 8000, &pos_lim);
+	check(pos_lim.left + pos_lim.right > pos_lim.front + pos_lim.rear,
+		  "positive yaw limited: left+right > front+rear");
+	L400M_Mix(190, 0, 0, -8000, &neg_lim);
+	check(neg_lim.left + neg_lim.right < neg_lim.front + neg_lim.rear,
+		  "negative yaw limited: left+right < front+rear");
+
+	printf("PASS yaw sign +%d/%d -%d/%d lim +%d/%d -%d/%d\n",
+		   pos.left + pos.right, pos.front + pos.rear,
+		   neg.left + neg.right, neg.front + neg.rear,
+		   pos_lim.left + pos_lim.right, pos_lim.front + pos_lim.rear,
+		   neg_lim.left + neg_lim.right, neg_lim.front + neg_lim.rear);
+}
+
 static unsigned char event_step(L400MArm *a, unsigned short key,
 								unsigned char packet_valid)
 {
@@ -152,6 +179,7 @@ static void test_estop_priority_and_rearm(void)
 int main(void)
 {
 	test_pitch_sign();
+	test_yaw_sign();
 	test_unlock_pulse_and_invalid_packet();
 	test_estop_priority_and_rearm();
 	if (failed) {

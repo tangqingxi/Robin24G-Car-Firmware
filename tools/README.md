@@ -13,7 +13,7 @@
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 | `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
 | `test_euler_div.c` | 积分 `%10000` 改为商求余后，正负输入/q/dq_rem 逐点一致和异常步长保护 |
-| `test_l400_motor.c` | 俯仰限幅前后符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
+| `test_l400_motor.c` | 俯仰/偏航限幅前后符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
 | `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
@@ -316,9 +316,12 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 - 三轴纠偏 Q10（±4096）→ PWM 差动：横滚/俯仰 `corr*2880>>16`（满量程约
   180，限 ±160），偏航 `corr*1920>>16`（满量程约 120，限 ±160）；系数已含
   十字 + 型相对 X 型的 1.414 补偿。
-- 混控（固定前/后/左/右）：
-  `前=thr+dp+dy`、`后=thr-dp+dy`、`左=thr+dr-dy`、`右=thr-dr-dy`；
+- 混控（固定前/后/左/右）：从机体正上方看，前/后电机顺时针(CW)，
+  左/右电机逆时针(CCW)：
+  `前=thr+dp-dy`、`后=thr-dp-dy`、`左=thr+dr+dy`、`右=thr-dr+dy`；
   机头抬高时 `corr_pitch<0`，`dp<0`，所以前减小、后增大（后 > 前）。
+  正偏航 `dy>0` 时左/右两路之和大于前/后，负偏航反过来；`dy` 只在
+  混控入口取一次符号，限幅和统一缩放前后复用同一个 `dy`。
   任一路越界时三轴差动按同一比例缩放，保持平均推力不变，再夹到 `45..400`。
 - **实体按键位置**：遥控器左侧 **上键长按 = 解锁**（发 `0002` 事件）；
   左侧 **下键短按 = 急停**（发 `0001` 事件）。下面统一用实体位置描述。
@@ -388,7 +391,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  35108 字节，SHA256 `85544616B300D8F6EE1542FC21ACB15B5CBAD3716F7659105D9618DBFC560E74`，
+  35108 字节，SHA256 `F8607D150B56FCDABEDC10F1DE8AE514039CED1CCEB6F500DC5B35A3C8824BF5`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
   左侧上/下键原始抓包镜像：`Robin_24G_Car_rc_loop400_keycap.bin`（34420 字节，
   SHA256 `E5C254733A3D8CBDD78D79E4B61127C47396328F56A7994F2E30A4CAAE61A197`），
@@ -435,7 +438,8 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   ..\data\test_l400_motor.exe
   ```
 
-  覆盖机头抬高时 `后 > 前`（小信号和限幅后都成立），200ms 的 0002
+  覆盖机头抬高时 `后 > 前`（小信号和限幅后都成立）、正偏航时
+  `左+右 > 前+后` / 负偏航反过来（同样覆盖限幅），200ms 的 0002
   脉冲只处理一次、重复包不重复解锁、无效摇杆包的 0002 被丢弃，
   以及 0001 急停优先、急停/失联后必须新的 0002 才重新解锁。
 

@@ -91,11 +91,14 @@ static void L400M_Mix(int thrust, int corr_roll, int corr_pitch,
 	dp = l400m_clamp(dp, L400_DIFF_LIMIT);
 	dy = l400m_clamp(dy, L400_DIFF_LIMIT);
 
-	// 机头抬高(corr_pitch<0) → dp<0 → 前=thr+dp 减小、后=thr-dp 增大
-	mf = thrust + dp + dy;
-	mr = thrust - dp + dy;
-	ml = thrust + dr - dy;
-	mm = thrust - dr - dy;
+	// 机头抬高(corr_pitch<0) → dp<0 → 前=thr+dp 减小、后=thr-dp 增大。
+	// 从机体正上方看：前/后电机顺时针(CW)，左/右逆时针(CCW)。
+	// 正偏航 dy>0 时左/右加速、前/后减速，所以 dy 只在这里翻一次符号：
+	// 前/后 -dy，左/右 +dy。
+	mf = thrust + dp - dy;
+	mr = thrust - dp - dy;
+	ml = thrust + dr + dy;
+	mm = thrust - dr + dy;
 
 	// 任一路越界时三轴差动统一缩放，保持平均推力不变
 	lo = mf;
@@ -121,10 +124,11 @@ static void L400M_Mix(int thrust, int corr_roll, int corr_pitch,
 		dr = (dr * scale) >> 8;
 		dp = (dp * scale) >> 8;
 		dy = (dy * scale) >> 8;
-		mf = thrust + dp + dy;
-		mr = thrust - dp + dy;
-		ml = thrust + dr - dy;
-		mm = thrust - dr - dy;
+		// 限幅缩放后仍复用同一个 dy，偏航符号不再二次翻转
+		mf = thrust + dp - dy;
+		mr = thrust - dp - dy;
+		ml = thrust + dr + dy;
+		mm = thrust - dr + dy;
 	}
 
 	mf = l400m_clamp(mf, L400_PWM_MAX);
