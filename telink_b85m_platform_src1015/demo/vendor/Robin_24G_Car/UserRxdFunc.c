@@ -2092,6 +2092,15 @@ static u32 s_l400_late_sum_us;     // 原定拍点 → 实际采样开始
 static u32 s_l400_late_max_us;
 static u32 s_l400_exec_sum_us;     // IMU 读取 + 估计 + P 环
 static u32 s_l400_exec_max_us;
+// prep：采样开始到 Euler_Update 之前；eul：只包住 Euler_Update。
+// 两者用独立 1Hz 窗口，L400P 发出后清零，便于优化前后对照。
+static u32 s_l400_prep_sum_us;
+static u32 s_l400_prep_max_us;
+static u32 s_l400_prep_cnt;
+static u32 s_l400_eul_sum_us;
+static u32 s_l400_eul_max_us;
+static u32 s_l400_eul_cnt;
+static u32 s_l400_prep_tick;       // 下一行 L400P 的最早发送时刻
 static u32 s_l400_rx_sum_us;       // 无线整包处理（解码/映射/按键/时间戳，不含 RF 驱动）
 static u32 s_l400_rx_max_us;
 static u32 s_l400_tx_sum_us;       // 串口报告格式化与提交
@@ -2335,6 +2344,12 @@ static void L400_StateReset(void)
 	s_l400_late_max_us = 0;
 	s_l400_exec_sum_us = 0;
 	s_l400_exec_max_us = 0;
+	s_l400_prep_sum_us = 0;
+	s_l400_prep_max_us = 0;
+	s_l400_prep_cnt = 0;
+	s_l400_eul_sum_us = 0;
+	s_l400_eul_max_us = 0;
+	s_l400_eul_cnt = 0;
 	s_l400_rx_sum_us = 0;
 	s_l400_rx_max_us = 0;
 	s_l400_tx_sum_us = 0;
@@ -2396,6 +2411,7 @@ static void L400_Init(void)
 	s_l400_next_tick = now + L400_PERIOD_TICKS;
 	s_l400_tx_tick = now + L400_REPORT_TICKS;
 	s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
+	s_l400_prep_tick = now + CLOCK_SYS_CLOCK_HZ;
 	s_l400_inited = 1;
 }
 
@@ -2800,6 +2816,12 @@ static void L400_DiagResetStats(void)
 	s_l400_late_max_us = 0;
 	s_l400_exec_sum_us = 0;
 	s_l400_exec_max_us = 0;
+	s_l400_prep_sum_us = 0;
+	s_l400_prep_max_us = 0;
+	s_l400_prep_cnt = 0;
+	s_l400_eul_sum_us = 0;
+	s_l400_eul_max_us = 0;
+	s_l400_eul_cnt = 0;
 	s_l400_rx_sum_us = 0;
 	s_l400_rx_max_us = 0;
 	s_l400_tx_sum_us = 0;
@@ -2973,6 +2995,45 @@ static u8 L400_SendTxDiag(u32 now)
 	return 1;
 }
 
+// 每秒一行 prep/Euler_Update 拆分耗时；发送成功后开始新窗口
+static u8 L400_SendPrep(u32 now)
+{
+	char buf[72];
+	char *q = buf;
+	u32 prep_avg = s_l400_prep_cnt ? s_l400_prep_sum_us / s_l400_prep_cnt : 0;
+	u32 eul_avg = s_l400_eul_cnt ? s_l400_eul_sum_us / s_l400_eul_cnt : 0;
+
+	if ((s32)(now - s_l400_prep_tick) < 0) {
+		return 0;
+	}
+
+	q = l400_put_str(q, "L400P prep=");
+	q = l400_put_u32(q, prep_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, s_l400_prep_max_us);
+	q = l400_put_str(q, " eul=");
+	q = l400_put_u32(q, eul_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, s_l400_eul_max_us);
+	q = l400_put_str(q, " n=");
+	q = l400_put_u32(q, s_l400_prep_cnt);
+	q = l400_put_str(q, " e=");
+	q = l400_put_u32(q, s_l400_eul_cnt);
+	*q++ = '\n';
+	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {
+		return 0;
+	}
+
+	s_l400_prep_sum_us = 0;
+	s_l400_prep_max_us = 0;
+	s_l400_prep_cnt = 0;
+	s_l400_eul_sum_us = 0;
+	s_l400_eul_max_us = 0;
+	s_l400_eul_cnt = 0;
+	s_l400_prep_tick = now + CLOCK_SYS_CLOCK_HZ;
+	return 1;
+}
+
 // 汇总行分开发送：UartTrySend 忙时保留；全部发完后恢复正常遥测
 static void L400_DiagFlush(u32 now)
 {
@@ -2985,6 +3046,7 @@ static void L400_DiagFlush(u32 now)
 		s_l400_diag_enabled = 0;
 		s_l400_tx_tick = now + L400_REPORT_TICKS;
 		s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
+		s_l400_prep_tick = now + CLOCK_SYS_CLOCK_HZ;
 	}
 }
 
@@ -3006,10 +3068,13 @@ static void L400_Process(void)
 	int16_t raw_a[3], raw_g[3];
 	att_i32 acc_frd[3], acc_mg[3], gyr_q10[3];
 	u32 now, planned, t_sample0, t_exec1, t_read1 = 0, end, total;
+	u32 t_prep1 = 0, t_eul1 = 0;
 	u32 late_us, exec_us, ctrl_us, ctrl_total;
 	u32 dt_ticks = 0;
 	att_i32 dt_100us = 0;
 	u8 att_updated = 0;
+	u8 prep_timed = 0;
+	u8 eul_timed = 0;
 	int i;
 
 	if (!s_l400_inited) {
@@ -3074,6 +3139,8 @@ static void L400_Process(void)
 	// 读一次 12 字节；失败不发布零值，只累计失败数，本拍仍走完计时与报告
 	if (t3488_read_6axis(raw_a, raw_g)) {
 		s_l400_fail++;
+		t_prep1 = clock_time();
+		prep_timed = 1;
 		L400_ControlOutputsClear(); // 本拍没有新角速度：只清输出，保留摇杆目标
 	} else {
 		s_l400_sample++;
@@ -3150,12 +3217,22 @@ static void L400_Process(void)
 		// 启动静止判定 / 姿态更新：与台架固件同一套逻辑
 		if (!s_l400_att.ready) {
 			L400_Startup(s_l400_lpf, gyr_q10, dt_ticks, t_read1);
+			t_prep1 = clock_time();
+			prep_timed = 1;
 		} else if (dt_100us > 0) {
+			// prep 到此为止；eul 只包住 Euler_Update，便于判断优化落点
+			t_prep1 = clock_time();
+			prep_timed = 1;
 			if (Euler_Update(&s_l400_att, s_l400_lpf, gyr_q10, dt_100us,
 							 t_read1 / L400_TICKS_PER_MS)) {
 				s_l400_euler_ok++;
 				att_updated = 1;
 			}
+			t_eul1 = clock_time();
+			eul_timed = 1;
+		} else {
+			t_prep1 = clock_time();
+			prep_timed = 1;
 		}
 
 		// 姿态本拍有更新才跑控制；启动、长间断或更新失败都先禁止输出
@@ -3169,6 +3246,20 @@ static void L400_Process(void)
 			// 启动/长间断/更新失败：本拍无新姿态，先清输出但保留目标
 			L400_ControlOutputsClear();
 		}
+	}
+
+	// 拆分统计：prep=采样→Euler 之前，eul=只包住 Euler_Update
+	if (prep_timed) {
+		u32 prep_us = (t_prep1 - t_sample0) / L400_TICKS_PER_US;
+
+		l400_add_timing(&s_l400_prep_sum_us, &s_l400_prep_max_us, prep_us);
+		s_l400_prep_cnt++;
+	}
+	if (eul_timed) {
+		u32 eul_us = (t_eul1 - t_prep1) / L400_TICKS_PER_US;
+
+		l400_add_timing(&s_l400_eul_sum_us, &s_l400_eul_max_us, eul_us);
+		s_l400_eul_cnt++;
 	}
 
 	// 控制完成时刻：包含 IMU 读取、标定/低通、姿态更新、外环 P 和内环 PID；
@@ -3265,9 +3356,10 @@ static void L400_Process(void)
 			}
 		}
 
-		// 本拍没有常规报告占用时，补一行报告延期原因短状态
+		// 本拍没有常规报告占用时，补发 prep/Euler 拆分耗时或延期原因短状态
 		if (!attempted_stat && !attempted_obs
 			&& (obs_ok || remain_ticks >= (s32)((u32)200 * L400_TICKS_PER_US))) {
+			L400_SendPrep(t_tx0);
 			L400_SendTxDiag(t_tx0);
 		}
 	}

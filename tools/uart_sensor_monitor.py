@@ -563,6 +563,11 @@ _L400_DIAG_ABORT_RE = re.compile(
 _L400_TXDIAG_RE = re.compile(
     r"^L400T\s+budget=(\d+)\s+busy=(\d+)\s*$")
 
+# prep / Euler_Update 两段耗时（us，1Hz）
+_L400_PREP_RE = re.compile(
+    r"^L400P\s+prep=(\d+)/(\d+)\s+eul=(\d+)/(\d+)\s+"
+    r"n=(\d+)\s+e=(\d+)\s*$")
+
 # L400S 统计行新格式：定宽十六进制；miss=整拍超期，cmiss=控制完成超期，
 # ctl=控制完成时延（本周期最大/上电峰值）；late/exec/rx/tx 为分项耗时。
 _L400_STAT_HEX_RE = re.compile(
@@ -701,6 +706,17 @@ def parse_l400_line(line):
         return ("l400t", {
             "budget": int(m.group(1)),
             "busy": int(m.group(2)),
+        })
+
+    m = _L400_PREP_RE.match(line)
+    if m:
+        return ("l400p", {
+            "prep_avg_us": int(m.group(1)),
+            "prep_max_us": int(m.group(2)),
+            "eul_avg_us": int(m.group(3)),
+            "eul_max_us": int(m.group(4)),
+            "prep_n": int(m.group(5)),
+            "eul_n": int(m.group(6)),
         })
 
     m = _L400_DIAG_ABORT_RE.match(line)
@@ -1270,7 +1286,7 @@ class L400Worker(threading.Thread):
                 pass
             return
 
-        if kind in ("l400d", "l400d_abort", "l400t"):
+        if kind in ("l400d", "l400d_abort", "l400t", "l400p"):
             self.diag += 1
             self.last_diag = payload
             try:
@@ -1282,6 +1298,8 @@ class L400Worker(threading.Thread):
                 tag = "诊断"
             elif kind == "l400d_abort":
                 tag = "诊断-中止"
+            elif kind == "l400p":
+                tag = "耗时"
             else:
                 tag = "报告延期"
             print(f"[{tag}] {line}", flush=True)

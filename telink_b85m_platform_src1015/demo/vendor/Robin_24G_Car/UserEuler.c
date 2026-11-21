@@ -15,6 +15,12 @@
 #include "UserEuler.h"
 //********************************************************************
 
+// 积分除余优化开关：0=保留原来的 / 与 % 两条路径（对照基线），
+// 1=只做一次除法，再用商乘回求余（交付默认值）。
+#ifndef C_EULER_DIV_OPT
+#define C_EULER_DIV_OPT 1
+#endif
+
 // 32 位无符号整数平方根（向下取整）
 static att_u32 euler_isqrt(att_u32 x)
 {
@@ -414,7 +420,13 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 			// t 是 Q24，先对称舍入到 Q14 再乘 dt（余数由 dq_rem 补偿）
 			att_i32 num = euler_round_shift(t[k], 10) * dt_100us;
 			att_i32 dq = num / 10000;
+#if C_EULER_DIV_OPT
+			// 商已求出，直接用商乘回求余，避免再做一次整数取模。
+			// C 的有符号除法向零截断，这样得到的余数与原 % 同号且逐点相等。
+			att_i32 rem = num - dq * 10000;
+#else
 			att_i32 rem = num % 10000;
+#endif
 
 			m->dq_rem[k] += rem;
 			if (m->dq_rem[k] >= 10000) {

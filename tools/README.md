@@ -12,6 +12,7 @@
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 | `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
+| `test_euler_div.c` | 积分 `%10000` 改为商求余后，正负输入/q/dq_rem 逐点一致和异常步长保护 |
 | `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
@@ -282,6 +283,16 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   L400T budget=12 busy=3
   ```
 
+  prep/Euler_Update 拆分计时（1s 一行，us）：
+
+  ```text
+  L400P prep=120/180 eul=45/70 n=200 e=200
+  ```
+
+  - `prep`：从采样开始到 `Euler_Update` 之前（IMU 读取、校准、低通、启动判定）；
+  - `eul`：只包住 `Euler_Update`；
+  - `n`/`e`：本窗口 prep 拍数和 Euler_Update 调用数。
+
   A/B 结束后的一次性汇总（耗时单位 us，A=无内环，B=有内环）：
 
   ```text
@@ -301,12 +312,15 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  32356 字节，SHA256 `56C1A3597BFC166C82B6E4A80F3494543C5709917DF294248F3CF0DC7B21638D`，
+  33028 字节，SHA256 `635879CE4054EF78C13F3CD021FACAAE68849F824F95B394459698375B5A077C`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
+  同目录另有一份仅用于本轮前后对照的基线镜像
+  `Robin_24G_Car_rc_loop400_divbase.bin`（33044 / `ED4F8A67…`，
+  `C_EULER_DIV_OPT=0`，保留 `/` 与 `%`）；最终替换仍只用 `_ctrl.bin`。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（22 项）。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（23 项）。
 - 四元数异常更新回归（主机侧，不烧板）：
 
   ```powershell
@@ -319,6 +333,23 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
   覆盖正常 2.5ms 连续更新、90ms 长间隔拒绝、异常后恢复、50ms 大单步拒绝、
   损坏四元数拒绝；异常时必须返回失败且四元数保持不变。
+
+- 积分除余优化验证（主机侧，旧/新各编译一次并逐字节比较输出）：
+
+  ```powershell
+  $gcc = "D:\app\Visual Studio Code2025\c\MinGW\bin\gcc.exe"
+  $inc = "-I..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car"
+  $src = "..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car\UserEuler.c"
+  & $gcc -std=c99 -O2 -fno-builtin -DC_EULER_DIV_OPT=0 $inc test_euler_div.c $src -o ..\data\euler_div_base.exe
+  & $gcc -std=c99 -O2 -fno-builtin -DC_EULER_DIV_OPT=1 $inc test_euler_div.c $src -o ..\data\euler_div_opt.exe
+  ..\data\euler_div_base.exe > ..\data\euler_div_base.out
+  ..\data\euler_div_opt.exe > ..\data\euler_div_opt.out
+  fc.exe /b ..\data\euler_div_base.out ..\data\euler_div_opt.out
+  ```
+
+  输出逐字节一致；正负整数除余公式同时扫 `INT_MIN/INT_MAX` 附近和
+  `-35000..35000` 的点。`C_EULER_DIV_OPT=1` 的 TC32 目标文件不再引用
+  `__modsi3`，只保留 `__divsi3`，text 少 28 字节。
 
 - A/B 状态机回归（主机侧）：
 
