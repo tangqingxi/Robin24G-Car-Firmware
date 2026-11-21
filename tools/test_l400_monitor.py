@@ -45,6 +45,7 @@ L400_STAT_HEX_SAMPLE = ("L400S bad=0000 n=0012C0 f=0000 eul=0012C0 "
 L400_DIAG_A = ("L400D A late=900/1500 exec=1000/1600 cmiss=0 skip=0 "
                "rfirq=40/80 rf=30/60 app=20/50")
 L400_DIAG_ABORT = "L400D ABORT seg=B reason=cmd haveA=1"
+L400_TXDIAG = "L400T budget=12 busy=3"
 L400_INIT_OK = "L400 init ok lpf_rb=3"
 L400_INIT_FAIL = "L400 init fail st=1 lpf_rb=255"
 
@@ -166,6 +167,12 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual(data["seg"], "B")
         self.assertEqual(data["reason"], "cmd")
         self.assertEqual(data["have_a"], 1)
+
+    def test_parse_tx_defer_reasons(self):
+        kind, data = mon.parse_l400_line(L400_TXDIAG)
+        self.assertEqual(kind, "l400t")
+        self.assertEqual(data["budget"], 12)
+        self.assertEqual(data["busy"], 3)
 
     def test_parse_status_and_unknown(self):
         kind, text = mon.parse_l400_line(L400_INIT_OK)

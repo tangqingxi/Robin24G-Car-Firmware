@@ -2043,11 +2043,17 @@ static u32 s_l400_tx_tick;         // 下一次观察行时刻
 static u32 s_l400_stat_tick;       // 下一次统计行时刻
 static u8  s_l400_stat_deferred;   // 1Hz 统计行因余量不足/串口忙延期
 static u8  s_l400_tx_deferred;     // 10Hz 观察行因余量不足/串口忙延期
+static u32 s_l400_tx_defer_budget; // 报告延期原因：下一拍余量不足
+static u32 s_l400_tx_defer_busy;   // 报告延期原因：UART/DMA 忙
+static u8  s_l400_tx_diag_due;     // 需要补发一行 L400T 报告延期计数
+static u32 s_l400_tx_diag_tick;    // L400T 最短发送间隔（1s）
 
 // A/B 分段诊断：A 只收包+姿态，B 再开双环；两段都不发常规遥测，
 // 结束后一次性输出分项耗时。等待链路稳定的 2s 内仍正常发遥测。
 #define L400_DIAG_SETTLE_TICKS  (CLOCK_SYS_CLOCK_HZ * 2)
 #define L400_DIAG_SEG_TICKS     (CLOCK_SYS_CLOCK_HZ * 10)
+// 台架按需触发：按一下遥控“特技”键；L400 路径不再执行旧按键业务
+#define L400_DIAG_ARM_KEY       RfSendKey_StuntShow
 
 typedef struct {
 	u32 late_avg, late_max;
@@ -2060,9 +2066,11 @@ typedef struct {
 
 static L400Diag s_l400_diag;           // 纯逻辑 A/B 状态机
 static L400DiagTx s_l400_diag_tx;      // 汇总行待发队列
+static u8  s_l400_diag_enabled;        // 台架按键已按需开启；正常路径为 0
 static u8  s_l400_diag_active;         // A/B 或待发汇总期间暂缓常规遥测
 static u8  s_l400_diag_ctrl_enable;    // A=0，B/正常=1
 static u8  s_l400_diag_have_a;         // A 段快照是否已完成
+static u16 s_l400_diag_key_prev;       // 按键边沿检测
 static l400_diag_t s_l400_diag_a;
 static l400_diag_t s_l400_diag_b;
 static u32 s_l400_diag_rf_sum_ticks;   // d24_rx_main_loop 累计 tick
@@ -2137,6 +2145,22 @@ void RcLoop_OnPacket(void)
 	s_l400_cmd_ok = 1;
 	// 摇杆目标只在有效收包时换算，400Hz 控制拍不再做角度→重力方向的三角函数
 	L400_UpdateStickTargets();
+
+	// 台架按需开启 A/B：遥控“特技”键上升沿；正常飞/不按键时完全不进诊断
+	if ((s_l400_key & L400_DIAG_ARM_KEY)
+		&& !(s_l400_diag_key_prev & L400_DIAG_ARM_KEY)
+		&& !s_l400_diag_active && s_l400_diag_tx.count == 0) {
+		s_l400_diag_enabled = 1;
+		L400Diag_Init(&s_l400_diag, L400_DIAG_SETTLE_TICKS, L400_DIAG_SEG_TICKS);
+		L400DiagTx_Init(&s_l400_diag_tx);
+		s_l400_diag_ctrl_enable = 1;
+		s_l400_diag_have_a = 0;
+		s_l400_diag_rf_sum_ticks = 0;
+		s_l400_diag_rf_max_ticks = 0;
+		s_l400_diag_rf_cnt = 0;
+		g_rf_irq_meas_en = 0;
+	}
+	s_l400_diag_key_prev = s_l400_key;
 }
 
 // 累加一次分项耗时（us）：sum 用于平均值，max 用于峰值
@@ -2274,6 +2298,10 @@ static void L400_StateReset(void)
 	s_l400_ctrl_miss = 0;
 	s_l400_skip = 0;
 	s_l400_txd = 0;
+	s_l400_tx_defer_budget = 0;
+	s_l400_tx_defer_busy = 0;
+	s_l400_tx_diag_due = 0;
+	s_l400_tx_diag_tick = 0;
 	s_l400_ctrl_max_us = 0;
 	s_l400_ctrl_peak_us = 0;
 	s_l400_ctrl_ok = 0;
@@ -2286,7 +2314,9 @@ static void L400_StateReset(void)
 	s_l400_tgt_valid = 0;
 	L400Diag_Init(&s_l400_diag, L400_DIAG_SETTLE_TICKS, L400_DIAG_SEG_TICKS);
 	L400DiagTx_Init(&s_l400_diag_tx);
+	s_l400_diag_enabled = 0;
 	s_l400_diag_active = 0;
+	s_l400_diag_key_prev = 0;
 	s_l400_diag_ctrl_enable = 1;
 	s_l400_diag_have_a = 0;
 	s_l400_diag_rf_sum_ticks = 0;
@@ -2403,12 +2433,18 @@ static void L400_Startup(const att_i32 acc_mg[3], const att_i32 gyr_q10[3],
 	s_l400_prev_ok = 1;
 }
 
-// 报告延期计数：一次报告事件只计一次，后续重试不重复累加
-static void l400_note_tx_defer(u8 *flag)
+// 报告延期计数：一次报告事件只计一次；按原因分“余量不足”和“DMA 忙”
+static void l400_note_tx_defer(u8 *flag, u8 busy)
 {
 	if (!*flag) {
 		*flag = 1;
 		s_l400_txd++;
+		if (busy) {
+			s_l400_tx_defer_busy++;
+		} else {
+			s_l400_tx_defer_budget++;
+		}
+		s_l400_tx_diag_due = 1;
 	}
 }
 
@@ -2779,6 +2815,9 @@ static void L400_DiagResetStats(void)
 	s_l400_rx_max_us = 0;
 	s_l400_tx_sum_us = 0;
 	s_l400_tx_max_us = 0;
+	s_l400_tx_defer_budget = 0;
+	s_l400_tx_defer_busy = 0;
+	s_l400_tx_diag_due = 0;
 	s_l400_tick_cnt = 0;
 	s_l400_rx_cnt = 0;
 	s_l400_tx_cnt = 0;
@@ -2922,6 +2961,29 @@ static void L400_DiagPoll(u32 now)
 	}
 }
 
+// 常规报告延期原因短行：只在 1s 节流后尝试，失败保留 due
+static u8 L400_SendTxDiag(u32 now)
+{
+	char buf[48];
+	char *q = buf;
+
+	if (!s_l400_tx_diag_due
+		|| (s32)(now - s_l400_tx_diag_tick) < 0) {
+		return 0;
+	}
+	q = l400_put_str(q, "L400T budget=");
+	q = l400_put_u32(q, s_l400_tx_defer_budget);
+	q = l400_put_str(q, " busy=");
+	q = l400_put_u32(q, s_l400_tx_defer_busy);
+	*q++ = '\n';
+	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {
+		return 0;
+	}
+	s_l400_tx_diag_due = 0;
+	s_l400_tx_diag_tick = now + CLOCK_SYS_CLOCK_HZ;
+	return 1;
+}
+
 // 汇总行分开发送：UartTrySend 忙时保留；全部发完后恢复正常遥测
 static void L400_DiagFlush(u32 now)
 {
@@ -2931,6 +2993,7 @@ static void L400_DiagFlush(u32 now)
 		&& (s_l400_diag.state == L400_DIAG_STATE_DONE
 			|| s_l400_diag.state == L400_DIAG_STATE_ABORT)) {
 		s_l400_diag_active = 0;
+		s_l400_diag_enabled = 0;
 		s_l400_tx_tick = now + L400_REPORT_TICKS;
 		s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
 	}
@@ -2996,9 +3059,21 @@ static void L400_Process(void)
 	if (!s_l400_cmd_ok || !s_l400_link) {
 		L400_ControlInhibit();
 	}
-	// A/B 分段诊断状态机：启动/切换/结束都发生在采样之前
-	L400_DiagPoll(now);
-	L400_DiagFlush(now);
+	// A/B 诊断只在台架按键开启后运行；未开启或等待无有效状态时不逐拍调用
+	if (s_l400_diag_enabled
+		&& (s_l400_diag.state == L400_DIAG_STATE_WAIT
+			|| s_l400_diag.state == L400_DIAG_STATE_A
+			|| s_l400_diag.state == L400_DIAG_STATE_B)) {
+		u8 diag_valid = (s_l400_att.ready && s_l400_link
+						 && s_l400_cmd_ok) ? 1 : 0;
+
+		if (s_l400_diag_active || s_l400_diag.valid_seen || diag_valid) {
+			L400_DiagPoll(now);
+		}
+	}
+	if (s_l400_diag_tx.count) {
+		L400_DiagFlush(now);
+	}
 
 	// 实际采样开始：从原定拍点到这里就是主循环调度迟到量；
 	// 后面 t_exec1 - t_sample0 是 IMU + 估计 + P 环的执行时间。
@@ -3138,11 +3213,16 @@ static void L400_Process(void)
 						>= (s32)L400_TX_GUARD_TICKS) ? 1 : 0;
 
 		if ((stat_due || main_due) && !budget_ok) {
+			// 常规报告余量不足时，短诊断行仍可能放得下；先给延期原因留证据
+			if ((s32)(s_l400_next_tick - t_tx0)
+				>= (s32)((u32)200 * L400_TICKS_PER_US)) {
+				L400_SendTxDiag(t_tx0);
+			}
 			// 离下一拍不足 400us：先保采样/控制，报告留到下一拍
 			if (stat_due) {
-				l400_note_tx_defer(&s_l400_stat_deferred);
+				l400_note_tx_defer(&s_l400_stat_deferred, 0);
 			} else {
-				l400_note_tx_defer(&s_l400_tx_deferred);
+				l400_note_tx_defer(&s_l400_tx_deferred, 0);
 			}
 		} else if (stat_due) {
 			attempted = 1;
@@ -3150,14 +3230,14 @@ static void L400_Process(void)
 				s_l400_stat_deferred = 0;
 				s_l400_tx_deferred = 0;   // 这一拍主行被统计行顶替
 			} else {
-				l400_note_tx_defer(&s_l400_stat_deferred);
+				l400_note_tx_defer(&s_l400_stat_deferred, 1);
 			}
 		} else if (main_due) {
 			attempted = 1;
 			if (L400_SendMain(t_tx0)) {
 				s_l400_tx_deferred = 0;
 			} else {
-				l400_note_tx_defer(&s_l400_tx_deferred);
+				l400_note_tx_defer(&s_l400_tx_deferred, 1);
 			}
 		}
 
@@ -3167,6 +3247,11 @@ static void L400_Process(void)
 			l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us,
 							(t_tx1 - t_tx0) / L400_TICKS_PER_US);
 			s_l400_tx_cnt++;
+		}
+
+		// 没有常规报告占用本拍时，补一行报告延期原因短状态
+		if (!attempted && budget_ok) {
+			L400_SendTxDiag(t_tx0);
 		}
 	}
 
