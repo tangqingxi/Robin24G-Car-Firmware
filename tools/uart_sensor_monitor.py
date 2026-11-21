@@ -314,6 +314,16 @@ Q10_RAD_S_TO_DPS = 180.0 / math.pi / 1024.0
 # 用主机单调时间（time.monotonic），不受系统改时间影响。
 L400_STALE_S = 1.0
 
+# 短的定宽姿态观测：Q15 q + Q10 原始角速度/纠偏 + 状态位/包龄
+#   L400Q f=F a=0023 v=0012 k=001F q=7FFF/0000/0000/0000
+#         r=00000/00000/00000 c=0000/0000/0000
+_L400_SHORT_RE = re.compile(
+    r"^L400Q\s+f=([0-9A-F])\s+a=([0-9A-F]{4})\s+v=([0-9A-F]{4})\s+"
+    r"k=([0-9A-F]{4})\s+"
+    r"q=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s+"
+    r"r=([0-9A-F]{5})/([0-9A-F]{5})/([0-9A-F]{5})\s+"
+    r"c=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s*$")
+
 L400_CSV_FIELDS = [
     "recv_s", "recv_epoch", "t_ms",
     "rdy", "lk", "vld",
@@ -569,9 +579,15 @@ def q10_rad_s_to_dps(value):
 
 
 def _hex_s16(text):
-    """4 位十六进制 → 有符号 16 位（Q15 分量的两补码表示）"""
+    """4 位十六进制 → 有符号 16 位（Q15/Q10 分量的两补码表示）"""
     value = int(text, 16)
     return value - 65536 if value >= 32768 else value
+
+
+def _hex_s20(text):
+    """5 位十六进制 → 有符号 20 位（Q10 角速度的两补码表示）"""
+    value = int(text, 16)
+    return value - 0x100000 if value >= 0x80000 else value
 
 
 def q15_to_euler_deg(q):
@@ -654,6 +670,29 @@ def parse_l400_line(line):
             "tgt_att_deg100": tgt_att,
             "tgt_rate_q10": tgt_rate,
             "ctrl_ok": ctrl_ok,
+            "q15": q15,
+        })
+
+    m = _L400_SHORT_RE.match(line)
+    if m:
+        flags = int(m.group(1), 16)
+        q15 = [_hex_s16(m.group(i)) for i in (5, 6, 7, 8)]
+        g_q10 = [_hex_s20(m.group(i)) for i in (9, 10, 11)]
+        c_q10 = [_hex_s16(m.group(i)) for i in (12, 13, 14)]
+        return ("l400", {
+            "rdy": flags & 0x01,
+            "lk": (flags >> 1) & 0x01,
+            "vld": (flags >> 2) & 0x01,
+            "ctrl_ok": (flags >> 3) & 0x01,
+            "alk_ms": int(m.group(2), 16),
+            "avld_ms": int(m.group(3), 16),
+            "gpk_ms": int(m.group(4), 16),
+            "g_q10": g_q10,
+            "c_q10": c_q10,
+            "g_dps": [q10_rad_s_to_dps(v) for v in g_q10],
+            "c_dps": [q10_rad_s_to_dps(v) for v in c_q10],
+            "tgt_att_deg100": None,
+            "tgt_rate_q10": None,
             "q15": q15,
         })
 
@@ -925,12 +964,6 @@ class SimL400Source:
             ctl = 2250 + (self.n_line * 13) % 260
             if ctl > self.ctrl_peak:
                 self.ctrl_peak = ctl
-            # 控制器联调字段：目标姿态/角速度随模拟时间缓慢变化，on 与姿态就绪一致
-            ta_r = int(3000 * math.sin(2 * math.pi * 0.20 * el))
-            ta_p = int(1500 * math.sin(2 * math.pi * 0.15 * el + 0.7))
-            tw_x = int(600 * math.cos(2 * math.pi * 0.25 * el))
-            tw_y = int(400 * math.cos(2 * math.pi * 0.20 * el + 0.5))
-            tw_z = int(500 * math.sin(2 * math.pi * 0.10 * el))
             on = 1 if rdy else 0
             # 模拟实测姿态：用缓慢变化的横滚/俯仰构造 Q15 四元数
             rr = math.radians(10.0 * math.sin(2 * math.pi * 0.18 * el))
@@ -939,11 +972,15 @@ class SimL400Source:
             qx = math.cos(pp / 2) * math.sin(rr / 2)
             qy = math.sin(pp / 2) * math.cos(rr / 2)
             qz = -math.sin(pp / 2) * math.sin(rr / 2)
+            flags = (1 if rdy else 0) | 0x02 | 0x04 | (0x08 if on else 0)
             self._push(
-                f"L400 rdy={rdy} lk=1 vld=1 alk={alk} avld={avld} gpk={gpk} "
-                f"g={gx:+d}/{gy:+d}/{gz:+d} c={cx:+d}/{cy:+d}/{cz:+d} "
-                f"ta={ta_r:+d}/{ta_p:+d} tw={tw_x:+d}/{tw_y:+d}/{tw_z:+d} on={on} "
-                f"q={_q15_hex(qw)}/{_q15_hex(qx)}/{_q15_hex(qy)}/{_q15_hex(qz)}")
+                f"L400Q f={flags:X} a={_hex(alk, 4)} v={_hex(avld, 4)} "
+                f"k={_hex(gpk, 4)} "
+                f"q={_q15_hex(qw)}/{_q15_hex(qx)}/{_q15_hex(qy)}/{_q15_hex(qz)} "
+                f"r={_hex(gx & 0xFFFFF, 5)}/{_hex(gy & 0xFFFFF, 5)}/"
+                f"{_hex(gz & 0xFFFFF, 5)} "
+                f"c={_hex(cx & 0xFFFF, 4)}/{_hex(cy & 0xFFFF, 4)}/"
+                f"{_hex(cz & 0xFFFF, 4)}")
 
         # 1Hz 统计行：n/eul 与上面的 400Hz 计数保持同一比例
         if el >= self._next_stat:
@@ -1901,12 +1938,16 @@ class SensorMonitor:
                      f"\n      收包 rx={s['rx_avg_us']}/{s['rx_max_us']}us"
                      f"  报告 tx={s['tx_avg_us']}/{s['tx_max_us']}us")
         o = w.last_obs or self.last_l400
-        if o is not None and o.get("ctrl_ok") is not None:
+        if (o is not None and o.get("ctrl_ok") is not None
+                and o.get("tgt_att_deg100") is not None):
             ta = o["tgt_att_deg100"]
             tw = o["tgt_rate_q10"]
             text += (f"\n控制 {'使能' if o['ctrl_ok'] else '禁止'} 目标 "
                      f"横滚{ta[0] / 100.0:+.1f}° 俯仰{ta[1] / 100.0:+.1f}° "
                      f"偏航{q10_rad_s_to_dps(tw[2]):+.1f}°/s")
+        elif o is not None and o.get("ctrl_ok") is not None:
+            # 短报文只带使能位，不带目标姿态/角速度
+            text += f"\n控制 {'使能' if o['ctrl_ok'] else '禁止'}"
         return text
 
     def _compose_texts(self):

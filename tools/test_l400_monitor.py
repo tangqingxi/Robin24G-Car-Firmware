@@ -35,6 +35,10 @@ L400_SAMPLE = ("L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 "
 L400_SAMPLE_CTRL = (L400_SAMPLE +
                     " ta=+3000/-1500 tw=+512/-256/+0 on=1 "
                     "q=7FFF/0000/0000/0000")
+# 新短报文：状态位 + 包龄 + Q15 q + Q10 角速度/纠偏（定宽十六进制）
+L400_SHORT_SAMPLE = ("L400Q f=F a=0023 v=0012 k=001F "
+                     "q=7FFF/0000/0000/0000 "
+                     "r=00064/00000/FFFFF c=FFC0/0000/0040")
 L400_STAT_SAMPLE = ("L400S bad=0 n=12345 f=0 gap=0 eul=12000 "
                     "miss=0 skip=0 txd=0 cyc=2490/3100")
 # 新固件格式：定宽十六进制；miss=整拍超期，cmiss=控制超期，ctl=控制完成时延
@@ -91,6 +95,20 @@ class L400ParserTest(unittest.TestCase):
         self.assertIsNone(data["ctrl_ok"])
         self.assertIsNone(data["tgt_att_deg100"])
         self.assertIsNone(data["q15"])
+
+    def test_parse_short_observation(self):
+        kind, data = mon.parse_l400_line(L400_SHORT_SAMPLE)
+        self.assertEqual(kind, "l400")
+        self.assertEqual((data["rdy"], data["lk"], data["vld"], data["ctrl_ok"]),
+                         (1, 1, 1, 1))
+        self.assertEqual((data["alk_ms"], data["avld_ms"], data["gpk_ms"]),
+                         (35, 18, 31))
+        self.assertEqual(data["q15"], [32767, 0, 0, 0])
+        self.assertEqual(data["g_q10"], [100, 0, -1])
+        self.assertEqual(data["c_q10"], [-64, 0, 64])
+        self.assertAlmostEqual(data["g_dps"][0], 100 * mon.Q10_RAD_S_TO_DPS,
+                               places=5)
+        self.assertIsNone(data["tgt_att_deg100"])
 
     def test_parse_observation_control_fields(self):
         kind, data = mon.parse_l400_line(L400_SAMPLE_CTRL)

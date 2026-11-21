@@ -1945,9 +1945,11 @@ static void RcBringup_Report(void)
 #define L400_TICKS_PER_100US   (CLOCK_SYS_CLOCK_HZ / 10000)           // 2400 tick/0.1ms
 #define L400_TICKS_PER_US      (CLOCK_SYS_CLOCK_HZ / 1000000)         // 24 tick/us
 #define L400_REPORT_TICKS      (CLOCK_SYS_CLOCK_HZ / 10)              // 100ms 观察行
-// 报告提交余量：离下一拍不足 400us 就不拼文本、不提交，留到下一拍
-#define L400_TX_GUARD_US       400
-#define L400_TX_GUARD_TICKS    ((u32)L400_TX_GUARD_US * L400_TICKS_PER_US)
+// 报告预算：用上次实测的“组帧+提交”耗时 + 余量，分别判断观测/统计行。
+// 首次发送用保守默认值，之后由实际耗时更新。
+#define L400_TX_MARGIN_US      100
+#define L400_OBS_COST_DEFAULT_US  100
+#define L400_STAT_COST_DEFAULT_US 300
 
 // 指令超时：超过这么久没有有效摇杆包，摇杆指令失效（松杆实测约 20~30ms 一包）
 #define L400_CMD_TIMEOUT_MS    200
@@ -2043,6 +2045,8 @@ static u32 s_l400_tx_tick;         // 下一次观察行时刻
 static u32 s_l400_stat_tick;       // 下一次统计行时刻
 static u8  s_l400_stat_deferred;   // 1Hz 统计行因余量不足/串口忙延期
 static u8  s_l400_tx_deferred;     // 10Hz 观察行因余量不足/串口忙延期
+static u32 s_l400_obs_cost_us = L400_OBS_COST_DEFAULT_US;  // 上次观测行实测耗时
+static u32 s_l400_stat_cost_us = L400_STAT_COST_DEFAULT_US; // 上次统计行实测耗时
 static u32 s_l400_tx_defer_budget; // 报告延期原因：下一拍余量不足
 static u32 s_l400_tx_defer_busy;   // 报告延期原因：UART/DMA 忙
 static u8  s_l400_tx_diag_due;     // 需要补发一行 L400T 报告延期计数
@@ -2241,14 +2245,10 @@ static char *l400_put_q15(char *p, s32 v)
 	return l400_put_hex(p, (u32)v, 4);
 }
 
-static char *l400_put_s32(char *p, s32 v)
+// Q10 角速度 → 5 位有符号二十位十六进制（低 20 位两补码），Python 负责还原
+static char *l400_put_q10_20(char *p, s32 v)
 {
-	if (v < 0) {
-		*p++ = '-';
-		return l400_put_u32(p, (u32)(-v));
-	}
-	*p++ = '+';
-	return l400_put_u32(p, (u32)v);
+	return l400_put_hex(p, (u32)v & 0xFFFFFu, 5);
 }
 
 // 清空启动静止窗口
@@ -2298,6 +2298,8 @@ static void L400_StateReset(void)
 	s_l400_ctrl_miss = 0;
 	s_l400_skip = 0;
 	s_l400_txd = 0;
+	s_l400_obs_cost_us = L400_OBS_COST_DEFAULT_US;
+	s_l400_stat_cost_us = L400_STAT_COST_DEFAULT_US;
 	s_l400_tx_defer_budget = 0;
 	s_l400_tx_defer_busy = 0;
 	s_l400_tx_diag_due = 0;
@@ -2530,14 +2532,15 @@ static u8 L400_SendStats(u32 t_tx0)
 }
 
 // 10Hz 观察行：非阻塞提交；返回 1 已交给 DMA，0 串口忙（由调用方延期）
-static u8 L400_SendMain(u32 t_tx0)
+// 常规姿态观测：短的定宽 L400Q 报文，只带 Q15 四元数、原始 Q10 角速度/
+// 纠偏和必要状态；角度/°/s 等数值换算全部留给 Python。
+static u8 L400_SendObs(u32 t_tx0)
 {
 	char buf[UART_DATA_LEN];
 	char *q = buf;
 	u32 age_link, age_pkt, gap_ms;
+	u8 flags;
 
-	// 观察行含 ta/tw/on/q 最长 156 字节（含换行），低于 UART_DATA_LEN(160)
-	// 两种包龄都用原始 tick 差换算（四舍五入到 ms）；从未收到过输出 9999
 	age_link = s_l400_have_link
 			 ? ((t_tx0 - s_l400_link_tick + L400_TICKS_PER_MS / 2)
 				/ L400_TICKS_PER_MS)
@@ -2547,47 +2550,21 @@ static u8 L400_SendMain(u32 t_tx0)
 			   / L400_TICKS_PER_MS)
 			: L400_MS_MAX;
 	gap_ms = (s_l400_gap_max_tick + L400_TICKS_PER_MS / 2) / L400_TICKS_PER_MS;
-	if (age_link > L400_MS_MAX) age_link = L400_MS_MAX;
-	if (age_pkt > L400_MS_MAX) age_pkt = L400_MS_MAX;
-	if (gap_ms > L400_MS_MAX) gap_ms = L400_MS_MAX;
 
-	q = l400_put_str(q, "L400 rdy=");
-	q = l400_put_u32(q, s_l400_att.ready);
-	q = l400_put_str(q, " lk=");
-	q = l400_put_u32(q, s_l400_link);
-	q = l400_put_str(q, " vld=");
-	q = l400_put_u32(q, s_l400_cmd_ok);
-	q = l400_put_str(q, " alk=");
-	q = l400_put_u32(q, age_link);
-	q = l400_put_str(q, " avld=");
-	q = l400_put_u32(q, age_pkt);
-	q = l400_put_str(q, " gpk=");
-	q = l400_put_u32(q, gap_ms);
-	q = l400_put_str(q, " g=");
-	q = l400_put_s32(q, s_l400_rate[0]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_rate[1]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_rate[2]);
-	q = l400_put_str(q, " c=");
-	q = l400_put_s32(q, s_l400_corr[0]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_corr[1]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_corr[2]);
-	q = l400_put_str(q, " ta=");
-	q = l400_put_s32(q, s_l400_tgt_att[0]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_tgt_att[1]);
-	q = l400_put_str(q, " tw=");
-	q = l400_put_s32(q, s_l400_tgt_rate[0]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_tgt_rate[1]);
-	*q++ = '/';
-	q = l400_put_s32(q, s_l400_tgt_rate[2]);
-	q = l400_put_str(q, " on=");
-	q = l400_put_u32(q, s_l400_ctrl_ok);
-	// 低频观测携带 Q15 四元数，由上位机换算欧拉角显示；4×4 位十六进制
+	flags = (u8)((s_l400_att.ready ? 0x01 : 0)
+				 | (s_l400_link ? 0x02 : 0)
+				 | (s_l400_cmd_ok ? 0x04 : 0)
+				 | (s_l400_ctrl_ok ? 0x08 : 0));
+
+	// 最长约 90 字节，远短于 L400S；所有字段定宽，便于上位机按列解析
+	q = l400_put_str(q, "L400Q f=");
+	q = l400_put_hex(q, flags, 1);
+	q = l400_put_str(q, " a=");
+	q = l400_put_hex(q, l400_cap(age_link, 0xFFFFu), 4);
+	q = l400_put_str(q, " v=");
+	q = l400_put_hex(q, l400_cap(age_pkt, 0xFFFFu), 4);
+	q = l400_put_str(q, " k=");
+	q = l400_put_hex(q, l400_cap(gap_ms, 0xFFFFu), 4);
 	q = l400_put_str(q, " q=");
 	q = l400_put_q15(q, s_l400_att.q[0]);
 	*q++ = '/';
@@ -2596,6 +2573,18 @@ static u8 L400_SendMain(u32 t_tx0)
 	q = l400_put_q15(q, s_l400_att.q[2]);
 	*q++ = '/';
 	q = l400_put_q15(q, s_l400_att.q[3]);
+	q = l400_put_str(q, " r=");
+	q = l400_put_q10_20(q, s_l400_rate[0]);
+	*q++ = '/';
+	q = l400_put_q10_20(q, s_l400_rate[1]);
+	*q++ = '/';
+	q = l400_put_q10_20(q, s_l400_rate[2]);
+	q = l400_put_str(q, " c=");
+	q = l400_put_hex(q, (u32)s_l400_corr[0] & 0xFFFFu, 4);
+	*q++ = '/';
+	q = l400_put_hex(q, (u32)s_l400_corr[1] & 0xFFFFu, 4);
+	*q++ = '/';
+	q = l400_put_hex(q, (u32)s_l400_corr[2] & 0xFFFFu, 4);
 	*q++ = '\n';
 
 	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {
@@ -3206,51 +3195,79 @@ static void L400_Process(void)
 	if (!s_l400_diag_active) {
 		u32 t_tx0 = clock_time();
 		u32 t_tx1;
-		u8 attempted = 0;
+		s32 remain_ticks = (s32)(s_l400_next_tick - t_tx0);
+		u8 attempted_stat = 0;
+		u8 attempted_obs = 0;
 		u8 stat_due = ((s32)(t_tx0 - s_l400_stat_tick) >= 0) ? 1 : 0;
 		u8 main_due = ((s32)(t_tx0 - s_l400_tx_tick) >= 0) ? 1 : 0;
-		u8 budget_ok = ((s32)(s_l400_next_tick - t_tx0)
-						>= (s32)L400_TX_GUARD_TICKS) ? 1 : 0;
+		u8 stat_ok = (remain_ticks >= (s32)((s_l400_stat_cost_us
+						+ L400_TX_MARGIN_US) * L400_TICKS_PER_US)) ? 1 : 0;
+		u8 obs_ok = (remain_ticks >= (s32)((s_l400_obs_cost_us
+					   + L400_TX_MARGIN_US) * L400_TICKS_PER_US)) ? 1 : 0;
 
-		if ((stat_due || main_due) && !budget_ok) {
-			// 常规报告余量不足时，短诊断行仍可能放得下；先给延期原因留证据
-			if ((s32)(s_l400_next_tick - t_tx0)
-				>= (s32)((u32)200 * L400_TICKS_PER_US)) {
-				L400_SendTxDiag(t_tx0);
-			}
-			// 离下一拍不足 400us：先保采样/控制，报告留到下一拍
-			if (stat_due) {
-				l400_note_tx_defer(&s_l400_stat_deferred, 0);
-			} else {
-				l400_note_tx_defer(&s_l400_tx_deferred, 0);
-			}
-		} else if (stat_due) {
-			attempted = 1;
+		if (stat_due && stat_ok) {
+			// 统计行预算够：统计优先，观察行让位
+			attempted_stat = 1;
 			if (L400_SendStats(t_tx0)) {
 				s_l400_stat_deferred = 0;
-				s_l400_tx_deferred = 0;   // 这一拍主行被统计行顶替
+				s_l400_tx_deferred = 0;
 			} else {
 				l400_note_tx_defer(&s_l400_stat_deferred, 1);
 			}
+		} else if (stat_due) {
+			// 统计行放不下：先记余量不足；若观察行也到点且放得下，先发短观测
+			l400_note_tx_defer(&s_l400_stat_deferred, 0);
+			if (main_due && obs_ok) {
+				attempted_obs = 1;
+				if (L400_SendObs(t_tx0)) {
+					s_l400_tx_deferred = 0;
+				} else {
+					l400_note_tx_defer(&s_l400_tx_deferred, 1);
+				}
+			}
 		} else if (main_due) {
-			attempted = 1;
-			if (L400_SendMain(t_tx0)) {
-				s_l400_tx_deferred = 0;
+			if (obs_ok) {
+				attempted_obs = 1;
+				if (L400_SendObs(t_tx0)) {
+					s_l400_tx_deferred = 0;
+				} else {
+					l400_note_tx_defer(&s_l400_tx_deferred, 1);
+				}
 			} else {
-				l400_note_tx_defer(&s_l400_tx_deferred, 1);
+				l400_note_tx_defer(&s_l400_tx_deferred, 0);
 			}
 		}
 
-		// 串口报告开销：只统计真正拼过文本的拍；没拼就延期的不计入
+		// 实测本次组帧+提交耗时，分别更新观测/统计预算；只统计真正拼过文本的拍
 		t_tx1 = clock_time();
-		if (attempted) {
-			l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us,
-							(t_tx1 - t_tx0) / L400_TICKS_PER_US);
-			s_l400_tx_cnt++;
+		{
+			u32 dt_us = (t_tx1 - t_tx0) / L400_TICKS_PER_US;
+
+			if (attempted_stat) {
+				u32 cost = (u32)l400_clamp_s32((s32)dt_us, 1000);
+
+				if (cost < 10) {
+					cost = 10;
+				}
+				s_l400_stat_cost_us = cost;
+				l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us, dt_us);
+				s_l400_tx_cnt++;
+			}
+			if (attempted_obs) {
+				u32 cost = (u32)l400_clamp_s32((s32)dt_us, 1000);
+
+				if (cost < 10) {
+					cost = 10;
+				}
+				s_l400_obs_cost_us = cost;
+				l400_add_timing(&s_l400_tx_sum_us, &s_l400_tx_max_us, dt_us);
+				s_l400_tx_cnt++;
+			}
 		}
 
-		// 没有常规报告占用本拍时，补一行报告延期原因短状态
-		if (!attempted && budget_ok) {
+		// 本拍没有常规报告占用时，补一行报告延期原因短状态
+		if (!attempted_stat && !attempted_obs
+			&& (obs_ok || remain_ticks >= (s32)((u32)200 * L400_TICKS_PER_US))) {
 			L400_SendTxDiag(t_tx0);
 		}
 	}

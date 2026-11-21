@@ -57,16 +57,17 @@ telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 Robin_24G_Car_rc_loop400_sched.bin   26644 字节
 SHA256 CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16
 
-Robin_24G_Car_rc_loop400_ctrl.bin    32116 字节
-SHA256 79ACF11F3D9F3D171A77BE6E90D0273C27DF1D7FEB72A6DD0D538D11B309CE26
+Robin_24G_Car_rc_loop400_ctrl.bin    32356 字节
+SHA256 0681A3197857423A4BBB0F9E53B45A0B6D1B7447429D1C9BD2ADE4CC9BCB4376
 ```
 
 `_sched.bin` 是 `2b7d3c3` 调度测试版；`_ctrl.bin` 是四元数重力方向外环 +
-角速度 PID 内环（P=1/4，I=D=0）的控制器联调版。A/B 默认关闭，台架按一次
-遥控“特技”键后，链路/指令/姿态连续有效 2s 再跑 A（无内环）10s、
-B（有内环）10s；期间暂缓常规遥测，结束后输出 `L400D` 汇总并恢复遥测。
-不按键时保持常规采样/遥测路径。两份都未纳入 `firmware_delivery/daily`，
-暂不退役。
+角速度 PID 内环（P=1/4，I=D=0）的控制器联调版。常规观测改为短的定宽
+`L400Q`（Q15 q + Q10 原始角速度/纠偏 + 状态位），数值换算由 Python 完成。
+A/B 默认关闭，台架按一次遥控“特技”键后，链路/指令/姿态连续有效 2s 再跑
+A（无内环）10s、B（有内环）10s；期间暂缓常规遥测，结束后输出 `L400D`
+汇总并恢复遥测。不按键时保持常规采样/遥测路径。两份都未纳入
+`firmware_delivery/daily`，暂不退役。
 
 以后重新编译仍会生成 `Robin_24G_Car_Flash.bin`、`.lst`、`.elf` 等通用产物，
 **不要**按文件名判断它是姿态版、维护版还是 L400 版；烧录优先使用
