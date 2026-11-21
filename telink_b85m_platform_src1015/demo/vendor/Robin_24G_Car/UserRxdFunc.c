@@ -2015,6 +2015,9 @@ static s32 s_l400_tgt_att[2];      // 外环目标横滚/俯仰，0.01°（仅�
 static s32 s_l400_tgt_up[3];       // 目标重力反方向（向上比力）Q15，收包时换算
 static s32 s_l400_tgt_yaw_rate;    // 偏航杆目标角速度 Q10 rad/s，收包时换算
 static s32 s_l400_tgt_rate[3];     // 外环输出/偏航目标角速度 Q10 rad/s
+static s32 s_l400_stick_last[2];   // 上次重算目标姿态时的横滚/俯仰杆量
+static s32 s_l400_stick_yaw_last;  // 上次重算偏航目标时的偏航杆量
+static u8  s_l400_tgt_valid;       // 目标缓存是否有效；失联后清零强制首包重算
 #if (L400_KI_Q16 != 0)
 static s32 s_l400_rate_integ[3];   // 内环积分状态；I=0 时不编译
 #endif
@@ -2037,6 +2040,41 @@ static u32 s_l400_tx_tick;         // 下一次观察行时刻
 static u32 s_l400_stat_tick;       // 下一次统计行时刻
 static u8  s_l400_stat_deferred;   // 1Hz 统计行因余量不足/串口忙延期
 static u8  s_l400_tx_deferred;     // 10Hz 观察行因余量不足/串口忙延期
+
+// A/B 分段诊断：A 只收包+姿态，B 再开双环；两段都不发常规遥测，
+// 结束后一次性输出分项耗时。等待链路稳定的 2s 内仍正常发遥测。
+#define L400_DIAG_WAIT          0
+#define L400_DIAG_A             1
+#define L400_DIAG_B             2
+#define L400_DIAG_DONE          3
+#define L400_DIAG_SETTLE_TICKS  (CLOCK_SYS_CLOCK_HZ * 2)
+#define L400_DIAG_SEG_TICKS     (CLOCK_SYS_CLOCK_HZ * 10)
+
+typedef struct {
+	u32 late_avg, late_max;
+	u32 exec_avg, exec_max;
+	u32 cmiss, skip;
+	u32 rfirq_avg, rfirq_max;
+	u32 rf_avg, rf_max;
+	u32 app_avg, app_max;
+} l400_diag_t;
+
+static u8  s_l400_diag_state;          // WAIT/A/B/DONE
+static u8  s_l400_diag_active;         // 诊断段进行中：暂缓常规遥测
+static u8  s_l400_diag_ctrl_enable;    // A=0，B/正常=1
+static u32 s_l400_diag_settle;         // 链路稳定计数
+static u32 s_l400_diag_since;          // 本段起始 tick
+static l400_diag_t s_l400_diag_a;
+static l400_diag_t s_l400_diag_b;
+static u32 s_l400_diag_rf_sum_ticks;   // d24_rx_main_loop 累计 tick
+static u32 s_l400_diag_rf_max_ticks;
+static u32 s_l400_diag_rf_cnt;
+
+// 射频中断计时有 app_24g_rf.c 维护；只在诊断段打开
+extern volatile unsigned char g_rf_irq_meas_en;
+extern volatile unsigned int  g_rf_irq_sum_ticks;
+extern volatile unsigned int  g_rf_irq_max_ticks;
+extern volatile unsigned int  g_rf_irq_cnt;
 
 // 分项耗时（本统计窗口累计/峰值，单位 us；统计行发出后清零）
 static u32 s_l400_late_sum_us;     // 原定拍点 → 实际采样开始
@@ -2243,6 +2281,22 @@ static void L400_StateReset(void)
 	s_l400_tgt_att[0] = 0;
 	s_l400_tgt_att[1] = 0;
 	s_l400_tgt_yaw_rate = 0;
+	s_l400_stick_last[0] = 0;
+	s_l400_stick_last[1] = 0;
+	s_l400_stick_yaw_last = 0;
+	s_l400_tgt_valid = 0;
+	s_l400_diag_state = L400_DIAG_WAIT;
+	s_l400_diag_active = 0;
+	s_l400_diag_ctrl_enable = 1;
+	s_l400_diag_settle = 0;
+	s_l400_diag_since = 0;
+	s_l400_diag_rf_sum_ticks = 0;
+	s_l400_diag_rf_max_ticks = 0;
+	s_l400_diag_rf_cnt = 0;
+	g_rf_irq_meas_en = 0;
+	g_rf_irq_sum_ticks = 0;
+	g_rf_irq_max_ticks = 0;
+	g_rf_irq_cnt = 0;
 #if (L400_KD_Q8 != 0)
 	s_l400_rate_have_prev = 0;
 #endif
@@ -2556,30 +2610,53 @@ static s32 l400_cos_q15(s32 ang_01)
 // 400Hz 控制拍只做四元数重力方向与目标方向的叉积，不再每拍算三角函数。
 static void L400_UpdateStickTargets(void)
 {
-	s32 roll, pitch, sr, cr, sp, cp;
+	s32 roll_cmd = s_l400_cmd[3];
+	s32 pitch_cmd = s_l400_cmd[2];
+	s32 yaw_cmd = s_l400_cmd[1];
+	u8 att_changed = !s_l400_tgt_valid
+		|| roll_cmd != s_l400_stick_last[0]
+		|| pitch_cmd != s_l400_stick_last[1];
+	u8 yaw_changed = !s_l400_tgt_valid
+		|| yaw_cmd != s_l400_stick_yaw_last;
 
-	// 横滚杆 → 目标横滚角；俯仰杆推前为正，而欧拉俯仰正为抬头，所以取负
-	roll = l400_clamp_s32(
-		(s_l400_cmd[3] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
-		L400_MAX_TILT_DEG100);
-	pitch = l400_clamp_s32(
-		-(s_l400_cmd[2] * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
-		L400_MAX_TILT_DEG100);
-	s_l400_tgt_att[0] = roll;
-	s_l400_tgt_att[1] = pitch;
-	s_l400_tgt_yaw_rate = l400_clamp_s32(
-		(s_l400_cmd[1] * L400_YAW_RATE_MAX_Q10) / L400_STICK_MAX,
-		L400_YAW_RATE_MAX_Q10);
+	// 所有有效包都会走到这里刷新包龄/链路；只有杆量变化才做三角函数重算
+	if (!att_changed && !yaw_changed) {
+		return;
+	}
 
-	// 目标向上比力（与静止加速度计读数同向）：
-	// u = (sinθ, -sinφcosθ, -cosφcosθ)，Q15；重力方向与之相反
-	sr = l400_sin_q15(roll);
-	cr = l400_cos_q15(roll);
-	sp = l400_sin_q15(pitch);
-	cp = l400_cos_q15(pitch);
-	s_l400_tgt_up[0] = sp;
-	s_l400_tgt_up[1] = -((sr * cp) >> 15);
-	s_l400_tgt_up[2] = -((cr * cp) >> 15);
+	if (att_changed) {
+		s32 roll, pitch, sr, cr, sp, cp;
+
+		// 横滚杆 → 目标横滚角；俯仰杆推前为正，而欧拉俯仰正为抬头，所以取负
+		roll = l400_clamp_s32(
+			(roll_cmd * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
+			L400_MAX_TILT_DEG100);
+		pitch = l400_clamp_s32(
+			-(pitch_cmd * L400_MAX_TILT_DEG100) / L400_STICK_MAX,
+			L400_MAX_TILT_DEG100);
+		s_l400_tgt_att[0] = roll;
+		s_l400_tgt_att[1] = pitch;
+
+		// 目标向上比力（与静止加速度计读数同向）：
+		// u = (sinθ, -sinφcosθ, -cosφcosθ)，Q15；重力方向与之相反
+		sr = l400_sin_q15(roll);
+		cr = l400_cos_q15(roll);
+		sp = l400_sin_q15(pitch);
+		cp = l400_cos_q15(pitch);
+		s_l400_tgt_up[0] = sp;
+		s_l400_tgt_up[1] = -((sr * cp) >> 15);
+		s_l400_tgt_up[2] = -((cr * cp) >> 15);
+		s_l400_stick_last[0] = roll_cmd;
+		s_l400_stick_last[1] = pitch_cmd;
+	}
+
+	if (yaw_changed) {
+		s_l400_tgt_yaw_rate = l400_clamp_s32(
+			(yaw_cmd * L400_YAW_RATE_MAX_Q10) / L400_STICK_MAX,
+			L400_YAW_RATE_MAX_Q10);
+		s_l400_stick_yaw_last = yaw_cmd;
+	}
+	s_l400_tgt_valid = 1;
 }
 
 // 只清输出、保留已收到的摇杆目标；读失败/本拍无新姿态时用，
@@ -2614,6 +2691,7 @@ static void L400_ControlInhibit(void)
 	s_l400_tgt_up[1] = 0;
 	s_l400_tgt_up[2] = 0;
 	s_l400_tgt_yaw_rate = 0;
+	s_l400_tgt_valid = 0;       // 失联/超时后首个有效包必须重新换算
 }
 
 // 400Hz 控制：四元数推算的向上比力方向 vs 目标向上方向，叉积取横滚/俯仰误差；
@@ -2681,6 +2759,187 @@ static void L400_ControlUpdate(void)
 	s_l400_ctrl_ok = 1;
 }
 
+// tick → us（四舍五入）
+static u32 l400_ticks_to_us(u32 ticks)
+{
+	return (ticks + L400_TICKS_PER_US / 2) / L400_TICKS_PER_US;
+}
+
+// 诊断段开始前清零分段统计；累计采样/姿态更新次数不清，方便看总进度
+static void L400_DiagResetStats(void)
+{
+	s_l400_miss = 0;
+	s_l400_ctrl_miss = 0;
+	s_l400_skip = 0;
+	s_l400_ctrl_max_us = 0;
+	s_l400_late_sum_us = 0;
+	s_l400_late_max_us = 0;
+	s_l400_exec_sum_us = 0;
+	s_l400_exec_max_us = 0;
+	s_l400_rx_sum_us = 0;
+	s_l400_rx_max_us = 0;
+	s_l400_tx_sum_us = 0;
+	s_l400_tx_max_us = 0;
+	s_l400_tick_cnt = 0;
+	s_l400_rx_cnt = 0;
+	s_l400_tx_cnt = 0;
+	s_l400_gap_max_tick = 0;
+	s_l400_diag_rf_sum_ticks = 0;
+	s_l400_diag_rf_max_ticks = 0;
+	s_l400_diag_rf_cnt = 0;
+	g_rf_irq_sum_ticks = 0;
+	g_rf_irq_max_ticks = 0;
+	g_rf_irq_cnt = 0;
+}
+
+// 把当前分段累计量折算成平均值/峰值，单位统一为 us
+static void L400_DiagTake(l400_diag_t *d)
+{
+	u32 n = s_l400_tick_cnt;
+
+	d->late_avg = n ? s_l400_late_sum_us / n : 0;
+	d->late_max = s_l400_late_max_us;
+	d->exec_avg = n ? s_l400_exec_sum_us / n : 0;
+	d->exec_max = s_l400_exec_max_us;
+	d->cmiss = s_l400_ctrl_miss;
+	d->skip = s_l400_skip;
+
+	if (g_rf_irq_cnt) {
+		d->rfirq_avg = l400_ticks_to_us(g_rf_irq_sum_ticks / g_rf_irq_cnt);
+	} else {
+		d->rfirq_avg = 0;
+	}
+	d->rfirq_max = l400_ticks_to_us(g_rf_irq_max_ticks);
+
+	if (s_l400_diag_rf_cnt) {
+		d->rf_avg = l400_ticks_to_us(s_l400_diag_rf_sum_ticks / s_l400_diag_rf_cnt);
+	} else {
+		d->rf_avg = 0;
+	}
+	d->rf_max = l400_ticks_to_us(s_l400_diag_rf_max_ticks);
+
+	d->app_avg = s_l400_rx_cnt ? s_l400_rx_sum_us / s_l400_rx_cnt : 0;
+	d->app_max = s_l400_rx_max_us;
+}
+
+// 结束后一次性输出一段的 late/exec/cmiss/skip + 射频中断/RF 主循环/应用收包耗时
+static void L400_DiagSend(char seg, const l400_diag_t *d)
+{
+	char buf[UART_DATA_LEN];
+	char *q = buf;
+
+	q = l400_put_str(q, "L400D ");
+	*q++ = seg;
+	q = l400_put_str(q, " late=");
+	q = l400_put_u32(q, d->late_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, d->late_max);
+	q = l400_put_str(q, " exec=");
+	q = l400_put_u32(q, d->exec_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, d->exec_max);
+	q = l400_put_str(q, " cmiss=");
+	q = l400_put_u32(q, d->cmiss);
+	q = l400_put_str(q, " skip=");
+	q = l400_put_u32(q, d->skip);
+	q = l400_put_str(q, " rfirq=");
+	q = l400_put_u32(q, d->rfirq_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, d->rfirq_max);
+	q = l400_put_str(q, " rf=");
+	q = l400_put_u32(q, d->rf_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, d->rf_max);
+	q = l400_put_str(q, " app=");
+	q = l400_put_u32(q, d->app_avg);
+	*q++ = '/';
+	q = l400_put_u32(q, d->app_max);
+	*q++ = '\n';
+	UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+}
+
+// 链路中途掉线：放弃本次分段，恢复正常遥测；链路稳定 2s 后自动重试
+static void L400_DiagAbort(u32 now)
+{
+	s_l400_diag_state = L400_DIAG_WAIT;
+	s_l400_diag_active = 0;
+	s_l400_diag_ctrl_enable = 1;
+	s_l400_diag_settle = 0;
+	g_rf_irq_meas_en = 0;
+	L400_DiagResetStats();
+	s_l400_tx_tick = now + L400_REPORT_TICKS;
+	s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
+	L400_ControlOutputsClear();
+}
+
+// 每个 400Hz 拍检查 A/B 状态机；启动条件为链路/指令/姿态同时稳定 2s
+static void L400_DiagPoll(u32 now)
+{
+	if (s_l400_diag_state == L400_DIAG_WAIT) {
+		if (s_l400_att.ready && s_l400_link && s_l400_cmd_ok) {
+			s_l400_diag_settle++;
+			if (s_l400_diag_settle >= L400_DIAG_SETTLE_TICKS) {
+				s_l400_diag_state = L400_DIAG_A;
+				s_l400_diag_active = 1;
+				s_l400_diag_ctrl_enable = 0;
+				s_l400_diag_settle = 0;
+				s_l400_diag_since = now;
+				L400_ControlOutputsClear();
+				L400_DiagResetStats();
+				g_rf_irq_meas_en = 1;
+			}
+		} else {
+			s_l400_diag_settle = 0;
+		}
+		return;
+	}
+
+	if (s_l400_diag_state == L400_DIAG_DONE) {
+		return;
+	}
+
+	if (!s_l400_link || !s_l400_cmd_ok) {
+		L400_DiagAbort(now);
+		return;
+	}
+
+	if ((s32)(now - s_l400_diag_since) < (s32)L400_DIAG_SEG_TICKS) {
+		return;
+	}
+
+	if (s_l400_diag_state == L400_DIAG_A) {
+		L400_DiagTake(&s_l400_diag_a);
+		s_l400_diag_state = L400_DIAG_B;
+		s_l400_diag_ctrl_enable = 1;
+		s_l400_diag_since = now;
+		L400_DiagResetStats();
+	} else if (s_l400_diag_state == L400_DIAG_B) {
+		L400_DiagTake(&s_l400_diag_b);
+		g_rf_irq_meas_en = 0;
+		L400_DiagSend('A', &s_l400_diag_a);
+		L400_DiagSend('B', &s_l400_diag_b);
+		s_l400_diag_state = L400_DIAG_DONE;
+		s_l400_diag_active = 0;
+		s_l400_diag_ctrl_enable = 1;
+		L400_DiagResetStats();
+		s_l400_tx_tick = now + L400_REPORT_TICKS;
+		s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
+	}
+}
+
+// d24_rx_main_loop 分段计时；只在诊断段累计
+static void L400_DiagRecordRfLoop(u32 ticks)
+{
+	if (!s_l400_diag_active) {
+		return;
+	}
+	s_l400_diag_rf_sum_ticks += ticks;
+	if (ticks > s_l400_diag_rf_max_ticks) {
+		s_l400_diag_rf_max_ticks = ticks;
+	}
+	s_l400_diag_rf_cnt++;
+}
+
 static void L400_Process(void)
 {
 	int16_t raw_a[3], raw_g[3];
@@ -2728,6 +2987,8 @@ static void L400_Process(void)
 	if (!s_l400_cmd_ok || !s_l400_link) {
 		L400_ControlInhibit();
 	}
+	// A/B 分段诊断状态机：启动/切换/结束都发生在采样之前
+	L400_DiagPoll(now);
 
 	// 实际采样开始：从原定拍点到这里就是主循环调度迟到量；
 	// 后面 t_exec1 - t_sample0 是 IMU + 估计 + P 环的执行时间。
@@ -2825,7 +3086,11 @@ static void L400_Process(void)
 
 		// 姿态本拍有更新才跑控制；启动、长间断或更新失败都先禁止输出
 		if (att_updated) {
-			L400_ControlUpdate();
+			if (s_l400_diag_ctrl_enable) {
+				L400_ControlUpdate();
+			} else {
+				L400_ControlOutputsClear();   // A 段只跑姿态，不开双环
+			}
 		} else {
 			// 启动/长间断/更新失败：本拍无新姿态，先清输出但保留目标
 			L400_ControlOutputsClear();
@@ -2852,7 +3117,8 @@ static void L400_Process(void)
 
 	// 低频串口输出：400Hz 到点先保证采样/控制，报告只在本拍余量足够时
 	// 非阻塞提交；余量不足或串口忙就延期到下一拍，绝不等待 DMA。
-	{
+	// A/B 诊断段暂缓所有常规格式化，结束后由 L400_DiagSend 一次性输出。
+	if (!s_l400_diag_active) {
 		u32 t_tx0 = clock_time();
 		u32 t_tx1;
 		u8 attempted = 0;
@@ -2913,7 +3179,14 @@ void User_main_loop_process(void)
 	// 400Hz 到点时先执行采样/控制；射频中断仍在后台收包，
 	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
 	L400_Process();
-	d24_rx_main_loop();
+	if (s_l400_diag_active) {
+		u32 t_rf0 = clock_time();
+
+		d24_rx_main_loop();
+		L400_DiagRecordRfLoop(clock_time() - t_rf0);
+	} else {
+		d24_rx_main_loop();
+	}
 	TimeBaseGenerate();
 	car_work();
 	return;

@@ -38,6 +38,12 @@
 
 _attribute_data_retention_ unsigned char rf_state = 0;//rf_state parameter
 extern u8 device_status;
+
+// A/B 联调诊断：只统计射频中断本身的耗时，正常模式不开启，避免干扰实时性
+volatile unsigned char g_rf_irq_meas_en = 0;
+volatile unsigned int  g_rf_irq_sum_ticks = 0;
+volatile unsigned int  g_rf_irq_max_ticks = 0;
+volatile unsigned int  g_rf_irq_cnt = 0;
 //_attribute_data_retention_user volatile unsigned int  rf_rx_timeout_us = D24G_PAIR_TIMER_OUT;
 
 
@@ -435,6 +441,11 @@ u8  Read_Payload(u8 *payload)
 void irq_handle_private_1m()
 {
 	unsigned short rf_irq_src = rf_irq_src_get();//get irq src
+	unsigned int diag_t0 = 0;
+
+	if (g_rf_irq_meas_en) {
+		diag_t0 = clock_time();
+	}
 
 	if (rf_irq_src)
 	{
@@ -482,6 +493,16 @@ void irq_handle_private_1m()
 	#endif
 
 		irq_clr_src(); //clear irq all src
+	}
+
+	if (g_rf_irq_meas_en) {
+		unsigned int dt = clock_time() - diag_t0;
+
+		g_rf_irq_sum_ticks += dt;
+		if (dt > g_rf_irq_max_ticks) {
+			g_rf_irq_max_ticks = dt;
+		}
+		g_rf_irq_cnt++;
 	}
 }
 

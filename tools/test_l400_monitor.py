@@ -8,7 +8,8 @@ uart_sensor_monitor.py 的 L400 模式自测。
   2. 控制器联调观察行 ta/tw/on/q，Q15 四元数转欧拉角，Q10 rad/s → °/s；
   3. 串口分块到达时 L400Worker 的拆行、两份 CSV 与统计；
   4. 模拟源在 10Hz / 1Hz 下产生可解析的文本；
-  5. --l400 --simulate --no-plot 端到端写 CSV。
+  5. --l400 --simulate --no-plot 端到端写 CSV；
+  6. L400D A/B 汇总解析与 .diag.txt 落盘。
 
 用法（在 tools 目录下）：
   python test_l400_monitor.py
@@ -41,6 +42,8 @@ L400_STAT_HEX_SAMPLE = ("L400S bad=0000 n=0012C0 f=0000 eul=0012C0 "
                         "miss=000003 cmiss=000001 skip=000000 txd=000002 "
                         "ctl=09BA/0C1C late=04B0/09C4 exec=0384/0514 "
                         "rx=0028/005A tx=0032/0096")
+L400_DIAG_A = ("L400D A late=900/1500 exec=1000/1600 cmiss=0 skip=0 "
+               "rfirq=40/80 rf=30/60 app=20/50")
 L400_INIT_OK = "L400 init ok lpf_rb=3"
 L400_INIT_FAIL = "L400 init fail st=1 lpf_rb=255"
 
@@ -145,6 +148,17 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual((data["rx_avg_us"], data["rx_max_us"]), (0x0028, 0x005A))
         self.assertEqual((data["tx_avg_us"], data["tx_max_us"]), (0x0032, 0x0096))
 
+    def test_parse_ab_diagnostic(self):
+        kind, data = mon.parse_l400_line(L400_DIAG_A)
+        self.assertEqual(kind, "l400d")
+        self.assertEqual(data["seg"], "A")
+        self.assertEqual((data["late_avg_us"], data["late_max_us"]), (900, 1500))
+        self.assertEqual((data["exec_avg_us"], data["exec_max_us"]), (1000, 1600))
+        self.assertEqual((data["cmiss"], data["skip"]), (0, 0))
+        self.assertEqual((data["rfirq_avg_us"], data["rfirq_max_us"]), (40, 80))
+        self.assertEqual((data["rf_avg_us"], data["rf_max_us"]), (30, 60))
+        self.assertEqual((data["app_avg_us"], data["app_max_us"]), (20, 50))
+
     def test_parse_status_and_unknown(self):
         kind, text = mon.parse_l400_line(L400_INIT_OK)
         self.assertEqual((kind, text), ("status", L400_INIT_OK))
@@ -208,6 +222,25 @@ class L400WorkerTest(unittest.TestCase):
             self.assertEqual(stats[0]["n"], "12345")
             self.assertEqual(stats[0]["eul"], "12000")
             self.assertEqual(stats[0]["cyc_peak_us"], "3100")
+
+    def test_worker_writes_diag_sidecar(self):
+        text = (L400_DIAG_A + "\n").encode("ascii")
+        with tempfile.TemporaryDirectory() as tmp:
+            obs_path = os.path.join(tmp, "obs.csv")
+            stat_path = os.path.join(tmp, "stats.csv")
+            worker = mon.L400Worker(FakeLineSource([text]), obs_path, stat_path,
+                                    queue.Queue(maxsize=100))
+            worker.start()
+            deadline = time.time() + 2.0
+            while time.time() < deadline and worker.diag < 1:
+                time.sleep(0.01)
+            worker.stop()
+            worker.join(timeout=2.0)
+            self.assertEqual(worker.diag, 1)
+            self.assertEqual(worker.bad, 0)
+            with open(stat_path + ".diag.txt", encoding="utf-8") as fp:
+                saved = fp.read().strip()
+            self.assertEqual(saved, L400_DIAG_A)
 
     def test_worker_writes_timing_columns(self):
         text = "\n".join([L400_INIT_OK, L400_SAMPLE, L400_STAT_HEX_SAMPLE]) + "\n"

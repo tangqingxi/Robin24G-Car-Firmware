@@ -57,12 +57,14 @@ telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 Robin_24G_Car_rc_loop400_sched.bin   26644 字节
 SHA256 CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16
 
-Robin_24G_Car_rc_loop400_ctrl.bin    28612 字节
-SHA256 D757CEF97CBE06DB33A7B3A8D811BCADDFDE66CAE3150F3EEA1F451CB0AF6B07
+Robin_24G_Car_rc_loop400_ctrl.bin    30756 字节
+SHA256 45422095F1BA8A23BB5D05CCB368BC810E577256CADF88912140659EA200B365
 ```
 
-`_sched.bin` 是 `2b7d3c3` 调度测试版，`_ctrl.bin` 是姿态外环 + 角速度
-PID 内环（P=1/4，I=D=0）与调度诊断合并后的控制器联调版；两份都未纳入
+`_sched.bin` 是 `2b7d3c3` 调度测试版；`_ctrl.bin` 是四元数重力方向外环 +
+角速度 PID 内环（P=1/4，I=D=0）并带自动 A/B 分段诊断的控制器联调版。
+上电链路稳定 2s 后自动跑 A（无内环）10s、B（有内环）10s，期间暂缓常规
+遥测，结束后输出 `L400D` 汇总并恢复正常遥测。两份都未纳入
 `firmware_delivery/daily`，暂不退役。
 
 以后重新编译仍会生成 `Robin_24G_Car_Flash.bin`、`.lst`、`.elf` 等通用产物，

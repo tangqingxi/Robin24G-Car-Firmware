@@ -539,6 +539,12 @@ _L400_STAT_RE = re.compile(
     r"eul=(\d+)\s+miss=(\d+)\s+skip=(\d+)\s+txd=(\d+)\s+"
     r"cyc=(\d+)/(\d+)\s*$")
 
+# A/B 分段诊断汇总：A=只收包+姿态，B=再开双环；耗时单位 us
+_L400_DIAG_RE = re.compile(
+    r"^L400D\s+([AB])\s+late=(\d+)/(\d+)\s+exec=(\d+)/(\d+)\s+"
+    r"cmiss=(\d+)\s+skip=(\d+)\s+rfirq=(\d+)/(\d+)\s+"
+    r"rf=(\d+)/(\d+)\s+app=(\d+)/(\d+)\s*$")
+
 # L400S 统计行新格式：定宽十六进制；miss=整拍超期，cmiss=控制完成超期，
 # ctl=控制完成时延（本周期最大/上电峰值）；late/exec/rx/tx 为分项耗时。
 _L400_STAT_HEX_RE = re.compile(
@@ -641,6 +647,24 @@ def parse_l400_line(line):
             "tgt_rate_q10": tgt_rate,
             "ctrl_ok": ctrl_ok,
             "q15": q15,
+        })
+
+    m = _L400_DIAG_RE.match(line)
+    if m:
+        return ("l400d", {
+            "seg": m.group(1),
+            "late_avg_us": int(m.group(2)),
+            "late_max_us": int(m.group(3)),
+            "exec_avg_us": int(m.group(4)),
+            "exec_max_us": int(m.group(5)),
+            "cmiss": int(m.group(6)),
+            "skip": int(m.group(7)),
+            "rfirq_avg_us": int(m.group(8)),
+            "rfirq_max_us": int(m.group(9)),
+            "rf_avg_us": int(m.group(10)),
+            "rf_max_us": int(m.group(11)),
+            "app_avg_us": int(m.group(12)),
+            "app_max_us": int(m.group(13)),
         })
 
     m = _L400_STAT_HEX_RE.match(line)
@@ -1105,11 +1129,15 @@ class L400Worker(threading.Thread):
         self.source = source
         self.csv_path = csv_path
         self.stat_path = stat_path
+        # A/B 诊断汇总写在统计 CSV 旁边的 .diag.txt，方便整份回传
+        self.diag_path = stat_path + ".diag.txt"
         self.queue = sample_queue
         self.stop_event = threading.Event()
 
         self.frames = 0          # L400 观察行条数
         self.stats = 0           # L400S 统计行条数
+        self.diag = 0            # L400D A/B 汇总行条数
+        self.last_diag = None
         self.bad = 0             # 无法识别的行数
         self.state = "等待数据"  # 初始化完成 / 初始化失败 / 等待数据
         self.detail = ""
@@ -1125,7 +1153,7 @@ class L400Worker(threading.Thread):
 
     def summary_line(self):
         return (f"L400 {self.frames} 条  统计 {self.stats} 条  "
-                f"无法识别 {self.bad} 行  状态 {self.state}")
+                f"诊断 {self.diag} 条  无法识别 {self.bad} 行  状态 {self.state}")
 
     def _handle_line(self, line, writer, stat_writer):
         parsed = parse_l400_line(line)
@@ -1180,6 +1208,17 @@ class L400Worker(threading.Thread):
                 self.queue.put_nowait(payload)
             except queue.Full:
                 pass
+            return
+
+        if kind == "l400d":
+            self.diag += 1
+            self.last_diag = payload
+            try:
+                with open(self.diag_path, "a", encoding="utf-8") as fp:
+                    fp.write(line + "\n")
+            except OSError as exc:
+                self.error = f"写诊断文件失败：{exc}"
+            print(f"[诊断] {line}", flush=True)
             return
 
         if kind == "l400s":

@@ -213,6 +213,14 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   目标横滚/俯仰满杆 ±30°，偏航目标角速度满杆 ±3rad/s；内环 PID 的 P=1/4，
   I/D 为 0 时对应的每拍状态更新不编译，只观察不写电机。欧拉角显示留给上位机。
   失联、指令超时、姿态未就绪或本拍没有新姿态时，目标/纠偏清零并显示“控制 禁止”。
+- A/B 分段诊断（本控制器镜像）：链路/指令/姿态稳定 2s 后自动开始；
+  A 段 10s 只跑收包+姿态估计（双环关闭），B 段 10s 再开双环。两段内
+  **暂缓所有常规 L400/L400S 行**，结束后一次性输出两行 `L400D` 汇总，
+  随后自动恢复正常遥测（本轮不重烧）。A/B 期间 GUI 约 20s 无新观察帧、
+  显示“串口数据中断”是预期现象。链路中途掉线会放弃本次分段，稳定 2s
+  后自动重试；要重新跑一遍可断电重上电。
+  横滚/俯仰目标只在有效杆量变化时重算；所有有效包照常刷新包龄，
+  失联/超时后的首个有效包强制重算。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、坏包 `bad`；
   新固件显示“整拍超期 `miss`、控制超期 `cmiss`、跳拍 `skip`、串口推迟 `txd`、
   控制完成 `ctl=本周期最大/上电峰值`”，以及分项耗时：
@@ -241,14 +249,24 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   观察行最长 156 字节（含换行），L400S 最长 160 字节（等于 `UART_DATA_LEN`）；
   `q=` 是四个有符号 16 位、Q15 两补码十六进制分量，+32768 输出为 +32767。
 
+  A/B 结束后的一次性汇总（耗时单位 us，A=无内环，B=有内环）：
+
+  ```text
+  L400D A late=900/1500 exec=1000/1600 cmiss=0 skip=0 rfirq=40/80 rf=30/60 app=20/50
+  L400D B late=950/1600 exec=1400/2200 cmiss=0 skip=0 rfirq=42/85 rf=32/64 app=22/55
+  ```
+
+  监视器会在控制台打印 `[诊断]`，并把两行原样追加到
+  `<统计 CSV>.diag.txt`；A/B 期间不写常规 CSV 行。
+
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  28612 字节，SHA256 `D757CEF97CBE06DB33A7B3A8D811BCADDFDE66CAE3150F3EEA1F451CB0AF6B07`，
+  30756 字节，SHA256 `45422095F1BA8A23BB5D05CCB368BC810E577256CADF88912140659EA200B365`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（17 项）。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（19 项）。
 - 四元数异常更新回归（主机侧，不烧板）：
 
   ```powershell
