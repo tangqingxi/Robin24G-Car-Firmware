@@ -1933,14 +1933,14 @@ static void RcBringup_Report(void)
 
 #if (C_RC_LOOP_400_EN)
 // =====================================================================================
-// 400Hz 地面联调：收包 + 姿态估计 + 角速度 P 环（电机始终停转）
+// 200Hz 地面联调：收包 + 姿态估计 + 角速度 P 环（电机始终停转）
 //   目标角速度固定为 0，纠偏量 = Kp × (0 − 实测角速度)，只观察不出力；
 //   本块只保存纠偏量，不写 PWM，电机停转由 C_ATT_BENCH_EN 分支保证。
 //   姿态部分复用台架镜像已验证的静止初始化、加计一阶低通和长间断处理。
 //   串口：10Hz 观察行（包龄/角速度/纠偏）+ 1Hz 统计行（采样/超时/跳拍）。
 // =====================================================================================
-#define L400_HZ                400
-#define L400_PERIOD_TICKS      (CLOCK_SYS_CLOCK_HZ / L400_HZ)          // 2.5ms = 60000 tick
+#define L400_HZ                200
+#define L400_PERIOD_TICKS      (CLOCK_SYS_CLOCK_HZ / L400_HZ)          // 5ms = 120000 tick
 #define L400_TICKS_PER_MS      (CLOCK_SYS_CLOCK_HZ / 1000)            // 24000 tick/ms
 #define L400_TICKS_PER_100US   (CLOCK_SYS_CLOCK_HZ / 10000)           // 2400 tick/0.1ms
 #define L400_TICKS_PER_US      (CLOCK_SYS_CLOCK_HZ / 1000000)         // 24 tick/us
@@ -2147,7 +2147,7 @@ void RcLoop_OnPacket(void)
 	s_l400_have_pkt = 1;
 	s_l400_key = u16RemotorKeyVal;
 	s_l400_cmd_ok = 1;
-	// 摇杆目标只在有效收包时换算，400Hz 控制拍不再做角度→重力方向的三角函数
+	// 摇杆目标只在有效收包时换算，200Hz 控制拍不再做角度→重力方向的三角函数
 	L400_UpdateStickTargets();
 
 	// 台架按需开启 A/B：遥控“特技”键上升沿；正常飞/不按键时完全不进诊断
@@ -2391,7 +2391,7 @@ static void L400_Init(void)
 	*q++ = '\n';
 	UartDbgSend((unsigned char *)buf, (u8)(q - buf));
 
-	// 初始化提示行发完再排第一拍，避免启动提示占用 400Hz 周期
+	// 初始化提示行发完再排第一拍，避免启动提示占用 200Hz 周期
 	now = clock_time();
 	s_l400_next_tick = now + L400_PERIOD_TICKS;
 	s_l400_tx_tick = now + L400_REPORT_TICKS;
@@ -2631,7 +2631,7 @@ static s32 l400_cos_q15(s32 ang_01)
 }
 
 // 有效收包时换算：摇杆→目标姿态角、目标向上比力方向、偏航目标角速度。
-// 400Hz 控制拍只做四元数重力方向与目标方向的叉积，不再每拍算三角函数。
+// 200Hz 控制拍只做四元数重力方向与目标方向的叉积，不再每拍算三角函数。
 static void L400_UpdateStickTargets(void)
 {
 	s32 roll_cmd = s_l400_cmd[3];
@@ -2718,7 +2718,7 @@ static void L400_ControlInhibit(void)
 	s_l400_tgt_valid = 0;       // 失联/超时后首个有效包必须重新换算
 }
 
-// 400Hz 控制：四元数推算的向上比力方向 vs 目标向上方向，叉积取横滚/俯仰误差；
+// 200Hz 控制：四元数推算的向上比力方向 vs 目标向上方向，叉积取横滚/俯仰误差；
 // 目标角速度再进内环 PID（P=1/4，I/D 为 0 时对应状态更新被编译掉），电机仍停转。
 static void L400_ControlUpdate(void)
 {
@@ -2908,7 +2908,7 @@ static u8 L400_DiagTrySend(const char *s, u8 len)
 	return UartTrySend((unsigned char *)s, len);
 }
 
-// 每个 400Hz 拍推进纯逻辑状态机，并在事件点抓取当前段统计快照
+// 每个 200Hz 拍推进纯逻辑状态机，并在事件点抓取当前段统计快照
 static void L400_DiagPoll(u32 now)
 {
 	u8 valid = (s_l400_att.ready && s_l400_link && s_l400_cmd_ok) ? 1 : 0;
@@ -3189,7 +3189,7 @@ static void L400_Process(void)
 		s_l400_ctrl_miss++;       // 控制计算完成已越过下一拍原定拍点
 	}
 
-	// 低频串口输出：400Hz 到点先保证采样/控制，报告只在本拍余量足够时
+	// 低频串口输出：200Hz 到点先保证采样/控制，报告只在本拍余量足够时
 	// 非阻塞提交；余量不足或串口忙就延期到下一拍，绝不等待 DMA。
 	// A/B 诊断段暂缓所有常规格式化，结束后由待发队列逐行输出。
 	if (!s_l400_diag_active) {
@@ -3288,7 +3288,7 @@ void User_main_loop_process(void)
 
 #if (C_ATT_BENCH_EN)
 #if (C_RC_LOOP_400_EN)
-	// 400Hz 到点时先执行采样/控制；射频中断仍在后台收包，
+	// 200Hz 到点时先执行采样/控制；射频中断仍在后台收包，
 	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
 	L400_Process();
 	if (s_l400_diag_active) {

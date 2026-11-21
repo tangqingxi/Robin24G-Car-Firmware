@@ -7,7 +7,7 @@
 | `imu_axis_map.py` | 传感器轴 → 机体 FRD 映射（六面摆法） |
 | `accel_six_face_cal.py` | 加速度计六面校准 / 单面补测 |
 | `gyro_bias_cal.py` | 陀螺仪静止零偏 |
-| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与 400Hz 联调（`--l400`）监视与 CSV 记录（只查看，不校准） |
+| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与 200Hz 联调（`--l400`）监视与 CSV 记录（只查看，不校准） |
 | `uart_proto.py` | 0x269A / 0x269B 帧解析（纯标准库，被上面几个工具共用） |
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
@@ -123,13 +123,13 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 
 ### 3.1 先刷地面维护镜像（校准专用）
 
-校准脚本吃的是 **0x269A 原始六轴帧**，当前 400Hz 联调固件发的是 L400 文本，两者不兼容，
+校准脚本吃的是 **0x269A 原始六轴帧**，当前联调固件发的是 L400Q 短文本，两者不兼容，
 所以标定前必须换成维护镜像：
 
 | 用途 | 交付镜像 | 串口输出 |
 |---|---|---|
 | 六轴校准（本节目录下的三个脚本） | `firmware_delivery/daily/Robin_24G_Car_maint_269a.bin` | 只有 0x269A 二进制帧，约 100 Hz |
-| 400Hz 联调（`--l400`） | `firmware_delivery/daily/Robin_24G_Car_rc_loop400.bin` | L400 / L400S 文本 |
+| 400Hz 历史联调 / 200Hz 测试镜像（`--l400`） | 日常 `Robin_24G_Car_rc_loop400.bin` / 测试 `_ctrl.bin` | L400 长行 / L400Q 短行 + L400S |
 
 两份都烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
 完整的路径、字节数、SHA256、归档镜像和构建模式说明见
@@ -180,7 +180,12 @@ python uart_sensor_monitor.py --port COM12
 
 加 `--no-plot --duration 60 --csv "..\data\monitor.csv"` 可以不画图、定时记录。
 
-### 400Hz 联调固件（文本协议，--l400）
+### 200Hz 联调固件（文本协议，--l400）
+
+本测试镜像把 IMU 读取、四元数估计和双环统一到 **200Hz（5ms）**；姿态积分
+继续使用实际采样间隔，遥控指令/链路超时仍是原来的 200ms/500ms，超期门限
+随周期改为 5ms。A/B 仍是 2s 连续有效后各跑 10s，默认关闭、按特技键开启。
+
 
 7d01167 固件输出 10Hz 的 `L400 ...` 观察行和 1Hz 的 `L400S ...` 统计行；
 带分项耗时的新 L400 固件把 `L400S` 改成定宽十六进制，并追加
@@ -207,7 +212,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   状态栏显示“串口数据中断”，并把遥控/指令状态标为“已过期”；恢复接收后按新帧更新。
 - CSV 保护：打开串口和文件之前检查 `--csv` 与 `--stats-csv` 是否指向同一文件；
   相同会明确报错退出，已有文件内容不会被截断。默认六轴和 `--attitude` 模式也做同样检查。
-- 调度（新固件）：400Hz 到点先执行 L400 采样/控制，再做 `d24_rx_main_loop`
+- 调度（新固件）：200Hz 到点先执行 L400 采样/控制，再做 `d24_rx_main_loop`
   的配对/ACK 和应用层收包；射频中断仍保留，控制优先。
 - 报告（新固件）：`UartTrySend` 非阻塞提交。观测行和统计行分别用**上次实测的
   组帧+提交耗时**（首次用保守默认值）加 100us 余量判断本拍够不够；不够就延期。
@@ -215,7 +220,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   `txd` 表示**报告延期次数**（预算不足或串口忙），不再表示“跨过下一拍截止”；
   `tx` 只统计真正拼过文本的拍。
 - 控制（新固件）：外环 P 用四元数推算的向上比力方向与目标方向做叉积，直接得到
-  横滚/俯仰误差；摇杆目标在**有效收包时**换算，400Hz 控制拍不再算欧拉角或三角函数。
+  横滚/俯仰误差；摇杆目标在**有效收包时**换算，200Hz 控制拍不再算欧拉角或三角函数。
   目标横滚/俯仰满杆 ±30°，偏航目标角速度满杆 ±3rad/s；内环 PID 的 P=1/4，
   I/D 为 0 时对应的每拍状态更新不编译，只观察不写电机。欧拉角显示留给上位机。
   失联、指令超时、姿态未就绪或本拍没有新姿态时，目标/纠偏清零并显示“控制 禁止”。
@@ -296,7 +301,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  32356 字节，SHA256 `0681A3197857423A4BBB0F9E53B45A0B6D1B7447429D1C9BD2ADE4CC9BCB4376`，
+  32356 字节，SHA256 `56C1A3597BFC166C82B6E4A80F3494543C5709917DF294248F3CF0DC7B21638D`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；

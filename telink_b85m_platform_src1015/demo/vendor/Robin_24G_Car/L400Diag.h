@@ -68,7 +68,7 @@ static void L400Diag_Init(L400Diag *d, unsigned int settle_ticks,
 }
 
 /*
- * 每个 400Hz 控制拍调用一次。
+ * 每个 200Hz 控制拍调用一次（等待且无有效状态时上层会跳过）。
  * valid: 姿态就绪 && 链路有效 && 指令有效。
  * reason: valid=0 时传 LINK/CMD，用于中止原因。
  * 返回 L400_DIAG_EV_* 位掩码。

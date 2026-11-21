@@ -43,6 +43,7 @@
 #endif
 
 // ---- 采样与串口 ----
+// 台架文本镜像的读取率；L400 联调镜像改用 L400_HZ=200，不共用此值
 #define C_ATT_SAMPLE_HZ           400       // MCU 读取率（台架实测目标 400Hz）
 #define C_ATT_SAMPLE_US           (1000000 / C_ATT_SAMPLE_HZ)   // 标称采样周期 2500us
 #define C_ATT_TX_HZ               14        // 姿态文本频率

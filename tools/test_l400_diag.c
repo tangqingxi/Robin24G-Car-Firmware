@@ -18,8 +18,8 @@
 
 #include "L400Diag.h"
 
-#define SETTLE  800u        /* 2s @400Hz */
-#define SEG     4000u       /* 10s @400Hz */
+#define SETTLE  400u        /* 2s @200Hz */
+#define SEG     2000u       /* 10s @200Hz */
 
 static int failed;
 
@@ -37,17 +37,17 @@ static void test_timing(void)
 
 	L400Diag_Init(&d, SETTLE, SEG);
 	check(L400Diag_Poll(&d, 0, 1, 0) == 0, "first valid should not start");
-	check(L400Diag_Poll(&d, 799, 1, 0) == 0, "should wait full 2s");
-	check((L400Diag_Poll(&d, 800, 1, 0) & L400_DIAG_EV_START_A) != 0,
+	check(L400Diag_Poll(&d, 399, 1, 0) == 0, "should wait full 2s");
+	check((L400Diag_Poll(&d, 400, 1, 0) & L400_DIAG_EV_START_A) != 0,
 		  "2s continuous valid should start A");
 	check(d.state == L400_DIAG_STATE_A, "state should be A");
 
-	check(L400Diag_Poll(&d, 4799, 1, 0) == 0, "A should run full 10s");
-	check((L400Diag_Poll(&d, 4800, 1, 0) & L400_DIAG_EV_A_DONE) != 0,
+	check(L400Diag_Poll(&d, 2399, 1, 0) == 0, "A should run full 10s");
+	check((L400Diag_Poll(&d, 2400, 1, 0) & L400_DIAG_EV_A_DONE) != 0,
 		  "A should finish after 10s");
 	check(d.state == L400_DIAG_STATE_B, "state should be B");
-	check(L400Diag_Poll(&d, 8799, 1, 0) == 0, "B should run full 10s");
-	check((L400Diag_Poll(&d, 8800, 1, 0) & L400_DIAG_EV_B_DONE) != 0,
+	check(L400Diag_Poll(&d, 4399, 1, 0) == 0, "B should run full 10s");
+	check((L400Diag_Poll(&d, 4400, 1, 0) & L400_DIAG_EV_B_DONE) != 0,
 		  "B should finish after 10s");
 	check(d.state == L400_DIAG_STATE_DONE, "state should be DONE");
 	check(d.a_done && d.b_done, "both segments done");
@@ -60,10 +60,10 @@ static void test_invalid_resets_timer(void)
 
 	L400Diag_Init(&d, SETTLE, SEG);
 	L400Diag_Poll(&d, 0, 1, 0);
-	L400Diag_Poll(&d, 500, 0, L400_DIAG_REASON_LINK);
-	L400Diag_Poll(&d, 600, 1, 0);            /* 重新从 600 开始计 */
-	check(L400Diag_Poll(&d, 1399, 1, 0) == 0, "timer should restart at 600");
-	check((L400Diag_Poll(&d, 1400, 1, 0) & L400_DIAG_EV_START_A) != 0,
+	L400Diag_Poll(&d, 250, 0, L400_DIAG_REASON_LINK);
+	L400Diag_Poll(&d, 300, 1, 0);            /* 重新从 300 开始计 */
+	check(L400Diag_Poll(&d, 699, 1, 0) == 0, "timer should restart at 300");
+	check((L400Diag_Poll(&d, 700, 1, 0) & L400_DIAG_EV_START_A) != 0,
 		  "2s from restart should start A");
 	printf("PASS invalid resets valid timer\n");
 }
@@ -75,9 +75,9 @@ static void test_abort(void)
 	/* A 段中止：没有已完成阶段 */
 	L400Diag_Init(&d, SETTLE, SEG);
 	L400Diag_Poll(&d, 0, 1, 0);
-	check((L400Diag_Poll(&d, 800, 1, 0) & L400_DIAG_EV_START_A) != 0,
+	check((L400Diag_Poll(&d, 400, 1, 0) & L400_DIAG_EV_START_A) != 0,
 		  "abort case should start A");
-	check((L400Diag_Poll(&d, 900, 0, L400_DIAG_REASON_LINK)
+	check((L400Diag_Poll(&d, 500, 0, L400_DIAG_REASON_LINK)
 		   & L400_DIAG_EV_ABORT) != 0, "A abort event");
 	check(d.abort_reason == L400_DIAG_REASON_LINK, "A abort reason link");
 	check(d.abort_seg == 0 && !d.a_done, "A abort has no completed A");
@@ -85,10 +85,10 @@ static void test_abort(void)
 	/* B 段中止：A 已完成，保留 A 标志和 B 中止原因 */
 	L400Diag_Init(&d, SETTLE, SEG);
 	L400Diag_Poll(&d, 0, 1, 0);
-	L400Diag_Poll(&d, 800, 1, 0);
-	L400Diag_Poll(&d, 4800, 1, 0);
+	L400Diag_Poll(&d, 400, 1, 0);
+	L400Diag_Poll(&d, 2400, 1, 0);
 	check(d.state == L400_DIAG_STATE_B && d.a_done, "A done before B abort");
-	check((L400Diag_Poll(&d, 5000, 0, L400_DIAG_REASON_CMD)
+	check((L400Diag_Poll(&d, 2500, 0, L400_DIAG_REASON_CMD)
 		   & L400_DIAG_EV_ABORT) != 0, "B abort event");
 	check(d.abort_reason == L400_DIAG_REASON_CMD, "B abort reason cmd");
 	check(d.abort_seg == 1 && d.a_done && !d.b_done,

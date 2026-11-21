@@ -42,7 +42,7 @@ Robin_24G_Car 六轴传感器串口监视器（配合固件 0x26 0x9A 波形帧�
   * 文本行形如 ATT t=... rdy=1 r=+12.34 p=-45.67 y=+120.15 与 STA n=...，
     r/p/y 已经是度；--attitude 下不解析 0x269A/0x269B 二进制帧。
 
-400Hz 地面联调固件（文本协议，--l400，对应 7d01167）：
+200Hz 地面联调固件（文本协议，--l400）：
   python uart_sensor_monitor.py --port COM12 --l400
   python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv l400.csv
   * 解析 10Hz 的 L400 行和 1Hz 的 L400S 行；
@@ -287,12 +287,12 @@ ATT_CAT_FIELDS = ["recv_s", "recv_epoch",
 ATT_STAT_FIELDS = ["recv_s", "recv_epoch", "valid", "fail", "gap",
                    "dt_min_us", "dt_max_us", "rd_avg_us", "rd_max_us",
                    "up_avg_us", "up_max_us",
-                   # 400Hz 验收追加（旧固件的 STA 没有这些字段，留空）
+                   # 台架 400Hz 验收追加（旧固件的 STA 没有这些字段，留空）
                    "cyc_avg_us", "cyc_max_us", "miss", "skip", "euler_ok",
                    "z_pre_lsb", "z_post_lsb"]
 
 # ----------------------------------------------------------------------------
-# 400Hz 地面联调固件文本协议（--l400，按 7d01167 的实际输出解析）
+# 地面联调固件文本协议（--l400，兼容旧 7d01167 长行和当前 L400Q 短行）
 #   L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+12/-3/+0 c=-3/+0/-0
 #        ta=+3000/-1500 tw=+512/-256/+0 on=1
 #   L400S bad=0 n=12345 f=0 eul=12000 miss=0 cmiss=0 skip=0 txd=0 ctl=2490/3100
@@ -949,9 +949,9 @@ class SimL400Source:
             avld = 8 + (self.n_line * 7) % 45
             alk = avld + 5
             gpk = 25 + (self.n_line * 3) % 12
-            self.sample += 40
+            self.sample += 20
             if rdy:
-                self.euler += 40
+                self.euler += 20
             # 偶尔累加统计量，验证界面数字变化；频率远低于 1Hz
             if self.n_line % 97 == 0:
                 self.miss += 1
@@ -982,7 +982,7 @@ class SimL400Source:
                 f"c={_hex(cx & 0xFFFF, 4)}/{_hex(cy & 0xFFFF, 4)}/"
                 f"{_hex(cz & 0xFFFF, 4)}")
 
-        # 1Hz 统计行：n/eul 与上面的 400Hz 计数保持同一比例
+        # 1Hz 统计行：n/eul 与上面的 200Hz 计数保持同一比例
         if el >= self._next_stat:
             self._next_stat = el + 1.0
             self.n_stat += 1
@@ -1182,7 +1182,7 @@ class AttitudeWorker(threading.Thread):
 
 
 class L400Worker(threading.Thread):
-    """400Hz 联调文本采集线程：拆行 → 解析 L400/L400S → 两份 CSV → 观察样本入队"""
+    """联调文本采集线程：拆行 → 解析 L400/L400Q/L400S → 两份 CSV → 观察样本入队"""
 
     def __init__(self, source, csv_path, stat_path, sample_queue):
         super().__init__(daemon=True)
@@ -1556,7 +1556,7 @@ class SensorMonitor:
         self.csv_path = csv_path
         self.window = window
         self.duration = duration
-        # "sensor"=六轴二进制帧；"attitude"=台架文本；"l400"=400Hz 联调文本
+        # "sensor"=六轴二进制帧；"attitude"=台架文本；"l400"=200Hz 联调文本
         self.mode = mode
 
         self.follow = True          # 是否自动跟随最新数据
@@ -1616,12 +1616,12 @@ class SensorMonitor:
                 line.set_animated(True)
             self.lines.append(lines)
         elif self.mode == "l400":
-            # 400Hz 联调模式：三张图。前两张是实测角速度 g 与内环纠偏 c
+            # 200Hz 联调模式：三张图。前两张是实测角速度 g 与内环纠偏 c
             # （Q10 rad/s 换算的 °/s）；第三张是低频观测里的 Q15 四元数
             # 在上位机换算出的实测欧拉角，固件控制路径不参与欧拉角计算。
             self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 7.8))
             self.fig.canvas.manager.set_window_title(
-                "Robin_24G_Car 400Hz 联调监视器（g/c 角速度 + 实测姿态）")
+                "Robin_24G_Car 200Hz 联调监视器（g/c 角速度 + 实测姿态）")
             self.axes = list(axes)
             ax_g, ax_c, ax_att = self.axes
             for ax_obj, ylabel, lab in (
@@ -2015,7 +2015,7 @@ class SensorMonitor:
                         and stat_msg != self._last_stat_text)
         if self._apply_texts(msg, stat_msg) and stat_changed:
             # 统计区是 1Hz 累计量，变化时立刻整图 blit；状态栏仍按 1Hz 节流，
-            # 避免 avld 每 100ms 变一次就把 400Hz 窗口拖进 10Hz 全图重绘
+            # 避免 avld 每 100ms 变一次就把 200Hz 窗口拖进 10Hz 全图重绘
             self._text_ts = 0.0
 
         now = time.time()
@@ -2400,7 +2400,7 @@ def run(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Robin_24G_Car 六轴 / 台架姿态 / 400Hz 联调串口监视与记录")
+        description="Robin_24G_Car 六轴 / 台架姿态 / 200Hz 联调串口监视与记录")
     ap.add_argument("--list", action="store_true", help="列出所有串口后退出")
     ap.add_argument("--port", help="串口号，例如 COM12；不填则自动选择")
     ap.add_argument("--baud", type=int, default=115200, help="波特率（默认 115200）")
@@ -2420,7 +2420,7 @@ def main():
     mode.add_argument("--attitude", action="store_true",
                       help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
     mode.add_argument("--l400", action="store_true",
-                      help="按 400Hz 联调固件的文本协议采集（L400/L400S，画 g/c 角速度，单位 °/s）")
+                      help="按联调固件文本协议采集（L400Q/L400S，画 g/c 角速度与实测姿态）")
     args = ap.parse_args()
 
     if args.list:
