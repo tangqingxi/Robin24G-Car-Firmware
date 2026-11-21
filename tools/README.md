@@ -13,6 +13,7 @@
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 | `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
 | `test_euler_div.c` | 积分 `%10000` 改为商求余后，正负输入/q/dq_rem 逐点一致和异常步长保护 |
+| `test_l400_motor.c` | 俯仰限幅前后符号、急停按住禁止解锁/重新长按回归 |
 | `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
@@ -305,7 +306,8 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   180，限 ±160），偏航 `corr*1920>>16`（满量程约 120，限 ±160）；系数已含
   十字 + 型相对 X 型的 1.414 补偿。
 - 混控（固定前/后/左/右）：
-  `前=thr-dp+dy`、`后=thr+dp+dy`、`左=thr+dr-dy`、`右=thr-dr-dy`；
+  `前=thr+dp+dy`、`后=thr-dp+dy`、`左=thr+dr-dy`、`右=thr-dr-dy`；
+  机头抬高时 `corr_pitch<0`，`dp<0`，所以前减小、后增大（后 > 前）。
   任一路越界时三轴差动按同一比例缩放，保持平均推力不变，再夹到 `45..400`。
 - 上电默认锁定，四路 0。解锁：油门拉到低位（`fb<=-250`），横滚/俯仰/偏航
   回中（各轴 `|cmd|<=45`），长按“一键起降”键 **1s**；“速度转换”键在解锁后
@@ -313,7 +315,8 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   键注入姿态异常，效果与真实 IMU 读失败/Euler 更新失败相同（立即 ATT 锁定）。
 - 失联、指令超时、姿态未更新/Euler 异常、A/B 诊断开始、手动急停都会立即
   清四路并置锁定；恢复后必须松开解锁键，再重新长按 1s。上电/失联后按住
-  解锁键不会自动解锁。
+  解锁键不会自动解锁。**急停键按住期间四路强制为 0，解锁键完全无效**；
+  松开急停后还要先松开解锁键，再重新长按。
 - 物理映射沿用 V12：前=LF/PWM1，后=LB/PWM3，左=RB/PWM0，右=RF/PWM2。
   无桨逐项检查时以 `pwm` 的前/后/左/右顺序和实际机臂位置对照。
 
@@ -354,7 +357,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  35556 字节，SHA256 `9819CAF2B28FD65A81D3D2738D7320E4DC96624EDBBB56FD71043D45E5BFCC8C`，
+  35252 字节，SHA256 `C18D6F1B5162E12D2056A48C809DF7B207EA0F77D5F48540E4A5AB40E0E43D39`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
@@ -389,6 +392,17 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   输出逐字节一致；正负整数除余公式同时扫 `INT_MIN/INT_MAX` 附近和
   `-35000..35000` 的点。`C_EULER_DIV_OPT=1` 的 TC32 目标文件不再引用
   `__modsi3`，只保留 `__divsi3`，text 少 28 字节。
+
+- 电机混控/急停回归（主机侧）：
+
+  ```powershell
+  gcc -std=c99 -O2 -fno-builtin -I..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car `
+      test_l400_motor.c -o ..\data\test_l400_motor.exe
+  ..\data\test_l400_motor.exe
+  ```
+
+  覆盖机头抬高时 `后 > 前`（小信号和限幅后都成立），以及急停键按住
+  期间四路为 0、禁止解锁；松开急停后必须先松开解锁键再重新长按。
 
 - A/B 状态机回归（主机侧）：
 

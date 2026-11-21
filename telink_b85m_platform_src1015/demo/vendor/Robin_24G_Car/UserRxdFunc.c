@@ -20,6 +20,7 @@
 #include "UserEuler.h"
 #if (C_RC_LOOP_400_EN)
 #include "L400Diag.h"
+#include "L400Motor.h"
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -1956,22 +1957,7 @@ static void RcBringup_Report(void)
 #define L400_CMD_TIMEOUT_TICKS ((u32)L400_CMD_TIMEOUT_MS * L400_TICKS_PER_MS)
 
 // ---- 手动油门 / 十字(+)四电机混控 / 解锁安全 ----
-// 油门杆：FB 通道，中心 0，满行程 ±L400_STICK_MAX；中心约对应悬停推力。
-// 推力范围沿用旧控制器的 60..340 PWM，PWM 周期上限 400。
-#define L400_THR_MID           190
-#define L400_THR_SPAN          140
-#define L400_THR_MIN           60
-#define L400_THR_MAX           340
-#define L400_PWM_MIN_RUN       45
-#define L400_PWM_MAX           400
-#define L400_ARM_THR_MAX       (-250)   // 油门杆拉到低位才允许解锁
-#define L400_ARM_STICK_MAX     45       // 解锁时横滚/俯仰/偏航必须在中心附近
-// 纠偏 Q10(±4096) → PWM 差动：横滚/俯仰满量程约 180，限幅 160；
-// 偏航满量程约 120。系数已包含十字 + 型相对 X 型的 1.414 补偿。
-#define L400_DIFF_GAIN_Q16     2880
-#define L400_YAW_DIFF_GAIN_Q16 1920
-#define L400_DIFF_LIMIT        160
-
+// 油门/混控常量在 L400Motor.h，便于主机回归和固件共用。
 // 解锁/急停按键；A/B 诊断继续用“特技”键，避免混用。
 #define L400_ARM_KEY           RfSendKey_OneKRun
 #define L400_ESTOP_KEY         RfSendKey_Xspeed
@@ -1980,19 +1966,12 @@ static void RcBringup_Report(void)
 #define L400_ATT_FAULT_KEY     RfSendKey_Headless
 #define L400_ARM_HOLD_TICKS    CLOCK_SYS_CLOCK_HZ   // 油门低位保持 1s
 
-// 锁定原因（L400Q 的 x 字段）
-#define L400_LOCK_NONE         0
-#define L400_LOCK_BOOT         1
-#define L400_LOCK_LINK         2
-#define L400_LOCK_CMD          3
-#define L400_LOCK_ATT          4
-#define L400_LOCK_MANUAL       5
-#define L400_LOCK_DIAG         6
+// 锁定原因在 L400Motor.h（L400Q 的 x 字段）。
 // 链路超时：超过这么久连心跳都没有，判为无线失联
 #define L400_LINK_TIMEOUT_MS   500
 #define L400_LINK_TIMEOUT_TICKS ((u32)L400_LINK_TIMEOUT_MS * L400_TICKS_PER_MS)
-// 摇杆满量程 ±307；外环输出：横滚/俯仰目标姿态 ±30°，偏航目标角速度 ±3rad/s
-#define L400_STICK_MAX         307
+// 摇杆满量程 ±307（L400Motor.h）；外环输出：横滚/俯仰目标姿态 ±30°，
+// 偏航目标角速度 ±3rad/s
 #define L400_MAX_TILT_DEG100   3000
 #define L400_YAW_RATE_MAX_Q10  3072
 // 外环 P：重力方向叉积误差 Q15 × 1500 / 256，右移 13 位成 Q10；
@@ -2110,16 +2089,9 @@ static u8  s_l400_diag_ctrl_enable;    // A=0，B/正常=1
 static u8  s_l400_diag_have_a;         // A 段快照是否已完成
 static u16 s_l400_diag_key_prev;       // 按键边沿检测
 
-// 电机安全状态：上电锁定，必须油门低位 + 长按解锁键才允许输出
-static u8  s_l400_motor_armed;
+// 电机安全状态机：上电锁定，必须油门低位 + 长按解锁键才允许输出
+static L400MArm s_l400_arm;
 static u8  s_l400_att_ever_ready;      // 已成功更新过姿态，用于区分上电锁定/姿态异常
-static u8  s_l400_motor_lock_reason;
-static u8  s_l400_arm_key_prev;
-static u8  s_l400_estop_key_prev;
-static u8  s_l400_att_fault_key_prev;
-static u8  s_l400_arm_hold_active;
-static u8  s_l400_arm_require_release; // 锁定/故障后必须松开解锁键再重新长按
-static u32 s_l400_arm_hold_tick;
 static u8  s_l400_pwm_ready;           // PWM 外设已初始化
 static l400_diag_t s_l400_diag_a;
 static l400_diag_t s_l400_diag_b;
@@ -2378,16 +2350,8 @@ static void L400_StateReset(void)
 	s_l400_diag_active = 0;
 	s_l400_diag_key_prev = 0;
 	s_l400_diag_ctrl_enable = 1;
-	s_l400_motor_armed = 0;
+	L400M_ArmInit(&s_l400_arm);
 	s_l400_att_ever_ready = 0;
-	s_l400_motor_lock_reason = L400_LOCK_BOOT;
-	// 预置解锁键为“已按下”，强制上电后先松开再按，避免上电瞬间误解锁
-	s_l400_arm_key_prev = L400_ARM_KEY;
-	s_l400_estop_key_prev = 0;
-	s_l400_att_fault_key_prev = 0;
-	s_l400_arm_hold_active = 0;
-	s_l400_arm_require_release = 1;
-	s_l400_arm_hold_tick = 0;
 	s_l400_diag_have_a = 0;
 	s_l400_diag_rf_sum_ticks = 0;
 	s_l400_diag_rf_max_ticks = 0;
@@ -2672,9 +2636,9 @@ static u8 L400_SendObs(u32 t_tx0)
 	q = l400_put_hex(q, (u32)s_l400_corr[2] & 0xFFFFu, 4);
 	// 锁定状态和四路实际占空比；顺序固定为 前/后/左/右（3 位十六进制）
 	q = l400_put_str(q, " m=");
-	q = l400_put_hex(q, s_l400_motor_armed, 1);
+	q = l400_put_hex(q, s_l400_arm.armed, 1);
 	q = l400_put_str(q, " x=");
-	q = l400_put_hex(q, s_l400_motor_lock_reason, 1);
+	q = l400_put_hex(q, s_l400_arm.reason, 1);
 	q = l400_put_str(q, " pwm=");
 	q = l400_put_hex(q, MOT_FRONT_DUTY, 3);
 	*q++ = '/';
@@ -2722,97 +2686,33 @@ static void L400_MotorWrite(u16 front, u16 rear, u16 left, u16 right)
 // 立即锁定并清四路；reason 非 0 时记录锁定原因。故障/急停后必须重新解锁。
 static void L400_MotorStop(u8 reason)
 {
-	s_l400_motor_armed = 0;
-	s_l400_arm_hold_active = 0;
-	s_l400_arm_require_release = 1;
-	if (reason) {
-		s_l400_motor_lock_reason = reason;
-	}
+	L400M_ArmLock(&s_l400_arm, reason);
 	L400_MotorWrite(0, 0, 0, 0);
 }
 
-// 解锁条件：遥控/指令/姿态有效 + 油门低位 + 长按“一键起降”1s。
-// “速度转换”键在解锁后作为手动急停；两者都要求先松开再重新按。
+// 解锁条件：遥控/指令/姿态有效 + 油门低位 + 三轴回中 + 长按“一键起降”1s。
+// 状态机在 L400Motor.h，主机回归可直接验证急停按住期间禁止解锁。
 static void L400_MotorArmPoll(u32 now)
 {
 	u8 arm_key = (s_l400_key & L400_ARM_KEY) ? 1 : 0;
 	u8 estop_key = (s_l400_key & L400_ESTOP_KEY) ? 1 : 0;
 	u8 attf_key = (s_l400_key & L400_ATT_FAULT_KEY) ? 1 : 0;
-	u8 valid;
-	u8 thr_low;
-	u8 sticks_center;
+	u8 valid = (s_l400_att.ready && s_l400_link && s_l400_cmd_ok
+				&& !s_l400_diag_enabled) ? 1 : 0;
+	u8 thr_low = (s_l400_cmd[0] <= L400_ARM_THR_MAX) ? 1 : 0;
+	u8 sticks_center = (s_l400_cmd[1] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[1] <= L400_ARM_STICK_MAX
+						&& s_l400_cmd[2] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[2] <= L400_ARM_STICK_MAX
+						&& s_l400_cmd[3] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[3] <= L400_ARM_STICK_MAX) ? 1 : 0;
+	u8 stop = L400M_ArmStep(&s_l400_arm, now, arm_key, estop_key, attf_key,
+							valid, thr_low, sticks_center,
+							L400_ARM_HOLD_TICKS);
 
-	if (!s_l400_cmd_ok) {
-		// 失联/超时期间不接受解锁；保持“先松开”的要求
-		s_l400_arm_key_prev = arm_key;
-		s_l400_arm_hold_active = 0;
-		return;
+	if (stop) {
+		L400_MotorStop(stop);
 	}
-
-	if (s_l400_motor_armed) {
-		if (estop_key && !s_l400_estop_key_prev) {
-			L400_MotorStop(L400_LOCK_MANUAL);
-		} else if (attf_key && !s_l400_att_fault_key_prev) {
-			// 台架注入：走和真实姿态异常相同的 ATT 锁定路径
-			L400_MotorStop(L400_LOCK_ATT);
-		}
-		s_l400_estop_key_prev = estop_key;
-		s_l400_att_fault_key_prev = attf_key;
-		s_l400_arm_key_prev = arm_key;
-		return;
-	}
-
-	s_l400_estop_key_prev = estop_key;
-	s_l400_att_fault_key_prev = attf_key;
-
-	// 故障/失联/急停后必须看到解锁键松开，防止按住键自动重解锁
-	if (s_l400_arm_require_release) {
-		if (arm_key) {
-			s_l400_arm_key_prev = 1;
-			s_l400_arm_hold_active = 0;
-			return;
-		}
-		s_l400_arm_require_release = 0;
-		s_l400_arm_key_prev = 0;
-	}
-
-	valid = (s_l400_att.ready && s_l400_link && s_l400_cmd_ok
-			 && !s_l400_diag_enabled) ? 1 : 0;
-	thr_low = (s_l400_cmd[0] <= L400_ARM_THR_MAX) ? 1 : 0;
-	sticks_center = (s_l400_cmd[1] >= -L400_ARM_STICK_MAX
-					 && s_l400_cmd[1] <= L400_ARM_STICK_MAX
-					 && s_l400_cmd[2] >= -L400_ARM_STICK_MAX
-					 && s_l400_cmd[2] <= L400_ARM_STICK_MAX
-					 && s_l400_cmd[3] >= -L400_ARM_STICK_MAX
-					 && s_l400_cmd[3] <= L400_ARM_STICK_MAX) ? 1 : 0;
-
-	if (!arm_key) {
-		s_l400_arm_key_prev = 0;
-		s_l400_arm_hold_active = 0;
-		return;
-	}
-
-	if (!s_l400_arm_key_prev) {
-		// 只在新的按下沿开始计时；按住在无效状态不会顺延解锁
-		if (valid && thr_low && sticks_center) {
-			s_l400_arm_hold_active = 1;
-			s_l400_arm_hold_tick = now;
-		} else {
-			s_l400_arm_hold_active = 0;
-		}
-	} else if (!valid || !thr_low || !sticks_center) {
-		s_l400_arm_hold_active = 0;
-	}
-
-	if (s_l400_arm_hold_active
-		&& (u32)(now - s_l400_arm_hold_tick) >= L400_ARM_HOLD_TICKS
-		&& valid && thr_low && sticks_center) {
-		s_l400_motor_armed = 1;
-		s_l400_motor_lock_reason = L400_LOCK_NONE;
-		s_l400_arm_hold_active = 0;
-		s_l400_arm_require_release = 0;
-	}
-	s_l400_arm_key_prev = 1;
 }
 
 // 200Hz 混控：手动油门 → 推力；三轴纠偏 Q10 → PWM 差动。
@@ -2820,11 +2720,10 @@ static void L400_MotorArmPoll(u32 now)
 // 差动限幅 ±160 PWM，并按当前推力的上下余量做统一缩放，保证四路平均推力不漂。
 static void L400_MotorUpdate(void)
 {
-	s32 thrust, dr, dp, dy;
-	s32 mf, mr, ml, mm;
-	s32 lo, hi, scale, room;
+	L400MMix mix;
+	unsigned short out[4];
 
-	if (!s_l400_motor_armed) {
+	if (!s_l400_arm.armed) {
 		L400_MotorWrite(0, 0, 0, 0);
 		return;
 	}
@@ -2842,68 +2741,11 @@ static void L400_MotorUpdate(void)
 		return;
 	}
 
-	// 油门杆：中心约悬停，±满行程对应 ±140 PWM；再夹到 60..340。
-	thrust = L400_THR_MID
-			 + (l400_clamp_s32(s_l400_cmd[0], L400_STICK_MAX)
-				* L400_THR_SPAN) / L400_STICK_MAX;
-	thrust = l400_clamp_s32(thrust, L400_THR_MAX);
-	if (thrust < L400_THR_MIN) {
-		thrust = L400_THR_MIN;
-	}
-
-	// 纠偏 Q10 → PWM：横滚/俯仰约 180（限 160），偏航约 120；
-	// 系数已含十字 + 型 1.414 的力矩补偿。
-	dr = (s_l400_corr[0] * L400_DIFF_GAIN_Q16) >> 16;
-	dp = (s_l400_corr[1] * L400_DIFF_GAIN_Q16) >> 16;
-	dy = (s_l400_corr[2] * L400_YAW_DIFF_GAIN_Q16) >> 16;
-	dr = l400_clamp_s32(dr, L400_DIFF_LIMIT);
-	dp = l400_clamp_s32(dp, L400_DIFF_LIMIT);
-	dy = l400_clamp_s32(dy, L400_DIFF_LIMIT);
-
-	mf = thrust - dp + dy;
-	mr = thrust + dp + dy;
-	ml = thrust + dr - dy;
-	mm = thrust - dr - dy;
-
-	// 统一缩放：任一路越界时按同一比例收三轴差动，平均推力保持 thrust
-	lo = mf;
-	if (mr < lo) lo = mr;
-	if (ml < lo) lo = ml;
-	if (mm < lo) lo = mm;
-	hi = mf;
-	if (mr > hi) hi = mr;
-	if (ml > hi) hi = ml;
-	if (mm > hi) hi = mm;
-	scale = 256;
-	if (hi > L400_PWM_MAX && hi > thrust) {
-		room = ((L400_PWM_MAX - thrust) << 8) / (hi - thrust);
-		if (room < scale) scale = room;
-	}
-	if (lo < L400_PWM_MIN_RUN && lo < thrust) {
-		room = ((thrust - L400_PWM_MIN_RUN) << 8) / (thrust - lo);
-		if (room < scale) scale = room;
-	}
-	if (scale < 0) scale = 0;
-	if (scale < 256) {
-		dr = (dr * scale) >> 8;
-		dp = (dp * scale) >> 8;
-		dy = (dy * scale) >> 8;
-		mf = thrust - dp + dy;
-		mr = thrust + dp + dy;
-		ml = thrust + dr - dy;
-		mm = thrust - dr - dy;
-	}
-
-	mf = l400_clamp_s32(mf, L400_PWM_MAX);
-	mr = l400_clamp_s32(mr, L400_PWM_MAX);
-	ml = l400_clamp_s32(ml, L400_PWM_MAX);
-	mm = l400_clamp_s32(mm, L400_PWM_MAX);
-	if (mf < L400_PWM_MIN_RUN) mf = L400_PWM_MIN_RUN;
-	if (mr < L400_PWM_MIN_RUN) mr = L400_PWM_MIN_RUN;
-	if (ml < L400_PWM_MIN_RUN) ml = L400_PWM_MIN_RUN;
-	if (mm < L400_PWM_MIN_RUN) mm = L400_PWM_MIN_RUN;
-
-	L400_MotorWrite((u16)mf, (u16)mr, (u16)ml, (u16)mm);
+	// 纯逻辑模块完成油门、三轴差动、统一限幅；未解锁时输出强制为 0
+	L400M_Mix(L400M_Thrust(s_l400_cmd[0]),
+			  s_l400_corr[0], s_l400_corr[1], s_l400_corr[2], &mix);
+	L400M_Output(&s_l400_arm, &mix, out);
+	L400_MotorWrite(out[0], out[1], out[2], out[3]);
 }
 
 // 目标角 0.01° → sin/cos Q15；目标角限幅在 ±30° 内，泰勒展开误差很小
