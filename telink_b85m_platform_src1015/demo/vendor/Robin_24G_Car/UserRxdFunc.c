@@ -2168,6 +2168,18 @@ static u32 l400_cap(u32 v, u32 cap)
 	return (v > cap) ? cap : v;
 }
 
+// Q15 四元数分量 → 4 位有符号十六进制（-32768…32767，两补码低 16 位）；
+// +32768 夹到 +32767，避免 0x8000 被上位机误读成 -32768。
+static char *l400_put_q15(char *p, s32 v)
+{
+	if (v > 32767) {
+		v = 32767;
+	} else if (v < -32768) {
+		v = -32768;
+	}
+	return l400_put_hex(p, (u32)v, 4);
+}
+
 static char *l400_put_s32(char *p, s32 v)
 {
 	if (v < 0) {
@@ -2435,6 +2447,7 @@ static u8 L400_SendMain(u32 t_tx0)
 	char *q = buf;
 	u32 age_link, age_pkt, gap_ms;
 
+	// 观察行含 ta/tw/on/q 最长 156 字节（含换行），低于 UART_DATA_LEN(160)
 	// 两种包龄都用原始 tick 差换算（四舍五入到 ms）；从未收到过输出 9999
 	age_link = s_l400_have_link
 			 ? ((t_tx0 - s_l400_link_tick + L400_TICKS_PER_MS / 2)
@@ -2485,6 +2498,15 @@ static u8 L400_SendMain(u32 t_tx0)
 	q = l400_put_s32(q, s_l400_tgt_rate[2]);
 	q = l400_put_str(q, " on=");
 	q = l400_put_u32(q, s_l400_ctrl_ok);
+	// 低频观测携带 Q15 四元数，由上位机换算欧拉角显示；4×4 位十六进制
+	q = l400_put_str(q, " q=");
+	q = l400_put_q15(q, s_l400_att.q[0]);
+	*q++ = '/';
+	q = l400_put_q15(q, s_l400_att.q[1]);
+	*q++ = '/';
+	q = l400_put_q15(q, s_l400_att.q[2]);
+	*q++ = '/';
+	q = l400_put_q15(q, s_l400_att.q[3]);
 	*q++ = '\n';
 
 	if (!UartTrySend((unsigned char *)buf, (u8)(q - buf))) {

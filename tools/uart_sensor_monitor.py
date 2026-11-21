@@ -324,6 +324,7 @@ L400_CSV_FIELDS = [
     "cx_dps", "cy_dps", "cz_dps",
     "tgt_roll_deg100", "tgt_pitch_deg100",
     "tgt_rate_x_q10", "tgt_rate_y_q10", "tgt_rate_z_q10", "ctrl_ok",
+    "qw_q15", "qx_q15", "qy_q15", "qz_q15",
 ]
 
 L400_STAT_FIELDS = [
@@ -529,7 +530,8 @@ _L400_LINE_RE = re.compile(
     r"g=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+"
     r"c=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)"
     r"(?:\s+ta=([+-]?\d+)/([+-]?\d+)\s+"
-    r"tw=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+on=([01]))?\s*$")
+    r"tw=([+-]?\d+)/([+-]?\d+)/([+-]?\d+)\s+on=([01])"
+    r"(?:\s+q=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4}))?)?\s*$")
 
 # L400S 统计行旧格式（7d01167）：十进制计数 + 整拍耗时
 _L400_STAT_RE = re.compile(
@@ -550,6 +552,38 @@ _L400_STAT_HEX_RE = re.compile(
 def q10_rad_s_to_dps(value):
     """Q10 rad/s → °/s（1024 = 1 rad/s，1 rad/s = 180/π °/s）"""
     return value * Q10_RAD_S_TO_DPS
+
+
+def _hex_s16(text):
+    """4 位十六进制 → 有符号 16 位（Q15 分量的两补码表示）"""
+    value = int(text, 16)
+    return value - 65536 if value >= 32768 else value
+
+
+def q15_to_euler_deg(q):
+    """
+    Q15 四元数 [w,x,y,z] → 欧拉角 (横滚, 俯仰, 相对偏航)，单位度。
+
+    与固件 UserEuler 的机体 FRD→水平系约定一致（ZYX 顺序）：
+      roll  = atan2(2(wx+yz), 1-2(x²+y²))
+      pitch = asin(2(wy-zx))
+      yaw   = atan2(2(wz+xy), 1-2(y²+z²))
+    四元数无效或模长过小时返回 None。
+    """
+    if not q or len(q) != 4:
+        return None
+    w, x, y, z = (v / 32768.0 for v in q)
+    norm = math.sqrt(w * w + x * x + y * y + z * z)
+    if norm < 1e-6:
+        return None
+    w, x, y, z = (v / norm for v in (w, x, y, z))
+    roll = math.atan2(2.0 * (w * x + y * z),
+                      1.0 - 2.0 * (x * x + y * y))
+    sin_p = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
+    pitch = math.asin(sin_p)
+    yaw = math.atan2(2.0 * (w * z + x * y),
+                     1.0 - 2.0 * (y * y + z * z))
+    return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
 
 
 def l400_state_of(line):
@@ -585,10 +619,13 @@ def parse_l400_line(line):
         tgt_att = None
         tgt_rate = None
         ctrl_ok = None
+        q15 = None
         if m.group(13) is not None:
             tgt_att = [int(m.group(13)), int(m.group(14))]
             tgt_rate = [int(m.group(i)) for i in (15, 16, 17)]
             ctrl_ok = int(m.group(18))
+        if m.group(19) is not None:
+            q15 = [_hex_s16(m.group(i)) for i in (19, 20, 21, 22)]
         return ("l400", {
             "rdy": int(m.group(1)),
             "lk": int(m.group(2)),
@@ -603,6 +640,7 @@ def parse_l400_line(line):
             "tgt_att_deg100": tgt_att,
             "tgt_rate_q10": tgt_rate,
             "ctrl_ok": ctrl_ok,
+            "q15": q15,
         })
 
     m = _L400_STAT_HEX_RE.match(line)
@@ -669,6 +707,13 @@ def parse_l400_line(line):
 def _hex(v, digits):
     """按固定宽度输出十六进制（模拟源用，与固件一致）"""
     return f"{v & ((1 << (4 * digits)) - 1):0{digits}X}"
+
+
+def _q15_hex(v):
+    """浮点 Q15 分量 → 4 位有符号十六进制（+32768 夹到 +32767）"""
+    raw = int(round(v * 32768.0))
+    raw = max(-32768, min(32767, raw))
+    return _hex(raw & 0xFFFF, 4)
 
 
 def euler_deg_to_quat_q15(roll_deg, pitch_deg, yaw_deg):
@@ -840,10 +885,18 @@ class SimL400Source:
             tw_y = int(400 * math.cos(2 * math.pi * 0.20 * el + 0.5))
             tw_z = int(500 * math.sin(2 * math.pi * 0.10 * el))
             on = 1 if rdy else 0
+            # 模拟实测姿态：用缓慢变化的横滚/俯仰构造 Q15 四元数
+            rr = math.radians(10.0 * math.sin(2 * math.pi * 0.18 * el))
+            pp = math.radians(6.0 * math.sin(2 * math.pi * 0.13 * el + 0.4))
+            qw = math.cos(pp / 2) * math.cos(rr / 2)
+            qx = math.cos(pp / 2) * math.sin(rr / 2)
+            qy = math.sin(pp / 2) * math.cos(rr / 2)
+            qz = -math.sin(pp / 2) * math.sin(rr / 2)
             self._push(
                 f"L400 rdy={rdy} lk=1 vld=1 alk={alk} avld={avld} gpk={gpk} "
                 f"g={gx:+d}/{gy:+d}/{gz:+d} c={cx:+d}/{cy:+d}/{cz:+d} "
-                f"ta={ta_r:+d}/{ta_p:+d} tw={tw_x:+d}/{tw_y:+d}/{tw_z:+d} on={on}")
+                f"ta={ta_r:+d}/{ta_p:+d} tw={tw_x:+d}/{tw_y:+d}/{tw_z:+d} on={on} "
+                f"q={_q15_hex(qw)}/{_q15_hex(qx)}/{_q15_hex(qy)}/{_q15_hex(qz)}")
 
         # 1Hz 统计行：n/eul 与上面的 400Hz 计数保持同一比例
         if el >= self._next_stat:
@@ -1118,6 +1171,10 @@ class L400Worker(threading.Thread):
                 "tgt_rate_y_q10": "" if payload.get("tgt_rate_q10") is None else payload["tgt_rate_q10"][1],
                 "tgt_rate_z_q10": "" if payload.get("tgt_rate_q10") is None else payload["tgt_rate_q10"][2],
                 "ctrl_ok": "" if payload.get("ctrl_ok") is None else payload["ctrl_ok"],
+                "qw_q15": "" if payload.get("q15") is None else payload["q15"][0],
+                "qx_q15": "" if payload.get("q15") is None else payload["q15"][1],
+                "qy_q15": "" if payload.get("q15") is None else payload["q15"][2],
+                "qz_q15": "" if payload.get("q15") is None else payload["q15"][3],
             })
             try:
                 self.queue.put_nowait(payload)
@@ -1421,7 +1478,8 @@ class SensorMonitor:
         self.hist_gyro = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺原始 dps
         self.hist_gyro_c = [deque(maxlen=self.cap) for _ in range(3)]  # 陀螺扣零偏 dps
         self.hist_g = [deque(maxlen=self.cap) for _ in range(3)]     # L400 实测角速度 dps
-        self.hist_c = [deque(maxlen=self.cap) for _ in range(3)]     # L400 P 环纠偏 dps
+        self.hist_c = [deque(maxlen=self.cap) for _ in range(3)]     # L400 内环纠偏 dps
+        self.hist_att = [deque(maxlen=self.cap) for _ in range(3)]   # L400 四元数换算的欧拉角
         self.last_l400 = None
         self.bias = (0, 0, 0)
         self.flags = 0
@@ -1453,18 +1511,18 @@ class SensorMonitor:
                 line.set_animated(True)
             self.lines.append(lines)
         elif self.mode == "l400":
-            # 400Hz 联调模式：两张图，分别是实测角速度 g 与 P 环纠偏 c。
-            # 二者都是 Q10 rad/s 换算来的 °/s，不是欧拉角，标签写清楚量纲。
-            # 高度取 6.2in：150% 缩放的 1080p 屏幕上也能完整放下
-            # 两张图 + 统计区 + 状态栏，不会被任务栏/窗口底边裁掉
-            self.fig, axes = plt.subplots(2, 1, sharex=True, figsize=(11, 6.2))
+            # 400Hz 联调模式：三张图。前两张是实测角速度 g 与内环纠偏 c
+            # （Q10 rad/s 换算的 °/s）；第三张是低频观测里的 Q15 四元数
+            # 在上位机换算出的实测欧拉角，固件控制路径不参与欧拉角计算。
+            self.fig, axes = plt.subplots(3, 1, sharex=True, figsize=(11, 7.8))
             self.fig.canvas.manager.set_window_title(
-                "Robin_24G_Car 400Hz 联调监视器（g/c 为角速度量，不是欧拉角）")
+                "Robin_24G_Car 400Hz 联调监视器（g/c 角速度 + 实测姿态）")
             self.axes = list(axes)
-            ax_g, ax_c = self.axes
+            ax_g, ax_c, ax_att = self.axes
             for ax_obj, ylabel, lab in (
                     (ax_g, "实测角速度 g (°/s)", ("g-X", "g-Y", "g-Z")),
-                    (ax_c, "P 环纠偏 c (°/s)", ("c-X", "c-Y", "c-Z"))):
+                    (ax_c, "内环纠偏 c (°/s)", ("c-X", "c-Y", "c-Z")),
+                    (ax_att, "实测姿态 (°)", ("横滚", "俯仰", "相对偏航"))):
                 ax_obj.grid(True, alpha=0.3)
                 ax_obj.set_ylabel(ylabel)
                 lines = [ax_obj.plot([], [], color=color, lw=0.9, label=name)[0]
@@ -1601,6 +1659,12 @@ class SensorMonitor:
                 arr.append(val)
             for arr, val in zip(self.hist_c, fr["c_dps"]):
                 arr.append(val)
+            # 旧固件/旧镜像没有 q：填 NaN 让第三张图留空，长度仍与时间轴一致
+            euler = q15_to_euler_deg(fr.get("q15"))
+            if euler is None:
+                euler = (float("nan"),) * 3
+            for arr, val in zip(self.hist_att, euler):
+                arr.append(val)
             self.last_l400 = fr
             self._dirty = True
             return
@@ -1635,7 +1699,8 @@ class SensorMonitor:
             return [(self.hist, self.lines[0])]
         if self.mode == "l400":
             return [(self.hist_g, self.lines[0]),
-                    (self.hist_c, self.lines[1])]
+                    (self.hist_c, self.lines[1]),
+                    (self.hist_att, self.lines[2])]
         return [(self.hist, self.lines[0]),
                 (self.hist_gyro, self.lines[1]),
                 (self.hist_gyro_c, self.lines[2])]
@@ -1864,8 +1929,12 @@ class SensorMonitor:
         changed = []
         for i, (ax_obj, (series, _lines)) in enumerate(
                 zip(self.axes, self._series_pairs())):
-            lo = min(min(a) for a in series)
-            hi = max(max(a) for a in series)
+            values = [v for a in series for v in a if math.isfinite(v)]
+            if values:
+                lo = min(values)
+                hi = max(values)
+            else:
+                lo, hi = -1.0, 1.0       # 旧镜像没有 q：第三张图先给默认量程
             if hi - lo < 1e-6:
                 hi = lo + 1.0
             margin = (hi - lo) * 0.15

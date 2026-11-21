@@ -101,22 +101,71 @@ static att_i32 euler_avg2(att_i32 *rem, att_i32 sum)
 	return avg;
 }
 
+// 正常更新前的四元数分量不应超过 2×Q15；超限说明状态已损坏
+static att_u8 euler_q_sane(const att_i32 q[4])
+{
+	att_u8 i;
+
+	for (i = 0; i < 4; i++) {
+		if (q[i] > 40000 || q[i] < -40000) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+// 异常更新后丢弃这一步的积分端点/余数，但保留上一拍有效四元数
+static void euler_abort_step(euler_q_t *m, att_u32 t_ms)
+{
+	att_u8 i;
+
+	m->have_prev = 0;
+	for (i = 0; i < 4; i++) {
+		m->dq_rem[i] = 0;
+	}
+	for (i = 0; i < 3; i++) {
+		m->trap_rem[i] = 0;
+	}
+	m->t_ms = t_ms;
+}
+
 // 四元数归一化
+// 先检查分量和平方和是否溢出，再统一写回；任何异常返回 0 且不改 q。
+// 长间隔/单步旋转过大时 q 可能远超 Q15，旧实现用 u32 直接累加平方和会回绕。
 static att_u8 euler_normalize(att_i32 q[4])
 {
-	att_u32 n2;
-	att_u32 n;
+	att_u32 n2 = 0;
+	att_u32 n, term, a;
+	att_i32 out[4];
+	att_u8 i;
 
-	n2 = (att_u32)q[0] * (att_u32)q[0] + (att_u32)q[1] * (att_u32)q[1]
-	   + (att_u32)q[2] * (att_u32)q[2] + (att_u32)q[3] * (att_u32)q[3];
+	for (i = 0; i < 4; i++) {
+		att_i32 v = q[i];
+
+		if (v == (att_i32)0x80000000) {     // 取绝对值会溢出：状态已损坏
+			return 0;
+		}
+		a = (v < 0) ? (att_u32)(-v) : (att_u32)v;
+		if (a > 0xFFFFu) {                  // 超过 2×Q15：不可能是正常姿态
+			return 0;
+		}
+		term = a * a;
+		if (n2 > 0xFFFFFFFFu - term) {      // 平方和 u32 回绕：拒绝归一化
+			return 0;
+		}
+		n2 += term;
+	}
+
 	n = euler_isqrt(n2);
 	if (n == 0) {
 		return 0;
 	}
-	q[0] = (att_i32)(((att_i32)q[0] * ATT_Q15_ONE) / (att_i32)n);
-	q[1] = (att_i32)(((att_i32)q[1] * ATT_Q15_ONE) / (att_i32)n);
-	q[2] = (att_i32)(((att_i32)q[2] * ATT_Q15_ONE) / (att_i32)n);
-	q[3] = (att_i32)(((att_i32)q[3] * ATT_Q15_ONE) / (att_i32)n);
+	for (i = 0; i < 4; i++) {
+		out[i] = (att_i32)(((att_i32)q[i] * ATT_Q15_ONE) / (att_i32)n);
+	}
+	for (i = 0; i < 4; i++) {
+		q[i] = out[i];
+	}
 	return 1;
 }
 
@@ -216,6 +265,8 @@ att_u8 Euler_InitFromAccel(euler_q_t *m, const att_i32 acc_mg[3], att_u32 t_ms)
 	m->q[3] = (att_i32)(-(((att_i32)sth * sph) >> 15));
 
 	if (!euler_normalize(m->q)) {
+		Euler_Reset(m);             // 初始化值不可信：回到单位四元数并等待重试
+		m->t_ms = t_ms;
 		return 0;
 	}
 
@@ -250,16 +301,26 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	if (!m->ready || dt_100us <= 0) {
 		return 0;
 	}
+	// 长间隔：线性化增量误差大，先丢弃这一步的积分端点，保持上一拍姿态
+	if (dt_100us > C_ATT_MAX_UPDATE_DT_100US) {
+		euler_abort_step(m, t_ms);
+		return 0;
+	}
 
+	if (!euler_q_sane(m->q)) {
+		euler_abort_step(m, t_ms);
+		return 0;
+	}
 	q0 = m->q[0];
 	q1 = m->q[1];
 	q2 = m->q[2];
 	q3 = m->q[3];
 
-	// 预测静止比力方向：v = R^T × (0,0,-1)，Q15
-	vx = (att_i32)((((att_i32)q0 * q2 - (att_i32)q1 * q3)) >> 14);
-	vy = (att_i32)(-((((att_i32)q0 * q1 + (att_i32)q2 * q3))) >> 14);
-	vz = (att_i32)((((att_i32)q1 * q1 + (att_i32)q2 * q2)) >> 14) - ATT_Q15_ONE;
+	// 预测静止比力方向：v = R^T × (0,0,-1)，Q15。
+	// 每项先移位再相减，避免 q 略大时中间和溢出。
+	vx = ((q0 * q2) >> 14) - ((q1 * q3) >> 14);
+	vy = -(((q0 * q1) >> 14) + ((q2 * q3) >> 14));
+	vz = (((q1 * q1) >> 14) + ((q2 * q2) >> 14)) - ATT_Q15_ONE;
 
 	// 加速度模长；太小（自由落体/剧烈运动）时只跳过纠偏，陀螺继续积分
 	n2 = (att_u32)(acc_mg[0] * acc_mg[0] + acc_mg[1] * acc_mg[1] + acc_mg[2] * acc_mg[2]);
@@ -302,6 +363,22 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 		wy = gyro_q10[1];
 		wz = gyro_q10[2];
 		m->have_prev = 1;
+	}
+
+	// 单步旋转过大：|ω|×dt 超过 1rad 时线性化四元数增量不可信，
+	// 也容易把 q 推出 Q15 范围导致归一化平方和溢出；本拍直接失败。
+	{
+		att_i32 wmax = wx < 0 ? -wx : wx;
+		att_i32 wa = wy < 0 ? -wy : wy;
+
+		if (wa > wmax) wmax = wa;
+		wa = wz < 0 ? -wz : wz;
+		if (wa > wmax) wmax = wa;
+		if ((att_i32)((att_u32)wmax * (att_u32)dt_100us)
+			> C_ATT_MAX_STEP_Q10 * 10000) {
+			euler_abort_step(m, t_ms);
+			return 0;
+		}
 	}
 	m->gyro_prev[0] = gyro_q10[0];
 	m->gyro_prev[1] = gyro_q10[1];
@@ -352,6 +429,13 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	}
 
 	if (!euler_normalize(m->q)) {
+		// 归一化失败（平方和溢出/分量异常）：恢复上一拍四元数，
+		// 丢弃本拍积分端点，返回失败让控制层禁止本拍输出。
+		m->q[0] = q0;
+		m->q[1] = q1;
+		m->q[2] = q2;
+		m->q[3] = q3;
+		euler_abort_step(m, t_ms);
 		return 0;
 	}
 

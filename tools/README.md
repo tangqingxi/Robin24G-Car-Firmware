@@ -11,6 +11,7 @@
 | `uart_proto.py` | 0x269A / 0x269B 帧解析（纯标准库，被上面几个工具共用） |
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
+| `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
 重复的串口/输出/FRD 校验代码已收进 `calib_common.py`，陀螺标定开始时
@@ -190,10 +191,11 @@ Set-Location "E:\泡沫纸飞机\code\tools"
 python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\l400.csv"
 ```
 
-- 两张图：上图 **实测角速度 g (°/s)**，下图 **内环 PID 纠偏 c (°/s)**。g 是机体 FRD
-  三轴实测角速度，c 是内环 PID 输出，**不是欧拉角**；固件里的 Q10 rad/s
-  已在接收端换算成 °/s，图例写成 g-X/g-Y/g-Z、c-X/c-Y/c-Z。
-  外环目标姿态/偏航目标角速度在统计区文字和 CSV 里，不额外画曲线。
+- 三张图：第一张 **实测角速度 g (°/s)**，第二张 **内环 PID 纠偏 c (°/s)**，
+  第三张 **实测姿态 (°)**。g/c 是机体 FRD 角速度量与纠偏量，**不是欧拉角**；
+  固件里的 Q10 rad/s 已在接收端换算成 °/s。第三张由低频观测行里的 Q15 四元数
+  在上位机换算成横滚/俯仰/相对偏航，固件控制路径不参与欧拉角计算。
+  旧镜像没有 `q=` 字段时第三张图留空，不影响 g/c。
 - 状态栏：姿态就绪、遥控连接、指令有效、有效包龄、峰值（新固件为控制完成峰值）。
   控制使能/禁止和目标姿态显示在下方统计区。包龄最大显示 9999ms，
   从未收到过对应包时也显示 9999。
@@ -220,8 +222,8 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 - 观察数据写 `--csv`（默认 `l400_时间戳.csv`），统计写 `--stats-csv`
   （默认在观察文件名后加 `_stats.csv`），两份分开保存。
   观察 CSV 追加 `tgt_roll_deg100/tgt_pitch_deg100/tgt_rate_x_q10/tgt_rate_y_q10/
-  tgt_rate_z_q10/ctrl_ok`；统计 CSV 追加 `cmiss/ctrl_miss/ctrl_max_us/ctrl_peak_us`，
-  旧固件/旧格式没有的字段留空。
+  tgt_rate_z_q10/ctrl_ok/qw_q15/qx_q15/qy_q15/qz_q15`；统计 CSV 追加
+  `cmiss/ctrl_miss/ctrl_max_us/ctrl_peak_us`，旧固件/旧格式没有的字段留空。
 - 实际串口行样例（旧 7d01167）：
 
   ```text
@@ -229,21 +231,37 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
   ```
 
-  控制器联调新格式（观察行追加 ta/tw/on；L400S 定宽十六进制，最长 160 字节）：
+  控制器联调新格式（观察行追加 ta/tw/on/q；L400S 定宽十六进制）：
 
   ```text
-  L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+512/-256/+0 c=-128/+64/-0 ta=+3000/-1500 tw=+512/-256/+0 on=1
+  L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 g=+512/-256/+0 c=-128/+64/-0 ta=+3000/-1500 tw=+512/-256/+0 on=1 q=7FFF/0000/0000/0000
   L400S bad=0000 n=0012C0 f=0000 eul=0012C0 miss=000003 cmiss=000001 skip=000000 txd=000002 ctl=09BA/0C1C late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096
   ```
 
+  观察行最长 156 字节（含换行），L400S 最长 160 字节（等于 `UART_DATA_LEN`）；
+  `q=` 是四个有符号 16 位、Q15 两补码十六进制分量，+32768 输出为 +32767。
+
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  27636 字节，SHA256 `3D5DEF73451FB13855281A129EAA96DBBA17FD74F933337F91EC2FAFBAE0BD18`，
+  28612 字节，SHA256 `D757CEF97CBE06DB33A7B3A8D811BCADDFDE66CAE3150F3EEA1F451CB0AF6B07`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV 自测：`python test_l400_monitor.py`（16 项）。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（17 项）。
+- 四元数异常更新回归（主机侧，不烧板）：
+
+  ```powershell
+  gcc -std=c99 -O2 -I..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car `
+      test_euler_normalize.c `
+      ..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car\UserEuler.c `
+      -o ..\data\test_euler_normalize.exe
+  ..\data\test_euler_normalize.exe
+  ```
+
+  覆盖正常 2.5ms 连续更新、90ms 长间隔拒绝、异常后恢复、50ms 大单步拒绝、
+  损坏四元数拒绝；异常时必须返回失败且四元数保持不变。
+
 - 旧 7d01167 十进制格式已在 COM12 实机抓取验证；新十六进制/控制器字段
   已由模拟源、解析和 CSV 测试覆盖，实机控制器验收需烧录 `_ctrl.bin` 后再采集。
 

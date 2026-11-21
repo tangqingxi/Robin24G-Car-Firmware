@@ -5,7 +5,7 @@ uart_sensor_monitor.py 的 L400 模式自测。
 
 覆盖：
   1. 7d01167 旧十进制 L400S，以及带控制超期/控制完成时延的新十六进制 L400S；
-  2. 控制器联调观察行 ta/tw/on，以及 Q10 rad/s → °/s 换算；
+  2. 控制器联调观察行 ta/tw/on/q，Q15 四元数转欧拉角，Q10 rad/s → °/s；
   3. 串口分块到达时 L400Worker 的拆行、两份 CSV 与统计；
   4. 模拟源在 10Hz / 1Hz 下产生可解析的文本；
   5. --l400 --simulate --no-plot 端到端写 CSV。
@@ -15,6 +15,7 @@ uart_sensor_monitor.py 的 L400 模式自测。
 """
 
 import csv
+import math
 import os
 import queue
 import subprocess
@@ -31,7 +32,8 @@ L400_SAMPLE = ("L400 rdy=1 lk=1 vld=1 alk=35 avld=18 gpk=31 "
                "g=+512/-256/+0 c=-128/+64/-0")
 # 控制器联调新增：目标姿态 ta（0.01°）、目标角速度 tw（Q10）、控制使能 on
 L400_SAMPLE_CTRL = (L400_SAMPLE +
-                    " ta=+3000/-1500 tw=+512/-256/+0 on=1")
+                    " ta=+3000/-1500 tw=+512/-256/+0 on=1 "
+                    "q=7FFF/0000/0000/0000")
 L400_STAT_SAMPLE = ("L400S bad=0 n=12345 f=0 gap=0 eul=12000 "
                     "miss=0 skip=0 txd=0 cyc=2490/3100")
 # 新固件格式：定宽十六进制；miss=整拍超期，cmiss=控制超期，ctl=控制完成时延
@@ -80,9 +82,10 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual(data["c_q10"], [-128, 64, 0])
         self.assertAlmostEqual(data["g_dps"][0], 28.6478898, places=5)
         self.assertAlmostEqual(data["c_dps"][0], -7.1619724, places=5)
-        # 旧固件没有控制目标字段
+        # 旧固件没有控制目标/四元数字段
         self.assertIsNone(data["ctrl_ok"])
         self.assertIsNone(data["tgt_att_deg100"])
+        self.assertIsNone(data["q15"])
 
     def test_parse_observation_control_fields(self):
         kind, data = mon.parse_l400_line(L400_SAMPLE_CTRL)
@@ -90,6 +93,21 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual(data["tgt_att_deg100"], [3000, -1500])
         self.assertEqual(data["tgt_rate_q10"], [512, -256, 0])
         self.assertEqual(data["ctrl_ok"], 1)
+        self.assertEqual(data["q15"], [32767, 0, 0, 0])
+
+    def test_q15_to_euler(self):
+        # 单位四元数 → 零姿态
+        roll, pitch, yaw = mon.q15_to_euler_deg([32767, 0, 0, 0])
+        self.assertAlmostEqual(roll, 0.0, places=3)
+        self.assertAlmostEqual(pitch, 0.0, places=3)
+        self.assertAlmostEqual(yaw, 0.0, places=3)
+        # 横滚 +30°：q = (cos15°, sin15°, 0, 0)
+        qw = int(round(math.cos(math.radians(15.0)) * 32768))
+        qx = int(round(math.sin(math.radians(15.0)) * 32768))
+        roll, pitch, yaw = mon.q15_to_euler_deg([qw, qx, 0, 0])
+        self.assertAlmostEqual(roll, 30.0, places=2)
+        self.assertAlmostEqual(pitch, 0.0, places=2)
+        self.assertAlmostEqual(yaw, 0.0, places=2)
 
     def test_parse_statistics_old_decimal(self):
         kind, data = mon.parse_l400_line(L400_STAT_SAMPLE)
@@ -270,6 +288,7 @@ class L400SimulationTest(unittest.TestCase):
             self.assertGreaterEqual(len(stat_rows), 1)
             self.assertIn("gx_dps", obs_rows[0])
             self.assertIn("tgt_roll_deg100", obs_rows[0])
+            self.assertIn("qw_q15", obs_rows[0])
             self.assertIn("ctrl_peak_us", stat_rows[0])
 
 
