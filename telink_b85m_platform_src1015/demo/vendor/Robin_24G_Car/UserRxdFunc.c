@@ -650,7 +650,11 @@ void car_work(void)
 #endif
 			// ★v22: 黑匣子自动擦除已取消（v20/v21 擦除阻塞丢 RF 包致无法解锁），
 			//   录制区改由用户烧录后用 BDT 手动擦除。
+#if (!C_RC_LOOP_400_EN)
 			return;
+#endif
+			// L400 不在这里丢弃重连后的第一包：0001/0002 可能正好是这一包，
+			// 必须继续映射/校验并交给按键事件状态机。
 		}
 		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
 #if (C_RC_LOOP_400_EN)
@@ -1963,14 +1967,8 @@ static void RcBringup_Report(void)
 #define L400_CMD_TIMEOUT_TICKS ((u32)L400_CMD_TIMEOUT_MS * L400_TICKS_PER_MS)
 
 // ---- 手动油门 / 十字(+)四电机混控 / 解锁安全 ----
-// 油门/混控常量在 L400Motor.h，便于主机回归和固件共用。
-// 解锁/急停按键；A/B 诊断继续用“特技”键，避免混用。
-#define L400_ARM_KEY           RfSendKey_OneKRun
-#define L400_ESTOP_KEY         RfSendKey_Xspeed
-// 台架姿态异常注入：无头键只做“立即按姿态异常锁定”，真实 IMU 读失败/
-// Euler 更新失败也走同一个 ATT 锁定路径；它不会改变姿态估计本身。
-#define L400_ATT_FAULT_KEY     RfSendKey_Headless
-#define L400_ARM_HOLD_TICKS    CLOCK_SYS_CLOCK_HZ   // 油门低位保持 1s
+// 油门/混控常量、事件码（0001 急停/0002 解锁）和事件状态机在 L400Motor.h。
+// A/B 诊断继续用“特技”键，避免与解锁/急停混用。
 
 // 锁定原因在 L400Motor.h（L400Q 的 x 字段）。
 // 链路超时：超过这么久连心跳都没有，判为无线失联
@@ -2204,6 +2202,28 @@ static void L400_KeyCapture(u32 now)
 }
 #endif
 
+#if (!C_L400_KEY_CAPTURE)
+// 每个 RF 包处理一次 0001/0002 事件；packet_valid=0 的包也会消费事件沿，
+// 因此无效摇杆包里的 0002 不会等到后续重复包再解锁。
+static void L400_ProcessKeyEvent(u8 packet_valid)
+{
+	u8 thr_low = (s_l400_cmd[0] <= L400_ARM_THR_MAX) ? 1 : 0;
+	u8 sticks_center = (s_l400_cmd[1] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[1] <= L400_ARM_STICK_MAX
+						&& s_l400_cmd[2] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[2] <= L400_ARM_STICK_MAX
+						&& s_l400_cmd[3] >= -L400_ARM_STICK_MAX
+						&& s_l400_cmd[3] <= L400_ARM_STICK_MAX) ? 1 : 0;
+	u8 stop = L400M_EventStep(&s_l400_arm, s_l400_key, packet_valid,
+							  thr_low, sticks_center, s_l400_att.ready,
+							  s_l400_link, s_l400_diag_enabled);
+
+	if (stop) {
+		L400_MotorStop(stop);
+	}
+}
+#endif
+
 // 整包解码完成后的提交：全零心跳只更新链路，摇杆值换算前先验证
 void RcLoop_OnPacket(void)
 {
@@ -2224,6 +2244,9 @@ void RcLoop_OnPacket(void)
 #endif
 
 	if (thr == 0 && rot == 0 && fb == 0 && lr == 0) {
+#if (!C_L400_KEY_CAPTURE)
+		L400_ProcessKeyEvent(0);    // 心跳中的 0001/0002 也要消费事件沿
+#endif
 		return;                    // 全零心跳：只更新链路/按键，不动摇杆指令
 	}
 
@@ -2234,6 +2257,9 @@ void RcLoop_OnPacket(void)
 		fb  < RfDataMinValue || fb  > RfDataMaxValue ||
 		lr  < RfDataMinValue || lr  > RfDataMaxValue) {
 		s_l400_bad++;
+#if (!C_L400_KEY_CAPTURE)
+		L400_ProcessKeyEvent(0);    // 无效摇杆包：急停仍有效，解锁被丢弃
+#endif
 		return;
 	}
 
@@ -2254,6 +2280,9 @@ void RcLoop_OnPacket(void)
 	s_l400_pkt_tick = now;
 	s_l400_have_pkt = 1;
 	s_l400_cmd_ok = 1;
+#if (!C_L400_KEY_CAPTURE)
+	L400_ProcessKeyEvent(1);        // 该包校验通过且摇杆有效
+#endif
 	// 摇杆目标只在有效收包时换算，200Hz 控制拍不再做角度→重力方向的三角函数
 	L400_UpdateStickTargets();
 
@@ -2767,31 +2796,6 @@ static void L400_MotorStop(u8 reason)
 {
 	L400M_ArmLock(&s_l400_arm, reason);
 	L400_MotorWrite(0, 0, 0, 0);
-}
-
-// 解锁条件：遥控/指令/姿态有效 + 油门低位 + 三轴回中 + 长按“一键起降”1s。
-// 状态机在 L400Motor.h，主机回归可直接验证急停按住期间禁止解锁。
-static void L400_MotorArmPoll(u32 now)
-{
-	u8 arm_key = (s_l400_key & L400_ARM_KEY) ? 1 : 0;
-	u8 estop_key = (s_l400_key & L400_ESTOP_KEY) ? 1 : 0;
-	u8 attf_key = (s_l400_key & L400_ATT_FAULT_KEY) ? 1 : 0;
-	u8 valid = (s_l400_att.ready && s_l400_link && s_l400_cmd_ok
-				&& !s_l400_diag_enabled) ? 1 : 0;
-	u8 thr_low = (s_l400_cmd[0] <= L400_ARM_THR_MAX) ? 1 : 0;
-	u8 sticks_center = (s_l400_cmd[1] >= -L400_ARM_STICK_MAX
-						&& s_l400_cmd[1] <= L400_ARM_STICK_MAX
-						&& s_l400_cmd[2] >= -L400_ARM_STICK_MAX
-						&& s_l400_cmd[2] <= L400_ARM_STICK_MAX
-						&& s_l400_cmd[3] >= -L400_ARM_STICK_MAX
-						&& s_l400_cmd[3] <= L400_ARM_STICK_MAX) ? 1 : 0;
-	u8 stop = L400M_ArmStep(&s_l400_arm, now, arm_key, estop_key, attf_key,
-							valid, thr_low, sticks_center,
-							L400_ARM_HOLD_TICKS);
-
-	if (stop) {
-		L400_MotorStop(stop);
-	}
 }
 
 // 200Hz 混控：手动油门 → 推力；三轴纠偏 Q10 → PWM 差动。
@@ -3489,7 +3493,6 @@ static void L400_Process(void)
 		L400_MotorStop(L400_LOCK_DIAG);
 	}
 #if (!C_L400_KEY_CAPTURE)
-	L400_MotorArmPoll(now);
 	L400_MotorUpdate();
 #endif
 

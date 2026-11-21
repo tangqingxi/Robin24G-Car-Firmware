@@ -1,9 +1,12 @@
 /*
- * L400 电机混控与急停解锁回归（主机侧）
+ * L400 电机混控与 0001/0002 短事件回归（主机侧）
  *
- * 两项：
+ * 覆盖：
  *   1. 机头抬高（corr_pitch<0）时，限幅前后都必须 后电机 > 前电机；
- *   2. 急停键按住期间四路保持 0 且禁止解锁；松开后必须重新长按解锁键。
+ *   2. 实测 200ms 的 0002 脉冲：重复包只解锁一次；无效摇杆包丢弃，
+ *      之后同一脉冲的重复包不能补解锁，必须重新发新 0002；
+ *   3. 0001 立即急停且优先；按住 0001 期间 0002 无效；急停/失联后
+ *      必须收到新的 0002 才能重新解锁。
  *
  * 编译（在 tools 目录）：
  *   gcc -std=c99 -O2 -I..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car ^
@@ -49,70 +52,108 @@ static void test_pitch_sign(void)
 		   large_mix.front, large_mix.rear);
 }
 
-// 急停按住：四路 0 且禁止解锁；松开后必须松开再长按解锁键
-static void test_estop_hold_and_rearm(void)
+static unsigned char event_step(L400MArm *a, unsigned short key,
+								unsigned char packet_valid)
+{
+	// 除 packet_valid 外，其余解锁条件全部满足
+	return L400M_EventStep(a, key, packet_valid, 1, 1, 1, 1, 0);
+}
+
+// 200ms 脉冲、重复包、无效摇杆包
+static void test_unlock_pulse_and_invalid_packet(void)
 {
 	L400MArm arm;
 	L400MMix mix = {100, 200, 300, 400};
 	unsigned short out[4];
-	const unsigned int hold = 1000;
-	unsigned char stop;
+	int i;
 
 	L400M_ArmInit(&arm);
 	check(!arm.armed, "boot locked");
 
-	// 先松开解锁键，再新按下并长按 1s
-	L400M_ArmStep(&arm, 0, 0, 0, 0, 1, 1, 1, hold);
-	L400M_ArmStep(&arm, 10, 1, 0, 0, 1, 1, 1, hold);
-	L400M_ArmStep(&arm, 10 + hold - 1, 1, 0, 0, 1, 1, 1, hold);
-	check(!arm.armed, "arm before hold");
-	L400M_ArmStep(&arm, 10 + hold, 1, 0, 0, 1, 1, 1, hold);
-	check(arm.armed, "arm after hold");
-
+	// 200ms 脉冲按 5ms 一包模拟，共 40 包；只有第一个沿解锁
+	for (i = 0; i < 40; i++) {
+		event_step(&arm, L400_EVENT_UNLOCK, 1);
+		check(arm.armed, "200ms pulse unlocks");
+	}
 	L400M_Output(&arm, &mix, out);
 	check(out[0] == 100 && out[3] == 400, "armed output mix");
 
-	// 按下“速度转换”急停
-	stop = L400M_ArmStep(&arm, 3000, 1, 1, 0, 1, 1, 1, hold);
+	// 释放 0002，保持解锁状态
+	event_step(&arm, 0, 1);
+	check(arm.armed, "release does not relock");
+
+	// 先造一次失联锁定，然后无效摇杆包带新 0002：应消费事件但不解锁
+	L400M_ArmLock(&arm, L400_LOCK_LINK);
+	event_step(&arm, 0, 0);                  // 先让按键回 0，形成新事件条件
+	check(!arm.armed, "link loss locked");
+	event_step(&arm, L400_EVENT_UNLOCK, 0);  // 无效包：丢弃
+	check(!arm.armed, "invalid packet discards unlock");
+	for (i = 0; i < 39; i++) {
+		event_step(&arm, L400_EVENT_UNLOCK, 1); // 同一脉冲的后续有效重复包
+	}
+	check(!arm.armed, "duplicate of discarded pulse does not unlock");
+
+	// 松开后重新发一个新的 0002 事件才解锁
+	event_step(&arm, 0, 1);
+	event_step(&arm, L400_EVENT_UNLOCK, 1);
+	check(arm.armed, "new 0002 after invalid pulse unlocks");
+
+	printf("PASS 200ms pulse, duplicates and invalid stick packet\n");
+}
+
+// 0001 急停优先、按住期间禁止 0002、失联/急停后必须新事件
+static void test_estop_priority_and_rearm(void)
+{
+	L400MArm arm;
+	unsigned char stop;
+
+	L400M_ArmInit(&arm);
+	event_step(&arm, L400_EVENT_UNLOCK, 1);
+	check(arm.armed, "arm before estop");
+
+	// 0001 新事件：立即锁定
+	stop = event_step(&arm, L400_EVENT_ESTOP, 1);
 	check(stop == L400_LOCK_MANUAL, "estop reason");
 	check(!arm.armed, "estop locks");
-	L400M_Output(&arm, &mix, out);
-	check(out[0] == 0 && out[1] == 0 && out[2] == 0 && out[3] == 0,
-		  "estop outputs zero");
 
-	// 急停键继续按住，同时一直按住解锁键：必须保持锁定、禁止解锁
-	{
-		unsigned int t = 3010;
-		int i;
+	// 0001 按住期间，新出现的 0002（key=0003）不能解锁
+	event_step(&arm, 0, 1);
+	event_step(&arm, L400_EVENT_ESTOP, 1);
+	event_step(&arm, L400_EVENT_ESTOP | L400_EVENT_UNLOCK, 1);
+	check(!arm.armed, "0002 while 0001 held blocked");
+	event_step(&arm, L400_EVENT_ESTOP | L400_EVENT_UNLOCK, 1);
+	check(!arm.armed, "held 0003 duplicate blocked");
 
-		for (i = 0; i < 20; i++, t += hold) {
-			L400M_ArmStep(&arm, t, 1, 1, 0, 1, 1, 1, hold);
-			check(!arm.armed, "estop held blocks unlock");
-			L400M_Output(&arm, &mix, out);
-			check(out[0] == 0 && out[3] == 0, "estop held outputs zero");
-		}
-	}
+	// 松开 0001 但仍保留 0002 的旧沿：不算新 0002
+	event_step(&arm, L400_EVENT_UNLOCK, 1);
+	check(!arm.armed, "old 0002 after estop does not unlock");
 
-	// 急停松开但解锁键仍按住：仍禁止解锁
-	L400M_ArmStep(&arm, 40000, 1, 0, 0, 1, 1, 1, hold);
-	check(!arm.armed, "estop release with arm held still locked");
+	// 松开到 0，再发新的 0002
+	event_step(&arm, 0, 1);
+	event_step(&arm, L400_EVENT_UNLOCK, 1);
+	check(arm.armed, "new 0002 after estop unlocks");
 
-	// 松开解锁键，再重新长按：必须先松开才能重新解锁
-	L400M_ArmStep(&arm, 40010, 0, 0, 0, 1, 1, 1, hold);
-	check(!arm.armed, "arm released stays locked");
-	L400M_ArmStep(&arm, 40020, 1, 0, 0, 1, 1, 1, hold);
-	L400M_ArmStep(&arm, 40020 + hold - 1, 1, 0, 0, 1, 1, 1, hold);
-	check(!arm.armed, "re-arm before hold");
-	L400M_ArmStep(&arm, 40020 + hold, 1, 0, 0, 1, 1, 1, hold);
-	check(arm.armed, "re-arm after hold");
+	// 失联锁定；若 0002 在失联前已按住，同一个脉冲不能重新解锁
+	L400M_ArmLock(&arm, L400_LOCK_LINK);
+	event_step(&arm, L400_EVENT_UNLOCK, 1);  // key_prev 仍为 0002，无新沿
+	check(!arm.armed, "link loss requires new 0002");
+	event_step(&arm, 0, 1);
+	event_step(&arm, L400_EVENT_UNLOCK, 1);
+	check(arm.armed, "new 0002 after link loss unlocks");
 
-	printf("PASS estop held blocks unlock and re-hold re-arms\n");
+	// 0001 即使落在无效摇杆包上，也必须立即急停
+	stop = event_step(&arm, L400_EVENT_ESTOP, 0);
+	check(stop == L400_LOCK_MANUAL, "invalid-packet estop reason");
+	check(!arm.armed, "invalid-packet estop locks");
+
+	printf("PASS estop priority and new-event rearm\n");
 }
 
 int main(void)
 {
 	test_pitch_sign();
-	test_estop_hold_and_rearm();
+	test_unlock_pulse_and_invalid_packet();
+	test_estop_priority_and_rearm();
 	if (failed) {
 		printf("RESULT FAIL\n");
 		return 1;

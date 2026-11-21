@@ -39,15 +39,14 @@ typedef struct {
 	unsigned short right;
 } L400MMix;
 
+// 实测短事件：0002=解锁，0001=急停；每次 0→1 沿只处理一次
+#define L400_EVENT_ESTOP        0x0001
+#define L400_EVENT_UNLOCK       0x0002
+
 typedef struct {
 	unsigned char armed;
-	unsigned char require_release;  // 故障/急停后必须先松开解锁键
-	unsigned char arm_prev;
-	unsigned char estop_prev;
-	unsigned char attf_prev;
-	unsigned char hold_active;
-	unsigned int  hold_tick;
 	unsigned char reason;           // L400_LOCK_*
+	unsigned short key_prev;        // 上一包按键字，用于事件沿检测
 } L400MArm;
 
 static int l400m_clamp(int v, int lim)
@@ -146,105 +145,54 @@ static void L400M_Mix(int thrust, int corr_roll, int corr_pitch,
 static void L400M_ArmInit(L400MArm *a)
 {
 	a->armed = 0;
-	a->require_release = 1;
-	a->arm_prev = 1;              // 上电先要求松开解锁键
-	a->estop_prev = 0;
-	a->attf_prev = 0;
-	a->hold_active = 0;
-	a->hold_tick = 0;
 	a->reason = L400_LOCK_BOOT;
+	a->key_prev = 0;
 }
 
 static void L400M_ArmLock(L400MArm *a, unsigned char reason)
 {
 	a->armed = 0;
-	a->hold_active = 0;
-	a->require_release = 1;
 	if (reason) {
 		a->reason = reason;
 	}
 }
 
 /*
- * 解锁/急停状态机。
- * 返回非 0 表示本拍需要立即清四路（值为锁定原因），调用方再执行硬件清零。
- * 急停键或姿态注入键按住期间：禁止解锁、清四路并保持锁定；
- * 松开后还要求先松开解锁键，再重新长按 hold_ticks。
+ * 每个 RF 包调用一次（包括无效摇杆/全零心跳包）。
+ * 0001=急停，收到新事件立即锁定；0002=解锁，只在新事件且该包有效、
+ * 油门低位、三轴回中、姿态就绪、链路有效且非诊断时才解锁。
+ * 条件不满足的 0002 事件也会被消费，后续重复包不会补解锁。
  */
-static unsigned char L400M_ArmStep(L400MArm *a, unsigned int now,
-								   unsigned char arm_key,
-								   unsigned char estop_key,
-								   unsigned char attf_key,
-								   unsigned char valid,
-								   unsigned char thr_low,
-								   unsigned char sticks_center,
-								   unsigned int hold_ticks)
+static unsigned char L400M_EventStep(L400MArm *a, unsigned short key,
+									 unsigned char packet_valid,
+									 unsigned char thr_low,
+									 unsigned char sticks_center,
+									 unsigned char att_ready,
+									 unsigned char link_ok,
+									 unsigned char diag_enabled)
 {
-	unsigned char stop = 0;
+	unsigned char new_estop = (key & L400_EVENT_ESTOP)
+							  && !(a->key_prev & L400_EVENT_ESTOP);
+	unsigned char new_unlock = (key & L400_EVENT_UNLOCK)
+							   && !(a->key_prev & L400_EVENT_UNLOCK);
 
-	if (a->armed) {
-		if (estop_key && !a->estop_prev) {
-			L400M_ArmLock(a, L400_LOCK_MANUAL);
-			stop = L400_LOCK_MANUAL;
-		} else if (attf_key && !a->attf_prev) {
-			L400M_ArmLock(a, L400_LOCK_ATT);
-			stop = L400_LOCK_ATT;
+	a->key_prev = key;
+
+	// 急停优先：即使同包同时出现解锁位也不处理解锁
+	if (new_estop) {
+		L400M_ArmLock(a, L400_LOCK_MANUAL);
+		return L400_LOCK_MANUAL;
+	}
+
+	if (new_unlock) {
+		if (packet_valid && !(key & L400_EVENT_ESTOP)
+			&& thr_low && sticks_center && att_ready && link_ok
+			&& !diag_enabled) {
+			a->armed = 1;
+			a->reason = L400_LOCK_NONE;
 		}
-		a->estop_prev = estop_key;
-		a->attf_prev = attf_key;
-		a->arm_prev = arm_key;
-		return stop;
+		// 条件不满足：事件已消费，不锁定也不延迟解锁
 	}
-
-	a->estop_prev = estop_key;
-	a->attf_prev = attf_key;
-
-	// 急停/姿态注入键按住：无论解锁键怎么按都不允许解锁
-	if (estop_key || attf_key) {
-		a->require_release = 1;
-		a->arm_prev = arm_key;
-		a->hold_active = 0;
-		return 0;
-	}
-
-	// 锁定后必须先看到解锁键松开
-	if (a->require_release) {
-		if (arm_key) {
-			a->arm_prev = 1;
-			a->hold_active = 0;
-			return 0;
-		}
-		a->require_release = 0;
-		a->arm_prev = 0;
-	}
-
-	if (!arm_key) {
-		a->arm_prev = 0;
-		a->hold_active = 0;
-		return 0;
-	}
-
-	if (!a->arm_prev) {
-		// 只在新按下沿开始计时；中途失效不会顺延
-		if (valid && thr_low && sticks_center) {
-			a->hold_active = 1;
-			a->hold_tick = now;
-		} else {
-			a->hold_active = 0;
-		}
-	} else if (!valid || !thr_low || !sticks_center) {
-		a->hold_active = 0;
-	}
-
-	if (a->hold_active
-		&& (unsigned int)(now - a->hold_tick) >= hold_ticks
-		&& valid && thr_low && sticks_center) {
-		a->armed = 1;
-		a->reason = L400_LOCK_NONE;
-		a->hold_active = 0;
-		a->require_release = 0;
-	}
-	a->arm_prev = 1;
 	return 0;
 }
 
