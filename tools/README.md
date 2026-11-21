@@ -288,6 +288,17 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   L400T budget=12 busy=3
   ```
 
+  K1/K2 抓包模式（单独镜像，电机不初始化）额外输出原始按键变化行：
+
+  ```text
+  L400K key=0001 rk=00 b=00/00/00/01 dt=23
+  ```
+
+  - `key`：`u16RemotorKeyVal`（扩展按键字）；
+  - `rk`：`rf_received_key`（旧 key 字节）；
+  - `b`：原始缓冲区 `[8]/[9]/[10]/[11]`；
+  - `dt`：距上一次按键变化的 ms。
+
   prep/Euler_Update 拆分计时（1s 一行，us）：
 
   ```text
@@ -337,6 +348,17 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   若 A 已完成，会先补发 A 行；`reason=link/cmd`、`haveA` 说明中止原因和
   已保留的阶段。
 
+### K1/K2 原始收包抓取
+
+1. 电机断开，烧 `Robin_24G_Car_rc_loop400_keycap.bin`；该镜像不初始化电机 PWM。
+2. 打开串口监视器（`--l400 --no-plot`），依次短按/长按 K1、K2，间隔 1s 以上。
+3. 控制台出现 `[按键] L400K ...`，同时写入 `<统计 CSV>.diag.txt`。
+4. 把 K1/K2 的按下、保持、松开三行（包括 `key=0000` 的释放行）留档。
+
+当前遥控源码里 K1（速度键）短按发的是 `RfSendKey_Xspeed` 短脉冲，K2（灯键）
+在当前发送路径中没有映射；实际单元是否不同，以抓包结果为准。确认是短事件后
+再把正常镜像的解锁改成“K1 长按事件一次处理、K2 事件立即急停”。
+
 ### 无桨台架电机验收
 
 1. **上电锁定**：四路 `pwm=000/000/000/000 m=0 x=1`；未解锁前推油门不应有输出。
@@ -357,12 +379,15 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  35252 字节，SHA256 `C18D6F1B5162E12D2056A48C809DF7B207EA0F77D5F48540E4A5AB40E0E43D39`，
+  35268 字节，SHA256 `984C5F918C99B5D5E388BC0F7D9000D02556489306168C5DF84AE8EFC62C09F4`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
+  K1/K2 原始抓包镜像：`Robin_24G_Car_rc_loop400_keycap.bin`（34420 字节，
+  SHA256 `E9EBD6E346F23E6025DF73387B42333ADD1D81219C142C130EA2D7A37E31436B`），
+  不初始化电机 PWM，仅用于抓包。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（23 项）。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（24 项）。
 - 四元数异常更新回归（主机侧，不烧板）：
 
   ```powershell

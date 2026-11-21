@@ -578,6 +578,12 @@ _L400_DIAG_ABORT_RE = re.compile(
 _L400_TXDIAG_RE = re.compile(
     r"^L400T\s+budget=(\d+)\s+busy=(\d+)\s*$")
 
+# K1/K2 原始收包抓包：key/rk/原始字节/包间隔
+_L400_KEY_RE = re.compile(
+    r"^L400K\s+key=([0-9A-F]{4})\s+rk=([0-9A-F]{2})\s+"
+    r"b=([0-9A-F]{2})/([0-9A-F]{2})/([0-9A-F]{2})/([0-9A-F]{2})\s+"
+    r"dt=(\d+)\s*$")
+
 # prep / Euler_Update 两段耗时（us，1Hz）
 _L400_PREP_RE = re.compile(
     r"^L400P\s+prep=(\d+)/(\d+)\s+eul=(\d+)/(\d+)\s+"
@@ -727,6 +733,18 @@ def parse_l400_line(line):
         return ("l400t", {
             "budget": int(m.group(1)),
             "busy": int(m.group(2)),
+        })
+
+    m = _L400_KEY_RE.match(line)
+    if m:
+        return ("l400k", {
+            "key": int(m.group(1), 16),
+            "rk": int(m.group(2), 16),
+            "b8": int(m.group(3), 16),
+            "b9": int(m.group(4), 16),
+            "b10": int(m.group(5), 16),
+            "b11": int(m.group(6), 16),
+            "dt_ms": int(m.group(7)),
         })
 
     m = _L400_PREP_RE.match(line)
@@ -1314,7 +1332,7 @@ class L400Worker(threading.Thread):
                 pass
             return
 
-        if kind in ("l400d", "l400d_abort", "l400t", "l400p"):
+        if kind in ("l400d", "l400d_abort", "l400t", "l400p", "l400k"):
             self.diag += 1
             self.last_diag = payload
             try:
@@ -1328,6 +1346,8 @@ class L400Worker(threading.Thread):
                 tag = "诊断-中止"
             elif kind == "l400p":
                 tag = "耗时"
+            elif kind == "l400k":
+                tag = "按键"
             else:
                 tag = "报告延期"
             print(f"[{tag}] {line}", flush=True)

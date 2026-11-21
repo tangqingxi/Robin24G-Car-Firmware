@@ -1940,6 +1940,12 @@ static void RcBringup_Report(void)
 //   姿态部分复用台架镜像已验证的静止初始化、加计一阶低通和长间断处理。
 //   串口：10Hz 观察行（包龄/角速度/纠偏）+ 1Hz 统计行（采样/超时/跳拍）。
 // =====================================================================================
+// 台架 K1/K2 抓包模式：只记录原始按键字节，不初始化电机 PWM，保持四路低电平。
+// 最终飞控镜像默认 0；抓包时单独用 -DC_L400_KEY_CAPTURE=1 构建。
+#ifndef C_L400_KEY_CAPTURE
+#define C_L400_KEY_CAPTURE 0
+#endif
+
 #define L400_HZ                200
 #define L400_PERIOD_TICKS      (CLOCK_SYS_CLOCK_HZ / L400_HZ)          // 5ms = 120000 tick
 #define L400_TICKS_PER_MS      (CLOCK_SYS_CLOCK_HZ / 1000)            // 24000 tick/ms
@@ -1993,6 +1999,16 @@ static void RcBringup_Report(void)
 // 收包时间全部保存原始 tick：链路用"任何包"，指令用"有效摇杆包"
 static s32 s_l400_cmd[4];          // 油门/偏航/俯仰/横滚（±307，供后续控制环）
 static u16 s_l400_key;
+#if C_L400_KEY_CAPTURE
+static u16 s_l400_cap_last_key;    // K1/K2 抓包：同一按键状态只记一次
+static u8  s_l400_cap_last_rk;
+static u8  s_l400_cap_last_b8;
+static u8  s_l400_cap_last_b9;
+static u8  s_l400_cap_last_b10;
+static u8  s_l400_cap_last_b11;
+static u32 s_l400_cap_last_tick;
+static u8  s_l400_cap_have;
+#endif
 static u8  s_l400_cmd_ok;          // 摇杆指令有效（最近有效摇杆包未超时）
 static u8  s_l400_link;            // 无线链路有效（任何包，含心跳）
 static u8  s_l400_have_pkt;        // 是否收到过有效摇杆包
@@ -2132,11 +2148,68 @@ static void L400_UpdateStickTargets(void);
 // 电机安全停止（供收包/诊断/控制路径调用，具体实现在 L400 控制段）
 static void L400_MotorStop(u8 reason);
 
+#if C_L400_KEY_CAPTURE
+static char *l400_put_str(char *p, const char *s);
+static char *l400_put_u32(char *p, u32 v);
+static char *l400_put_hex(char *p, u32 v, u8 digits);
+
+// 台架 K1/K2 抓包：每次 key/rk/原始字节变化打印一行；阻塞发送只用于抓包镜像。
+static void L400_KeyCapture(u32 now)
+{
+	u8 b8 = UserRfRcvBuffer[8];
+	u8 b9 = UserRfRcvBuffer[9];
+	u8 b10 = UserRfRcvBuffer[10];
+	u8 b11 = UserRfRcvBuffer[11];
+	u8 changed = !s_l400_cap_have
+		|| s_l400_key != s_l400_cap_last_key
+		|| rf_received_key != s_l400_cap_last_rk
+		|| b8 != s_l400_cap_last_b8
+		|| b9 != s_l400_cap_last_b9
+		|| b10 != s_l400_cap_last_b10
+		|| b11 != s_l400_cap_last_b11;
+
+	if (!changed) {
+		return;
+	}
+	{
+		char buf[96];
+		char *q = buf;
+
+		q = l400_put_str(q, "L400K key=");
+		q = l400_put_hex(q, s_l400_key, 4);
+		q = l400_put_str(q, " rk=");
+		q = l400_put_hex(q, rf_received_key, 2);
+		q = l400_put_str(q, " b=");
+		q = l400_put_hex(q, b8, 2);
+		*q++ = '/';
+		q = l400_put_hex(q, b9, 2);
+		*q++ = '/';
+		q = l400_put_hex(q, b10, 2);
+		*q++ = '/';
+		q = l400_put_hex(q, b11, 2);
+		q = l400_put_str(q, " dt=");
+		q = l400_put_u32(q, s_l400_cap_have
+						? (now - s_l400_cap_last_tick) / L400_TICKS_PER_MS : 0);
+		*q++ = '\n';
+		UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+	}
+	s_l400_cap_last_key = s_l400_key;
+	s_l400_cap_last_rk = rf_received_key;
+	s_l400_cap_last_b8 = b8;
+	s_l400_cap_last_b9 = b9;
+	s_l400_cap_last_b10 = b10;
+	s_l400_cap_last_b11 = b11;
+	s_l400_cap_last_tick = now;
+	s_l400_cap_have = 1;
+}
+#endif
+
 // 整包解码完成后的提交：全零心跳只更新链路，摇杆值换算前先验证
 void RcLoop_OnPacket(void)
 {
 	u16 thr = u16Throttle_Rxd, rot = u16Rotation_Rxd;
 	u16 fb = u16FBmove_Rxd, lr = u16LRmove_Rxd;
+	u16 key = u16RemotorKeyVal;
 	u32 now = clock_time();
 
 	// 任何成功解码的包都刷新链路时刻（心跳也说明遥控器还在）
@@ -2144,8 +2217,14 @@ void RcLoop_OnPacket(void)
 	s_l400_link_tick = now;
 	s_l400_have_link = 1;
 
+	// 按键值先更新/抓包，再判断全零心跳；K1/K2 可能只带按键、四摇杆为 0
+	s_l400_key = key;
+#if C_L400_KEY_CAPTURE
+	L400_KeyCapture(now);
+#endif
+
 	if (thr == 0 && rot == 0 && fb == 0 && lr == 0) {
-		return;                    // 全零心跳：只更新链路，不动摇杆指令
+		return;                    // 全零心跳：只更新链路/按键，不动摇杆指令
 	}
 
 	// 换算前先验证原始值：RxdDataConvert 内部会把越界值钳到 0x0400/0x1C00，
@@ -2174,7 +2253,6 @@ void RcLoop_OnPacket(void)
 	}
 	s_l400_pkt_tick = now;
 	s_l400_have_pkt = 1;
-	s_l400_key = u16RemotorKeyVal;
 	s_l400_cmd_ok = 1;
 	// 摇杆目标只在有效收包时换算，200Hz 控制拍不再做角度→重力方向的三角函数
 	L400_UpdateStickTargets();
@@ -2425,12 +2503,13 @@ static void L400_Init(void)
 
 	L400_StateReset();
 
-	// 台架 L400 路径此前不初始化电机 PWM；这里只启动 PWM 并把四路置 0，
-	// 真正输出必须等显式解锁。初始化失败则保持引脚低电平。
+	// 正常镜像启动 PWM 并保持四路 0；抓包镜像完全不初始化 PWM，引脚保持低电平。
+#if (!C_L400_KEY_CAPTURE)
 	if (!s_l400_pwm_ready) {
 		User_pwm_init_func();
 		s_l400_pwm_ready = 1;
 	}
+#endif
 	L400_MotorStop(L400_LOCK_BOOT);
 
 	q = buf;
@@ -3409,8 +3488,10 @@ static void L400_Process(void)
 	} else if (s_l400_diag_enabled) {
 		L400_MotorStop(L400_LOCK_DIAG);
 	}
+#if (!C_L400_KEY_CAPTURE)
 	L400_MotorArmPoll(now);
 	L400_MotorUpdate();
+#endif
 
 	// 控制完成时刻：包含 IMU 读取、标定/低通、姿态更新、控制混控；
 	// 不含后面的串口报告，因此可单独统计“控制完成超期”。

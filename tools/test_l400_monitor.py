@@ -52,6 +52,7 @@ L400_DIAG_A = ("L400D A late=900/1500 exec=1000/1600 cmiss=0 skip=0 "
 L400_DIAG_ABORT = "L400D ABORT seg=B reason=cmd haveA=1"
 L400_TXDIAG = "L400T budget=12 busy=3"
 L400_PREP = "L400P prep=120/180 eul=45/70 n=200 e=200"
+L400_KEY = "L400K key=0001 rk=00 b=00/00/00/01 dt=23"
 L400_INIT_OK = "L400 init ok lpf_rb=3"
 L400_INIT_FAIL = "L400 init fail st=1 lpf_rb=255"
 
@@ -206,6 +207,15 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual((data["prep_avg_us"], data["prep_max_us"]), (120, 180))
         self.assertEqual((data["eul_avg_us"], data["eul_max_us"]), (45, 70))
         self.assertEqual((data["prep_n"], data["eul_n"]), (200, 200))
+
+    def test_parse_k1_k2_capture(self):
+        kind, data = mon.parse_l400_line(L400_KEY)
+        self.assertEqual(kind, "l400k")
+        self.assertEqual(data["key"], 1)
+        self.assertEqual(data["rk"], 0)
+        self.assertEqual((data["b8"], data["b9"], data["b10"], data["b11"]),
+                         (0, 0, 0, 1))
+        self.assertEqual(data["dt_ms"], 23)
 
     def test_parse_status_and_unknown(self):
         kind, text = mon.parse_l400_line(L400_INIT_OK)
