@@ -442,9 +442,12 @@ void irq_handle_private_1m()
 {
 	unsigned short rf_irq_src = rf_irq_src_get();//get irq src
 	unsigned int diag_t0 = 0;
+	unsigned char diag_has_src = 0;
 
-	if (g_rf_irq_meas_en) {
+	// 只有确实有射频中断源的调用才计入，避免空进空出拉低平均
+	if (g_rf_irq_meas_en && rf_irq_src) {
 		diag_t0 = clock_time();
+		diag_has_src = 1;
 	}
 
 	if (rf_irq_src)
@@ -495,7 +498,7 @@ void irq_handle_private_1m()
 		irq_clr_src(); //clear irq all src
 	}
 
-	if (g_rf_irq_meas_en) {
+	if (diag_has_src) {
 		unsigned int dt = clock_time() - diag_t0;
 
 		g_rf_irq_sum_ticks += dt;

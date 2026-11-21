@@ -18,6 +18,9 @@
 #include <UserUart.h>
 #include "UserFilter.h"
 #include "UserEuler.h"
+#if (C_RC_LOOP_400_EN)
+#include "L400Diag.h"
+#endif
 #include "my_t3488.h"
 #include "User_IIC.h"
 #include "UserAdc.h"
@@ -2043,10 +2046,6 @@ static u8  s_l400_tx_deferred;     // 10Hz 观察行因余量不足/串口忙延
 
 // A/B 分段诊断：A 只收包+姿态，B 再开双环；两段都不发常规遥测，
 // 结束后一次性输出分项耗时。等待链路稳定的 2s 内仍正常发遥测。
-#define L400_DIAG_WAIT          0
-#define L400_DIAG_A             1
-#define L400_DIAG_B             2
-#define L400_DIAG_DONE          3
 #define L400_DIAG_SETTLE_TICKS  (CLOCK_SYS_CLOCK_HZ * 2)
 #define L400_DIAG_SEG_TICKS     (CLOCK_SYS_CLOCK_HZ * 10)
 
@@ -2059,11 +2058,11 @@ typedef struct {
 	u32 app_avg, app_max;
 } l400_diag_t;
 
-static u8  s_l400_diag_state;          // WAIT/A/B/DONE
-static u8  s_l400_diag_active;         // 诊断段进行中：暂缓常规遥测
+static L400Diag s_l400_diag;           // 纯逻辑 A/B 状态机
+static L400DiagTx s_l400_diag_tx;      // 汇总行待发队列
+static u8  s_l400_diag_active;         // A/B 或待发汇总期间暂缓常规遥测
 static u8  s_l400_diag_ctrl_enable;    // A=0，B/正常=1
-static u32 s_l400_diag_settle;         // 链路稳定计数
-static u32 s_l400_diag_since;          // 本段起始 tick
+static u8  s_l400_diag_have_a;         // A 段快照是否已完成
 static l400_diag_t s_l400_diag_a;
 static l400_diag_t s_l400_diag_b;
 static u32 s_l400_diag_rf_sum_ticks;   // d24_rx_main_loop 累计 tick
@@ -2285,11 +2284,11 @@ static void L400_StateReset(void)
 	s_l400_stick_last[1] = 0;
 	s_l400_stick_yaw_last = 0;
 	s_l400_tgt_valid = 0;
-	s_l400_diag_state = L400_DIAG_WAIT;
+	L400Diag_Init(&s_l400_diag, L400_DIAG_SETTLE_TICKS, L400_DIAG_SEG_TICKS);
+	L400DiagTx_Init(&s_l400_diag_tx);
 	s_l400_diag_active = 0;
 	s_l400_diag_ctrl_enable = 1;
-	s_l400_diag_settle = 0;
-	s_l400_diag_since = 0;
+	s_l400_diag_have_a = 0;
 	s_l400_diag_rf_sum_ticks = 0;
 	s_l400_diag_rf_max_ticks = 0;
 	s_l400_diag_rf_cnt = 0;
@@ -2822,10 +2821,10 @@ static void L400_DiagTake(l400_diag_t *d)
 	d->app_max = s_l400_rx_max_us;
 }
 
-// 结束后一次性输出一段的 late/exec/cmiss/skip + 射频中断/RF 主循环/应用收包耗时
-static void L400_DiagSend(char seg, const l400_diag_t *d)
+// 把一段结果格式化成一行并放入待发队列；真正发送由 L400_DiagFlush 逐行尝试
+static void L400_DiagQueueSeg(char seg, const l400_diag_t *d)
 {
-	char buf[UART_DATA_LEN];
+	char buf[L400_DIAG_LINE_LEN];
 	char *q = buf;
 
 	q = l400_put_str(q, "L400D ");
@@ -2855,73 +2854,83 @@ static void L400_DiagSend(char seg, const l400_diag_t *d)
 	*q++ = '/';
 	q = l400_put_u32(q, d->app_max);
 	*q++ = '\n';
-	UartDbgSend((unsigned char *)buf, (u8)(q - buf));
+	L400DiagTx_Enqueue(&s_l400_diag_tx, buf, (unsigned char)(q - buf));
 }
 
-// 链路中途掉线：放弃本次分段，恢复正常遥测；链路稳定 2s 后自动重试
-static void L400_DiagAbort(u32 now)
+// 中止行：保留中止发生的段、原因，以及 A 段是否已完成
+static void L400_DiagQueueAbort(void)
 {
-	s_l400_diag_state = L400_DIAG_WAIT;
-	s_l400_diag_active = 0;
-	s_l400_diag_ctrl_enable = 1;
-	s_l400_diag_settle = 0;
-	g_rf_irq_meas_en = 0;
-	L400_DiagResetStats();
-	s_l400_tx_tick = now + L400_REPORT_TICKS;
-	s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
-	L400_ControlOutputsClear();
+	char buf[L400_DIAG_LINE_LEN];
+	char *q = buf;
+
+	q = l400_put_str(q, "L400D ABORT seg=");
+	*q++ = s_l400_diag.abort_seg ? 'B' : 'A';
+	q = l400_put_str(q, " reason=");
+	q = l400_put_str(q, (s_l400_diag.abort_reason == L400_DIAG_REASON_CMD)
+					 ? "cmd" : "link");
+	q = l400_put_str(q, " haveA=");
+	q = l400_put_u32(q, s_l400_diag_have_a);
+	*q++ = '\n';
+	L400DiagTx_Enqueue(&s_l400_diag_tx, buf, (unsigned char)(q - buf));
 }
 
-// 每个 400Hz 拍检查 A/B 状态机；启动条件为链路/指令/姿态同时稳定 2s
+// UART 非阻塞发送回调：返回 0 表示忙，队列保留当前行
+static u8 L400_DiagTrySend(const char *s, u8 len)
+{
+	return UartTrySend((unsigned char *)s, len);
+}
+
+// 每个 400Hz 拍推进纯逻辑状态机，并在事件点抓取当前段统计快照
 static void L400_DiagPoll(u32 now)
 {
-	if (s_l400_diag_state == L400_DIAG_WAIT) {
-		if (s_l400_att.ready && s_l400_link && s_l400_cmd_ok) {
-			s_l400_diag_settle++;
-			if (s_l400_diag_settle >= L400_DIAG_SETTLE_TICKS) {
-				s_l400_diag_state = L400_DIAG_A;
-				s_l400_diag_active = 1;
-				s_l400_diag_ctrl_enable = 0;
-				s_l400_diag_settle = 0;
-				s_l400_diag_since = now;
-				L400_ControlOutputsClear();
-				L400_DiagResetStats();
-				g_rf_irq_meas_en = 1;
-			}
-		} else {
-			s_l400_diag_settle = 0;
-		}
-		return;
-	}
+	u8 valid = (s_l400_att.ready && s_l400_link && s_l400_cmd_ok) ? 1 : 0;
+	u8 reason = !s_l400_link ? L400_DIAG_REASON_LINK
+			  : (!s_l400_cmd_ok ? L400_DIAG_REASON_CMD
+								: L400_DIAG_REASON_NONE);
+	unsigned int ev = L400Diag_Poll(&s_l400_diag, now, valid, reason);
 
-	if (s_l400_diag_state == L400_DIAG_DONE) {
-		return;
-	}
-
-	if (!s_l400_link || !s_l400_cmd_ok) {
-		L400_DiagAbort(now);
-		return;
-	}
-
-	if ((s32)(now - s_l400_diag_since) < (s32)L400_DIAG_SEG_TICKS) {
-		return;
-	}
-
-	if (s_l400_diag_state == L400_DIAG_A) {
-		L400_DiagTake(&s_l400_diag_a);
-		s_l400_diag_state = L400_DIAG_B;
-		s_l400_diag_ctrl_enable = 1;
-		s_l400_diag_since = now;
+	if (ev & L400_DIAG_EV_START_A) {
+		s_l400_diag_active = 1;
+		s_l400_diag_ctrl_enable = 0;
+		s_l400_diag_have_a = 0;
+		L400_ControlOutputsClear();
 		L400_DiagResetStats();
-	} else if (s_l400_diag_state == L400_DIAG_B) {
+		g_rf_irq_meas_en = 1;
+	}
+	if (ev & L400_DIAG_EV_A_DONE) {
+		L400_DiagTake(&s_l400_diag_a);
+		s_l400_diag_have_a = 1;
+		s_l400_diag_ctrl_enable = 1;
+		L400_DiagResetStats();
+	}
+	if (ev & L400_DIAG_EV_B_DONE) {
 		L400_DiagTake(&s_l400_diag_b);
 		g_rf_irq_meas_en = 0;
-		L400_DiagSend('A', &s_l400_diag_a);
-		L400_DiagSend('B', &s_l400_diag_b);
-		s_l400_diag_state = L400_DIAG_DONE;
-		s_l400_diag_active = 0;
+		L400_DiagQueueSeg('A', &s_l400_diag_a);
+		L400_DiagQueueSeg('B', &s_l400_diag_b);
 		s_l400_diag_ctrl_enable = 1;
 		L400_DiagResetStats();
+	}
+	if (ev & L400_DIAG_EV_ABORT) {
+		g_rf_irq_meas_en = 0;
+		if (s_l400_diag_have_a) {
+			L400_DiagQueueSeg('A', &s_l400_diag_a);
+		}
+		L400_DiagQueueAbort();
+		s_l400_diag_ctrl_enable = 1;
+		L400_DiagResetStats();
+	}
+}
+
+// 汇总行分开发送：UartTrySend 忙时保留；全部发完后恢复正常遥测
+static void L400_DiagFlush(u32 now)
+{
+	L400DiagTx_Flush(&s_l400_diag_tx, L400_DiagTrySend);
+
+	if (s_l400_diag_active && s_l400_diag_tx.count == 0
+		&& (s_l400_diag.state == L400_DIAG_STATE_DONE
+			|| s_l400_diag.state == L400_DIAG_STATE_ABORT)) {
+		s_l400_diag_active = 0;
 		s_l400_tx_tick = now + L400_REPORT_TICKS;
 		s_l400_stat_tick = now + CLOCK_SYS_CLOCK_HZ;
 	}
@@ -2989,6 +2998,7 @@ static void L400_Process(void)
 	}
 	// A/B 分段诊断状态机：启动/切换/结束都发生在采样之前
 	L400_DiagPoll(now);
+	L400_DiagFlush(now);
 
 	// 实际采样开始：从原定拍点到这里就是主循环调度迟到量；
 	// 后面 t_exec1 - t_sample0 是 IMU + 估计 + P 环的执行时间。
@@ -3117,7 +3127,7 @@ static void L400_Process(void)
 
 	// 低频串口输出：400Hz 到点先保证采样/控制，报告只在本拍余量足够时
 	// 非阻塞提交；余量不足或串口忙就延期到下一拍，绝不等待 DMA。
-	// A/B 诊断段暂缓所有常规格式化，结束后由 L400_DiagSend 一次性输出。
+	// A/B 诊断段暂缓所有常规格式化，结束后由待发队列逐行输出。
 	if (!s_l400_diag_active) {
 		u32 t_tx0 = clock_time();
 		u32 t_tx1;

@@ -12,6 +12,7 @@
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 | `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
+| `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
 重复的串口/输出/FRD 校验代码已收进 `calib_common.py`，陀螺标定开始时
@@ -213,14 +214,17 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   目标横滚/俯仰满杆 ±30°，偏航目标角速度满杆 ±3rad/s；内环 PID 的 P=1/4，
   I/D 为 0 时对应的每拍状态更新不编译，只观察不写电机。欧拉角显示留给上位机。
   失联、指令超时、姿态未就绪或本拍没有新姿态时，目标/纠偏清零并显示“控制 禁止”。
-- A/B 分段诊断（本控制器镜像）：链路/指令/姿态稳定 2s 后自动开始；
-  A 段 10s 只跑收包+姿态估计（双环关闭），B 段 10s 再开双环。两段内
-  **暂缓所有常规 L400/L400S 行**，结束后一次性输出两行 `L400D` 汇总，
-  随后自动恢复正常遥测（本轮不重烧）。A/B 期间 GUI 约 20s 无新观察帧、
-  显示“串口数据中断”是预期现象。链路中途掉线会放弃本次分段，稳定 2s
-  后自动重试；要重新跑一遍可断电重上电。
-  横滚/俯仰目标只在有效杆量变化时重算；所有有效包照常刷新包龄，
-  失联/超时后的首个有效包强制重算。
+- A/B 分段诊断（本控制器镜像）：用“连续有效状态起始 tick”与当前 tick 的差
+  判断满 2s；中途失效重新计时。满 2s 后 A 段 10s 只跑收包+姿态估计
+  （双环关闭），B 段 10s 再开双环。两段内 **暂缓所有常规 L400/L400S 行**。
+  两段结果先存快照，再用 `UartTrySend()` 逐行发送两行 `L400D` 汇总；
+  串口忙时保留待发，发完自动恢复正常遥测（本轮不重烧）。`rfirq` 只统计
+  确实有射频中断源的 ISR 调用。A/B 期间 GUI 约 20s 无新观察帧、
+  显示“串口数据中断”是预期现象。
+  链路中途失效会中止：保留已完成 A 段快照和中止原因，发送
+  `L400D ABORT ...`（如有 A 段则先发 A 行），发完后恢复遥测；本次不再
+  自动重试，断电重上电可重新跑。横滚/俯仰目标只在有效杆量变化时重算；
+  所有有效包照常刷新包龄，失联/超时后的首个有效包强制重算。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、坏包 `bad`；
   新固件显示“整拍超期 `miss`、控制超期 `cmiss`、跳拍 `skip`、串口推迟 `txd`、
   控制完成 `ctl=本周期最大/上电峰值`”，以及分项耗时：
@@ -257,16 +261,23 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   ```
 
   监视器会在控制台打印 `[诊断]`，并把两行原样追加到
-  `<统计 CSV>.diag.txt`；A/B 期间不写常规 CSV 行。
+  `<统计 CSV>.diag.txt`；A/B 期间不写常规 CSV 行。掉链中止会额外输出：
+
+  ```text
+  L400D ABORT seg=B reason=cmd haveA=1
+  ```
+
+  若 A 已完成，会先补发 A 行；`reason=link/cmd`、`haveA` 说明中止原因和
+  已保留的阶段。
 
 - 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  30756 字节，SHA256 `45422095F1BA8A23BB5D05CCB368BC810E577256CADF88912140659EA200B365`，
+  31524 字节，SHA256 `518DEA2CB9E6659B06F54A2CED23F09DADC5093BE72C8C73549B669252CF7551`，
   烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
 
 - 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（19 项）。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（20 项）。
 - 四元数异常更新回归（主机侧，不烧板）：
 
   ```powershell
@@ -279,6 +290,17 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 
   覆盖正常 2.5ms 连续更新、90ms 长间隔拒绝、异常后恢复、50ms 大单步拒绝、
   损坏四元数拒绝；异常时必须返回失败且四元数保持不变。
+
+- A/B 状态机回归（主机侧）：
+
+  ```powershell
+  gcc -std=c99 -O2 -I..\telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car `
+      test_l400_diag.c -o ..\data\test_l400_diag.exe
+  ..\data\test_l400_diag.exe
+  ```
+
+  覆盖连续有效满 2s 才进 A、A/B 各 10s、失效后重新计时、A/B 掉链中止
+  保留已完成阶段/原因，以及 UART 忙后 A/B 两行仍能按序发出。
 
 - 旧 7d01167 十进制格式已在 COM12 实机抓取验证；新十六进制/控制器字段
   已由模拟源、解析和 CSV 测试覆盖，实机控制器验收需烧录 `_ctrl.bin` 后再采集。

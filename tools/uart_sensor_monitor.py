@@ -545,6 +545,10 @@ _L400_DIAG_RE = re.compile(
     r"cmiss=(\d+)\s+skip=(\d+)\s+rfirq=(\d+)/(\d+)\s+"
     r"rf=(\d+)/(\d+)\s+app=(\d+)/(\d+)\s*$")
 
+# 掉链中止：保留已完成 A 段标志和原因
+_L400_DIAG_ABORT_RE = re.compile(
+    r"^L400D\s+ABORT\s+seg=([AB])\s+reason=(link|cmd)\s+haveA=([01])\s*$")
+
 # L400S 统计行新格式：定宽十六进制；miss=整拍超期，cmiss=控制完成超期，
 # ctl=控制完成时延（本周期最大/上电峰值）；late/exec/rx/tx 为分项耗时。
 _L400_STAT_HEX_RE = re.compile(
@@ -647,6 +651,14 @@ def parse_l400_line(line):
             "tgt_rate_q10": tgt_rate,
             "ctrl_ok": ctrl_ok,
             "q15": q15,
+        })
+
+    m = _L400_DIAG_ABORT_RE.match(line)
+    if m:
+        return ("l400d_abort", {
+            "seg": m.group(1),
+            "reason": m.group(2),
+            "have_a": int(m.group(3)),
         })
 
     m = _L400_DIAG_RE.match(line)
@@ -1210,7 +1222,7 @@ class L400Worker(threading.Thread):
                 pass
             return
 
-        if kind == "l400d":
+        if kind in ("l400d", "l400d_abort"):
             self.diag += 1
             self.last_diag = payload
             try:
@@ -1218,7 +1230,8 @@ class L400Worker(threading.Thread):
                     fp.write(line + "\n")
             except OSError as exc:
                 self.error = f"写诊断文件失败：{exc}"
-            print(f"[诊断] {line}", flush=True)
+            tag = "诊断" if kind == "l400d" else "诊断-中止"
+            print(f"[{tag}] {line}", flush=True)
             return
 
         if kind == "l400s":
