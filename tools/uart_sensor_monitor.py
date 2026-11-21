@@ -322,7 +322,19 @@ _L400_SHORT_RE = re.compile(
     r"k=([0-9A-F]{4})\s+"
     r"q=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s+"
     r"r=([0-9A-F]{5})/([0-9A-F]{5})/([0-9A-F]{5})\s+"
-    r"c=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s*$")
+    r"c=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s+"
+    r"m=([0-9A-F])\s+x=([0-9A-F])\s+"
+    r"pwm=([0-9A-F]{3})/([0-9A-F]{3})/([0-9A-F]{3})/([0-9A-F]{3})\s*$")
+
+L400_LOCK_NAMES = {
+    0: "无",
+    1: "上电",
+    2: "失联",
+    3: "指令超时",
+    4: "姿态异常",
+    5: "手动急停",
+    6: "诊断",
+}
 
 L400_CSV_FIELDS = [
     "recv_s", "recv_epoch", "t_ms",
@@ -335,6 +347,9 @@ L400_CSV_FIELDS = [
     "tgt_roll_deg100", "tgt_pitch_deg100",
     "tgt_rate_x_q10", "tgt_rate_y_q10", "tgt_rate_z_q10", "ctrl_ok",
     "qw_q15", "qx_q15", "qy_q15", "qz_q15",
+    # 电机安全/实际输出：前/后/左/右
+    "motor_armed", "motor_lock", "pwm_front", "pwm_rear",
+    "pwm_left", "pwm_right",
 ]
 
 L400_STAT_FIELDS = [
@@ -699,6 +714,12 @@ def parse_l400_line(line):
             "tgt_att_deg100": None,
             "tgt_rate_q10": None,
             "q15": q15,
+            "motor_armed": int(m.group(15), 16),
+            "motor_lock": int(m.group(16), 16),
+            "pwm_front": int(m.group(17), 16),
+            "pwm_rear": int(m.group(18), 16),
+            "pwm_left": int(m.group(19), 16),
+            "pwm_right": int(m.group(20), 16),
         })
 
     m = _L400_TXDIAG_RE.match(line)
@@ -996,7 +1017,8 @@ class SimL400Source:
                 f"r={_hex(gx & 0xFFFFF, 5)}/{_hex(gy & 0xFFFFF, 5)}/"
                 f"{_hex(gz & 0xFFFFF, 5)} "
                 f"c={_hex(cx & 0xFFFF, 4)}/{_hex(cy & 0xFFFF, 4)}/"
-                f"{_hex(cz & 0xFFFF, 4)}")
+                f"{_hex(cz & 0xFFFF, 4)} "
+                f"m=0 x=1 pwm=000/000/000/000")
 
         # 1Hz 统计行：n/eul 与上面的 200Hz 计数保持同一比例
         if el >= self._next_stat:
@@ -1279,6 +1301,12 @@ class L400Worker(threading.Thread):
                 "qx_q15": "" if payload.get("q15") is None else payload["q15"][1],
                 "qy_q15": "" if payload.get("q15") is None else payload["q15"][2],
                 "qz_q15": "" if payload.get("q15") is None else payload["q15"][3],
+                "motor_armed": "" if payload.get("motor_armed") is None else payload["motor_armed"],
+                "motor_lock": "" if payload.get("motor_lock") is None else payload["motor_lock"],
+                "pwm_front": "" if payload.get("pwm_front") is None else payload["pwm_front"],
+                "pwm_rear": "" if payload.get("pwm_rear") is None else payload["pwm_rear"],
+                "pwm_left": "" if payload.get("pwm_left") is None else payload["pwm_left"],
+                "pwm_right": "" if payload.get("pwm_right") is None else payload["pwm_right"],
             })
             try:
                 self.queue.put_nowait(payload)
@@ -1966,6 +1994,12 @@ class SensorMonitor:
         elif o is not None and o.get("ctrl_ok") is not None:
             # 短报文只带使能位，不带目标姿态/角速度
             text += f"\n控制 {'使能' if o['ctrl_ok'] else '禁止'}"
+        if o is not None and o.get("motor_armed") is not None:
+            lock = L400_LOCK_NAMES.get(o["motor_lock"], str(o["motor_lock"]))
+            text += (f"  电机 {'解锁' if o['motor_armed'] else '锁定(' + lock + ')'}"
+                     f"  PWM 前/后/左/右="
+                     f"{o['pwm_front']}/{o['pwm_rear']}/"
+                     f"{o['pwm_left']}/{o['pwm_right']}")
         return text
 
     def _compose_texts(self):

@@ -38,7 +38,8 @@ L400_SAMPLE_CTRL = (L400_SAMPLE +
 # 新短报文：状态位 + 包龄 + Q15 q + Q10 角速度/纠偏（定宽十六进制）
 L400_SHORT_SAMPLE = ("L400Q f=F a=0023 v=0012 k=001F "
                      "q=7FFF/0000/0000/0000 "
-                     "r=00064/00000/FFFFF c=FFC0/0000/0040")
+                     "r=00064/00000/FFFFF c=FFC0/0000/0040 "
+                     "m=1 x=0 pwm=064/05A/03C/032")
 L400_STAT_SAMPLE = ("L400S bad=0 n=12345 f=0 gap=0 eul=12000 "
                     "miss=0 skip=0 txd=0 cyc=2490/3100")
 # 新固件格式：定宽十六进制；miss=整拍超期，cmiss=控制超期，ctl=控制完成时延
@@ -110,6 +111,12 @@ class L400ParserTest(unittest.TestCase):
         self.assertAlmostEqual(data["g_dps"][0], 100 * mon.Q10_RAD_S_TO_DPS,
                                places=5)
         self.assertIsNone(data["tgt_att_deg100"])
+        self.assertEqual(data["motor_armed"], 1)
+        self.assertEqual(data["motor_lock"], 0)
+        self.assertEqual(
+            (data["pwm_front"], data["pwm_rear"],
+             data["pwm_left"], data["pwm_right"]),
+            (100, 90, 60, 50))
 
     def test_parse_observation_control_fields(self):
         kind, data = mon.parse_l400_line(L400_SAMPLE_CTRL)
