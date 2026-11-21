@@ -1944,7 +1944,7 @@ static void RcBringup_Report(void)
 //   姿态部分复用台架镜像已验证的静止初始化、加计一阶低通和长间断处理。
 //   串口：10Hz 观察行（包龄/角速度/纠偏）+ 1Hz 统计行（采样/超时/跳拍）。
 // =====================================================================================
-// 台架 K1/K2 抓包模式：只记录原始按键字节，不初始化电机 PWM，保持四路低电平。
+// 台架左侧上/下键抓包模式：只记录原始按键字节，不初始化电机 PWM，保持四路低电平。
 // 最终飞控镜像默认 0；抓包时单独用 -DC_L400_KEY_CAPTURE=1 构建。
 #ifndef C_L400_KEY_CAPTURE
 #define C_L400_KEY_CAPTURE 0
@@ -1998,7 +1998,7 @@ static void RcBringup_Report(void)
 static s32 s_l400_cmd[4];          // 油门/偏航/俯仰/横滚（±307，供后续控制环）
 static u16 s_l400_key;
 #if C_L400_KEY_CAPTURE
-static u16 s_l400_cap_last_key;    // K1/K2 抓包：同一按键状态只记一次
+static u16 s_l400_cap_last_key;    // 左侧上/下键抓包：同一按键状态只记一次
 static u8  s_l400_cap_last_rk;
 static u8  s_l400_cap_last_b8;
 static u8  s_l400_cap_last_b9;
@@ -2151,7 +2151,7 @@ static char *l400_put_str(char *p, const char *s);
 static char *l400_put_u32(char *p, u32 v);
 static char *l400_put_hex(char *p, u32 v, u8 digits);
 
-// 台架 K1/K2 抓包：每次 key/rk/原始字节变化打印一行；阻塞发送只用于抓包镜像。
+// 台架左侧上/下键抓包：每次 key/rk/原始字节变化打印一行；阻塞发送只用于抓包镜像。
 static void L400_KeyCapture(u32 now)
 {
 	u8 b8 = UserRfRcvBuffer[8];
@@ -2237,7 +2237,7 @@ void RcLoop_OnPacket(void)
 	s_l400_link_tick = now;
 	s_l400_have_link = 1;
 
-	// 按键值先更新/抓包，再判断全零心跳；K1/K2 可能只带按键、四摇杆为 0
+	// 按键值先更新/抓包，再判断全零心跳；左侧上/下键可能只带按键、四摇杆为 0
 	s_l400_key = key;
 #if C_L400_KEY_CAPTURE
 	L400_KeyCapture(now);
