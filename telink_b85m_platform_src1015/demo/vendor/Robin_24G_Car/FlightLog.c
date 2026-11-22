@@ -332,7 +332,7 @@ void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
 		return;
 	}
 	if (s_log.state == FLIGHT_LOG_PREP || s_log.state == FLIGHT_LOG_REC
-		|| s_log.active) {
+		|| s_log.state == FLIGHT_LOG_ST_CLOSING || s_log.active) {
 		s_log.last_result = FLIGHT_LOG_REJECT;
 		return;
 	}
@@ -487,6 +487,7 @@ void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 		return;
 	}
 	s_log.event_sample = *sample;
+	s_log.event_sample.t_ms = s_log.session_us / 1000u;  // 事件用当前会话时间，避免回跳
 	s_log.event_sample.flags |= (u16)((u16)event << 8);
 	s_log.event_code = event;
 	s_log.event_pending = 1;

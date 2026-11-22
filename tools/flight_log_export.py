@@ -159,6 +159,9 @@ def export(raw, out):
 
     metas = [r for r in rows if r["record_type"] in ("summary", "tail")]
     tails = [r for r in rows if r["record_type"] == "tail"]
+    has_summary = any(r["record_type"] == "summary" for r in rows)
+    has_tail = bool(tails)
+    sealed = has_summary and has_tail
     summary = (tails or metas or [None])[-1]
     samples = [r for r in rows if r["record_type"] == "sample"]
     data_rows = [r for r in rows if r["record_type"] in ("sample", "event")]
@@ -168,7 +171,7 @@ def export(raw, out):
     gaps = sum(1 for a, b in zip(seqs, seqs[1:]) if ((b - a) & 0xFFFF) not in (0, 1))
     sessions = {r["session"] for r in rows if r.get("session")}
     complete = bool(
-        summary and length_ok and not recovered and gaps == 0 and dups == 0
+        sealed and summary and length_ok and not recovered and gaps == 0 and dups == 0
         and len(sessions) == 1 and summary.get("end_reason", 0) != 0
         and summary.get("data_records", 0) == len(data_rows)
     )

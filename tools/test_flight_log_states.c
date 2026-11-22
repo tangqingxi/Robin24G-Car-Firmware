@@ -110,6 +110,32 @@ int main(int argc, char **argv)
 
 	if (argc < 2) return 2;
 	boot_ready();
+	if (strcmp(argv[1], "preserve") == 0) {
+		unsigned char *p = &flash_mem[FLIGHT_LOG_BASE];
+		unsigned int n;
+
+		memset(p, 0x5A, 4096);         // 模拟上一趟数据
+		for (i = 0; i < 100; i++) {
+			step();
+		}
+		for (n = 0; n < 4096; n++) {
+			if (p[n] != 0x5A) {
+				printf("FAIL previous session erased before K3 at %u\n", n);
+				return 1;
+			}
+		}
+		if (FlightLog_Active()) {
+			printf("FAIL log active before K3\n");
+			return 1;
+		}
+		start_key();
+		if (p[0] == 0x5A) {
+			printf("FAIL K3 did not erase/prepare\n");
+			return 1;
+		}
+		printf("PASS previous session preserved until K3\n");
+		return 0;
+	}
 	if (strcmp(argv[1], "nokey") == 0) {
 		for (i = 0; i < 100; i++) {
 			step();

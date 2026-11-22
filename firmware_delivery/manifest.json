@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 27620,
-      "sha256": "8C92AF25668075D57E2EDC5362A963E1B046F5C629B19A6E6A967977448D09CE",
+      "bytes": 27636,
+      "sha256": "989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -191,8 +191,8 @@
     },
     "debug": {
       "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
-      "bytes": 33828,
-      "sha256": "A11DE83B03894EC346D8E5985D04029749C3B079927B13382905CF9327A52960",
+      "bytes": 33844,
+      "sha256": "AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
     },
