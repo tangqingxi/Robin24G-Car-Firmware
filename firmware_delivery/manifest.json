@@ -8,7 +8,7 @@
       "file": "daily/Robin_24G_Car_flight_control.bin",
       "bytes": 28500,
       "sha256": "1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937",
-      "build_commit": "PENDING_FIX_COMMIT",
+      "build_commit": "03b2061",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
       "monitor": "无实时图；历史报文可用 --l400",
       "serial_protocol": "无实时串口；UART 底层保留",
