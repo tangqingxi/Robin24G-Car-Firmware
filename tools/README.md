@@ -22,6 +22,7 @@
 | `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
 | `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |
 | `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + BDT 命令 + Python 导出 |
+| `test_flight_log_states.c` | 持续锁定采集、解锁→失联/超时、PWM 先归零、Dropped |
 | `test_flash_fw_check.c` | 真实 CRC 函数 + Flash 桩：0xB000/256 边界/坏 CRC/越界 |
 | `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
@@ -349,8 +350,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：26468 字节，
-    SHA256 `257041DF176508FD063F43CFD066BA047BF02472172893C281F0B16E07AAB16B`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：26484 字节，
+    SHA256 `BB3984569C9AC007EE83879CD99AEBE4EC4388D7C9593FAA4F94F4297D5FBAF8`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

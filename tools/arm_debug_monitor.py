@@ -35,7 +35,8 @@ CSV_FIELDS = [
     "rx", "valid", "heartbeat", "e2", "still_ms", "boot_st", "lpf_rb",
     "read_ok", "read_fail", "still_max_ms", "break_reason",
     "break_norm", "break_gyro", "break_jump", "break_gap", "break_init",
-    "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z", "raw_line",
+    "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z",
+    "ctrl_dt_max_ms", "ctrl_skips", "log_drops", "raw_line",
 ]
 
 _HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
@@ -129,6 +130,9 @@ class ArmDebugState:
     read_ok: int = 0
     read_fail: int = 0
     still_max_ms: int = 0
+    ctrl_dt_max_ms: int = 0
+    ctrl_skips: int = 0
+    log_drops: int = 0
     break_reason: str = "none"
     break_counts: dict = field(default_factory=lambda: {
         "norm": 0, "gyro": 0, "jump": 0, "gap": 0, "init": 0})
@@ -220,6 +224,17 @@ class ArmDebugState:
             self.events.append(
                 f"[{record['board_ms']}] 拒绝样本 acc={self.last_acc} "
                 f"gyro={self.last_gyro}")
+
+        elif kind == "ADT":
+            self.seen_serial = True
+            self.ctrl_dt_max_ms = _to_int(data.get("dm"), 0) or 0
+            self.ctrl_skips = _to_int(data.get("sk"), 0) or 0
+            self.log_drops = _to_int(data.get("ld"), 0) or 0
+            record.update({
+                "ctrl_dt_max_ms": self.ctrl_dt_max_ms,
+                "ctrl_skips": self.ctrl_skips,
+                "log_drops": self.log_drops,
+            })
 
         elif kind == "ADS":
             self.seen_serial = True
@@ -598,6 +613,8 @@ def run_gui(args, source, csv_path: Path) -> int:
                 f"PWM 初始化：{'完成' if state.pwm_ready else '未完成'}\n"
                 f"本秒读取：成功 {state.read_ok} / 失败 {state.read_fail}\n"
                 f"最长连续静置：{state.still_max_ms} ms\n"
+                f"控制拍峰值：{state.ctrl_dt_max_ms} ms 跳拍：{state.ctrl_skips}\n"
+                f"日志丢样：{state.log_drops}\n"
                 f"静置打断：{break_text_cn(state.break_reason)} "
                 f"(模长{state.break_counts['norm']} 陀螺{state.break_counts['gyro']} "
                 f"跳变{state.break_counts['jump']} 间隔{state.break_counts['gap']} "

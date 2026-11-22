@@ -28,7 +28,8 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 | 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
 | 无 OTA bootloader | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 |
-| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 26468 | `257041DF176508FD063F43CFD066BA047BF02472172893C281F0B16E07AAB16B` | 0x4000 |
+| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 26484 | `BB3984569C9AC007EE83879CD99AEBE4EC4388D7C9593FAA4F94F4297D5FBAF8` | 0x4000 |
+| 日志+时序诊断 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 32452 | `867344351FD241406506D79BBEA3971BD6D09D5E2A4E498BE50D98C56CDCBDBA` | 0x4000 |
 
 - 日志区 `0x10000..0x1CFFF`（13×4KiB）；命令邮箱 `0x1D000`，不属于日志区。
 - 首版 25Hz、750 条（约30s），满了停止并保留。
@@ -40,7 +41,7 @@ Set-Location "E:\泡沫纸飞机\code\tools"
 python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 ```
 
-- 应用空间：`0x4000 + 26468 = 0xA764 <= 0xF000`，剩余 18588 字节。
+- 应用空间：`0x4000 + 26484 = 0xA764 <= 0xF000`，剩余 18572 字节。
 - **旧 bootloader 与日志应用不进入验收**；须同烧无 OTA bootloader。旧 bootloader
   回退件是 `firmware_baseline/Robin_24G_Bootloader_Flash/...`（12756 字节，
   `46506F44720D2A56C04E6A3E69A54533DC5759F1B2847047359DD9ED13A96D52`）。

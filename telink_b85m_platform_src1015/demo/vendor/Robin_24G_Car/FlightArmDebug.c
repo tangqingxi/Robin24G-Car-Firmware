@@ -2,11 +2,12 @@
 #include "FlightConfig.h"
 #include "MotorMixer.h"
 #include "FlightSafety.h"
+#include "FlightLog.h"
 #include "UserUart.h"
 
 #if C_FLIGHT_ARM_DEBUG
 
-#define ARM_DBG_QDEPTH 4
+#define ARM_DBG_QDEPTH 2
 #define ARM_DBG_LINE UART_DATA_LEN
 
 typedef struct {
@@ -56,6 +57,9 @@ typedef struct {
 	unsigned int qdrop;
 
 	unsigned int last_summary;
+	unsigned int last_ctrl;
+	unsigned int max_ctrl_gap;
+	unsigned int ctrl_skips;
 } ArmDebug;
 
 static ArmDebug d;
@@ -455,6 +459,19 @@ void FlightArmDebug_OnControl(unsigned char att_updated, unsigned char ctrl_ok,
 {
 	char buf[UART_DATA_LEN];
 	char *p = buf;
+	unsigned int now = clock_time();
+
+	if (d.last_ctrl) {
+		unsigned int gap = now - d.last_ctrl;
+
+		if (gap > d.max_ctrl_gap) {
+			d.max_ctrl_gap = gap;
+		}
+		if (gap > (FLIGHT_PERIOD_TICKS + FLIGHT_PERIOD_TICKS / 2)) {
+			d.ctrl_skips++;
+		}
+	}
+	d.last_ctrl = now;
 
 	if (d.accepted_pending && !d.first_output_done) {
 		d.first_output_done = 1;
@@ -539,6 +556,20 @@ void FlightArmDebug_Process(void)
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
 
+		p = buf;
+		p = p_str(p, "ADT t=");
+		p = p_u32(p, now_ms());
+		p = p_str(p, " dm=");
+		p = p_u32(p, d.max_ctrl_gap / FLIGHT_TICKS_PER_MS);
+		p = p_str(p, " sk=");
+		p = p_u32(p, d.ctrl_skips);
+		p = p_str(p, " ld=");
+		p = p_u32(p, FlightLog_Dropped());
+		*p++ = '\n';
+		q_line(buf, (unsigned char)(p - buf));
+
+		d.max_ctrl_gap = 0;
+		d.ctrl_skips = 0;
 		d.read_ok = 0;
 		d.read_fail = 0;
 		d.still_max_ticks = 0;

@@ -283,20 +283,27 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 // 采样前安全门：失联/指令超时先把四路写 0，之后才允许读 IMU。
 void FlightLoop_PreSampleSafety(void)
 {
+	u8 was_armed = s_fl.safety.armed;
+
 	if (!s_fl.rc.link) {
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_LINK);
 #endif
-		flight_log_event(2, FLIGHT_LOG_F_LINKLOSS | FLIGHT_LOG_F_LOCKED);
+		// 持续失联只保持锁定；只有“已解锁→锁定”这一沿才结束会话。
+		if (was_armed) {
+			flight_log_event(2, FLIGHT_LOG_F_LINKLOSS | FLIGHT_LOG_F_LOCKED);
+		}
 	} else if (!s_fl.rc.cmd_ok) {
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_CMD);
 #endif
-		flight_log_event(3, FLIGHT_LOG_F_LOCKED);
+		if (was_armed) {
+			flight_log_event(3, FLIGHT_LOG_F_LOCKED);
+		}
 	}
 }
 
@@ -483,6 +490,10 @@ unsigned char FlightLoop_StartupTestArmed(void)
 unsigned int FlightLoop_StartupTestStillN(void) { return s_fl.still_n; }
 unsigned int FlightLoop_StartupTestStillTicks(void) { return s_fl.still_ticks; }
 int FlightLoop_StartupTestLpf(int i) { return s_fl.lpf[i]; }
+void FlightLoop_StartupTestPwm(unsigned short out[4])
+{
+	FlightSafety_GetPwm(&s_fl.safety, out);
+}
 #endif
 
 #ifdef FLIGHT_ORDER_TEST

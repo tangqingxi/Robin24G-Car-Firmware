@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 26468,
-      "sha256": "257041DF176508FD063F43CFD066BA047BF02472172893C281F0B16E07AAB16B",
+      "bytes": 26484,
+      "sha256": "BB3984569C9AC007EE83879CD99AEBE4EC4388D7C9593FAA4F94F4297D5FBAF8",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -176,6 +176,13 @@
       "command_addr": "0x1D000",
       "command_magic": "0x31474F4C",
       "export": "tools/flight_log_export.py"
+    },
+    "debug": {
+      "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
+      "bytes": 32452,
+      "sha256": "867344351FD241406506D79BBEA3971BD6D09D5E2A4E498BE50D98C56CDCBDBA",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
     }
   }
 }

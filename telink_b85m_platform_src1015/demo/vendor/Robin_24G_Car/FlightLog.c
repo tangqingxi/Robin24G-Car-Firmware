@@ -21,7 +21,7 @@ typedef struct {
 	u8 page_open;
 	u32 tick;
 	u32 dropped;
-	FlightLogSample q[4];
+	FlightLogSample q[2];
 	u8 qhead;
 	u8 qtail;
 	u8 qcount;
@@ -218,12 +218,12 @@ void FlightLog_OnSample(const FlightLogSample *sample)
 	if ((s_log.tick & 7u) != 0u) {
 		return;
 	}
-	if (s_log.qcount >= 4) {
+	if (s_log.qcount >= 2) {
 		s_log.dropped++;
 		return;
 	}
 	s_log.q[s_log.qtail] = *sample;
-	s_log.qtail = (u8)((s_log.qtail + 1) & 3);
+	s_log.qtail = (u8)((s_log.qtail + 1) & 1);
 	s_log.qcount++;
 }
 
@@ -247,7 +247,7 @@ void FlightLog_Service(void)
 		return;
 	}
 	serialize(&s_log.q[s_log.qhead], rec);
-	s_log.qhead = (u8)((s_log.qhead + 1) & 3);
+	s_log.qhead = (u8)((s_log.qhead + 1) & 1);
 	s_log.qcount--;
 	write_record(rec);
 }
@@ -260,12 +260,15 @@ void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 	s_log.event_sample = *sample;
 	s_log.event_sample.flags |= (u16)((u16)event << 8);
 	s_log.event_pending = 1;
-	s_log.qcount = 0;               // 停机事件优先，丢弃尚未服务的普通样本
+	s_log.dropped += s_log.qcount;  // 停机时排队样本算真实丢样
+	s_log.qcount = 0;               // 停机事件优先
 }
 
 void FlightLog_Stop(void)
 {
 	if (s_log.active) {
+		s_log.dropped += s_log.qcount;
+		s_log.qcount = 0;
 		close_page();
 		s_log.active = 0;
 	}
