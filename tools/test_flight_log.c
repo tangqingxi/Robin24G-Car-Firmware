@@ -110,6 +110,7 @@ int main(void)
 	for (i = 0; i < 6008; i++) {
 		sample(&s, i * 5);
 		FlightLog_OnSample(&s);
+		FlightLog_Service();
 	}
 	FlightLog_OnSample(&s);              // 第 751 条样本触发“满则停止”
 	if (FlightLog_Active()) {

@@ -349,8 +349,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：26324 字节，
-    SHA256 `8C4D28935218F541EDA32F5BC9605458AABD53666F9B5D6BC751893D66F05179`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：26468 字节，
+    SHA256 `257041DF176508FD063F43CFD066BA047BF02472172893C281F0B16E07AAB16B`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

@@ -84,8 +84,7 @@ static void flight_log_event(u8 event, u16 extra_flags)
 
 	flight_log_fill(&ls, 1, 0, 0);
 	ls.flags |= extra_flags;
-	FlightLog_OnEvent(event, &ls);
-	FlightLog_Stop();
+	FlightLog_OnEvent(event, &ls);   // 事件入队，服务路径写完后再收尾
 }
 
 // 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。

@@ -41,6 +41,7 @@ typedef struct {
 void FlightLog_Init(void);
 void FlightLog_PollCommand(unsigned char locked);
 void FlightLog_OnSample(const FlightLogSample *sample);
+void FlightLog_Service(void);
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample);
 void FlightLog_Stop(void);
 unsigned char FlightLog_Active(void);

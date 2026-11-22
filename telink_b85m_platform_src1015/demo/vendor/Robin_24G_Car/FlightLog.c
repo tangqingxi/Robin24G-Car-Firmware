@@ -21,6 +21,13 @@ typedef struct {
 	u8 page_open;
 	u32 tick;
 	u32 dropped;
+	FlightLogSample q[4];
+	u8 qhead;
+	u8 qtail;
+	u8 qcount;
+	u8 event_pending;
+	u16 event_code;
+	FlightLogSample event_sample;
 } FlightLogState;
 
 static FlightLogState s_log;
@@ -137,6 +144,10 @@ static void start_log(u16 session)
 	s_log.record_seq = 0;
 	s_log.tick = 0;
 	s_log.dropped = 0;
+	s_log.qhead = 0;
+	s_log.qtail = 0;
+	s_log.qcount = 0;
+	s_log.event_pending = 0;
 	s_log.active = 1;
 	open_page(0);
 }
@@ -150,6 +161,10 @@ void FlightLog_Init(void)
 	s_log.record_seq = 0;
 	s_log.tick = 0;
 	s_log.dropped = 0;
+	s_log.qhead = 0;
+	s_log.qtail = 0;
+	s_log.qcount = 0;
+	s_log.event_pending = 0;
 }
 
 void FlightLog_PollCommand(unsigned char locked)
@@ -196,31 +211,56 @@ static void serialize(const FlightLogSample *s, u8 *rec)
 
 void FlightLog_OnSample(const FlightLogSample *sample)
 {
-	u8 rec[FLIGHT_LOG_REC_SIZE];
-
-	if (!s_log.active || !sample) {
+	if (!s_log.active || !sample || s_log.event_pending) {
 		return;
 	}
 	s_log.tick++;
 	if ((s_log.tick & 7u) != 0u) {
 		return;
 	}
-	serialize(sample, rec);
+	if (s_log.qcount >= 4) {
+		s_log.dropped++;
+		return;
+	}
+	s_log.q[s_log.qtail] = *sample;
+	s_log.qtail = (u8)((s_log.qtail + 1) & 3);
+	s_log.qcount++;
+}
+
+// 服务路径每次最多写一条 56B 记录；控制拍只做快照入队，不碰 Flash。
+void FlightLog_Service(void)
+{
+	u8 rec[FLIGHT_LOG_REC_SIZE];
+
+	if (!s_log.active) {
+		return;
+	}
+	if (s_log.event_pending) {
+		serialize(&s_log.event_sample, rec);
+		write_record(rec);
+		s_log.event_pending = 0;
+		close_page();
+		s_log.active = 0;
+		return;
+	}
+	if (!s_log.qcount) {
+		return;
+	}
+	serialize(&s_log.q[s_log.qhead], rec);
+	s_log.qhead = (u8)((s_log.qhead + 1) & 3);
+	s_log.qcount--;
 	write_record(rec);
 }
 
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 {
-	u8 rec[FLIGHT_LOG_REC_SIZE];
-	FlightLogSample ev;
-
 	if (!s_log.active || !sample) {
 		return;
 	}
-	ev = *sample;
-	ev.flags = (u16)(ev.flags | ((u16)event << 8));
-	serialize(&ev, rec);
-	write_record(rec);
+	s_log.event_sample = *sample;
+	s_log.event_sample.flags |= (u16)((u16)event << 8);
+	s_log.event_pending = 1;
+	s_log.qcount = 0;               // 停机事件优先，丢弃尚未服务的普通样本
 }
 
 void FlightLog_Stop(void)
