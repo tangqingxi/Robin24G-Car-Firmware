@@ -290,8 +290,8 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 
 ### 日志时序测量（调试候选）
 
-`candidates/Robin_24G_Car_flight_log_debug.bin`（33844 字节，
-SHA256 `18EEA415533DF1A4DC1249B59CC01FB1024172D9185E6A101CB146E4DEA4C463`）
+`candidates/Robin_24G_Car_flight_log_debug.bin`（33892 字节，
+SHA256 `799EFC081C7F3EF2D7991B8415C56698D81B10D38F09504F3753012DA2CE4A97`）
 同时启用 FlightLog 和 `C_FLIGHT_ARM_DEBUG`。GUI 每秒额外收：
 
 ```text
@@ -390,8 +390,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：27684 字节，
-    SHA256 `B2A74D6CAAB2614C8ABDCF02DAB83C67D2408C0C23A54C83FCF4E2B24B5DE57D`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：27716 字节，
+    SHA256 `ADC5FB4E8FECC7DB511BD6A22073EBEA32DC03609F719FB445BF5CFD35681556`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

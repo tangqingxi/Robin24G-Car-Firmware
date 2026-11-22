@@ -130,8 +130,15 @@ static void write_summary(void)
 	u8 rec[FLIGHT_LOG_REC_SIZE];
 	u16 flags = (u16)(FLIGHT_LOG_TYPE_SUMMARY << FLIGHT_LOG_TYPE_SHIFT);
 
-	if (!s_log.page_open || s_log.page_count >= FLIGHT_LOG_REC_PER_SEC) {
+	if (!s_log.page_open) {
 		return;
+	}
+	if (s_log.page_count >= FLIGHT_LOG_REC_PER_SEC) {
+		close_page();
+		if (s_log.page_seq + 1 >= FLIGHT_LOG_SECTORS) {
+			return;
+		}
+		open_page((u16)(s_log.page_seq + 1));
 	}
 	memset(rec, 0, sizeof(rec));
 	put32(&rec[0], now_ms());

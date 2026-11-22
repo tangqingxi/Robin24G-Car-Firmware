@@ -28,8 +28,8 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 | 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
 | 无 OTA bootloader | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 |
-| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 27684 | `B2A74D6CAAB2614C8ABDCF02DAB83C67D2408C0C23A54C83FCF4E2B24B5DE57D` | 0x4000 |
-| 日志+时序诊断 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33844 | `18EEA415533DF1A4DC1249B59CC01FB1024172D9185E6A101CB146E4DEA4C463` | 0x4000 |
+| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 27716 | `ADC5FB4E8FECC7DB511BD6A22073EBEA32DC03609F719FB445BF5CFD35681556` | 0x4000 |
+| 日志+时序诊断 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33892 | `799EFC081C7F3EF2D7991B8415C56698D81B10D38F09504F3753012DA2CE4A97` | 0x4000 |
 | 遥控器录制键修复 | [`candidates/Robin_24G_Remote_logkey.bin`](candidates/Robin_24G_Remote_logkey.bin) | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | 0x0 |
 
 - 日志区 `0x10000..0x1CFFF`（13×4KiB）；录制由遥控“演示”键 0x0004 启动。
@@ -44,7 +44,7 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 
 - 录制键实体位置：遥控方向键上排第三个，丝印 **“演示”**，位于“右”和“K7”之间；
   代码映射 `KEY_StuntShow -> RfSendKey_StuntShow(0x0004)`。交付前仍需实物抓包复核。
-- 应用空间：`0x4000 + 27684 = 0xAC24 <= 0xF000`，剩余 17372 字节。
+- 应用空间：`0x4000 + 27716 = 0xAC44 <= 0xF000`，剩余 17340 字节。
 - **旧 bootloader 与日志应用不进入验收**；须同烧无 OTA bootloader。旧 bootloader
   回退件是 `firmware_baseline/Robin_24G_Bootloader_Flash/...`（12756 字节，
   `46506F44720D2A56C04E6A3E69A54533DC5759F1B2847047359DD9ED13A96D52`）。
