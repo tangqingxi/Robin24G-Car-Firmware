@@ -15,7 +15,7 @@
 #define FLIGHT_LOCK_ATT           4
 #define FLIGHT_LOCK_MANUAL        5
 
-typedef struct {
+typedef struct __attribute__((aligned(4))) {
 	unsigned char armed;
 	unsigned char reason;
 	unsigned short key_prev;

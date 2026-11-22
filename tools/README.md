@@ -17,7 +17,7 @@
 | `test_l400_motor.c` | 混控俯仰/偏航符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
-| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
+| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |\n| `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |\n| `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
 | `test_package_bin.py` | 0x4000+bin ≤0xF000 打包门：超限非零且不覆盖交付文件 |
@@ -211,6 +211,32 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
 主镜像验收不依赖串口图，按无桨电机行为检查：约 200 Hz、正负偏航差动、
 左侧下键急停四路归零、解锁后关遥控四路归零、重连后仍锁定并需重新长按上键。
 
+### TC32 结构对齐修复（候选，待无桨）
+
+`-fpack-struct` 下把跨模块指针接口逐成员对齐，并在编译期锁住偏移：
+
+```text
+s_fl 基址（正常镜像） 0x8416E8，大小 0x108
+rc       +0x00
+attc     +0x20
+ratec    +0x54
+safety   +0x60
+att      +0x68
+lpf      +0xA8
+gyro_rem +0xB4
+rate     +0xC0
+prev_acc +0xCC
+	tgt_rate +0x38（attc 内）
+```
+
+TC32 反汇编核对：`Euler_IsStill` 收到 `s_fl+0xA8`/`s_fl+0xCC`，
+`Euler_GyroToQ10` 的三轴余数为 `+0xB4/+0xB8/+0xBC`，
+`RateControl_Update` 收到 `+0x38`/`+0xC0`，`Euler_Update` 收到
+`att=+0x68, lpf=+0xA8`。`test_flight_arm_startup.c` 同时验证
+`OnStillSample` 已接回真实判稳路径，`ADI sm=500`，不再是全零计数。
+
+候选镜像在 `firmware_delivery/candidates/`，日常交付件暂不替换。
+
 ### 专用解锁诊断（--arm-debug）
 
 诊断镜像单独构建，正式镜像仍静默：
@@ -290,6 +316,12 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
   `firmware_delivery/arm_debug/Robin_24G_Car_flight_arm_debug.bin`，
   33876 字节，SHA256 `DFDBE4E4C6888388EAC037DF88333A55E796A7C054A80C2C045A2705458A3955`，
   烧 0x4000，应用区剩余 11180 字节。
+- 对齐修复候选（待无桨）：
+  - `candidates/Robin_24G_Car_flight_control_alignfix.bin`：24900 字节，
+    SHA256 `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087`；
+  - `candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin`：30452 字节，
+    SHA256 `1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189`。
+  - 两者均烧 0x4000；日常 `AA3D...` 件未替换。
 - 同选项移除前后对比：
 
   ```text
@@ -348,6 +380,10 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
   （`test_flight_arm_debug.c`，链接真实 FlightArmDebug.c）；
 - GUI/CSV 五种状态：IMU 失败、无 0002、油门拒绝、解锁后锁回、正常 PWM
   （`python test_arm_debug_monitor.py`，8 项）；
+- b3cb56f 参考公式对照：240 个检查点，油门/四路混控/正负差动/限幅/
+  故障后重新解锁完全一致（`test_flight_compat.c`）；
+- 诊断启动：`ADB/ADI` 真实发送，`ADI sm=500`，证明 `OnStillSample` 已接回
+  （`test_flight_arm_startup.c`）；
 - `0x4000 + bin <= 0xF000` 打包门：超限返回非零且不覆盖旧交付件
   （`test_package_bin.py`）；
 - 25 项监视器解析/模拟/旧报文兼容；四元数、积分除余回归。

@@ -18,7 +18,7 @@
 #define MOTOR_YAW_DIFF_GAIN_Q16  1920
 #define MOTOR_DIFF_LIMIT         160
 
-typedef struct {
+typedef struct __attribute__((aligned(2))) {
 	unsigned short front;
 	unsigned short rear;
 	unsigned short left;

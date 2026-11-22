@@ -3,7 +3,7 @@
 
 #include "FlightConfig.h"
 
-typedef struct {
+typedef struct __attribute__((aligned(4))) {
 	int corr[3];
 #if (FLIGHT_KI_Q16 != 0)
 	int integ[3];

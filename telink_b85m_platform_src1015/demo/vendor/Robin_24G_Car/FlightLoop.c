@@ -14,26 +14,28 @@ static const s32 s_fc_acc_off_lsb[3] = { -3, -8, -29 };
 static const s32 s_fc_acc_scale_q14[3] = { 16436, 16429, 16357 };
 static const s32 s_fc_gyro_bias_q6[3] = { -93, -232, -381 };
 
-typedef struct {
-	RcInput rc;
-	AttitudeControl attc;
-	RateControl ratec;
-	FlightSafety safety;
+// TC32 使用 -fpack-struct；这里逐个把跨模块指针/32 位成员对齐到 4 字节，
+// 不能只给 s_fl 整体加 aligned(4)（基址对齐不能修复成员偏移）。
+typedef struct __attribute__((aligned(4))) {
+	RcInput rc __attribute__((aligned(4)));
+	AttitudeControl attc __attribute__((aligned(4)));
+	RateControl ratec __attribute__((aligned(4)));
+	FlightSafety safety __attribute__((aligned(4)));
 
-	euler_q_t att;
-	s32 lpf[3];
-	s32 gyro_rem[3];
-	s32 rate[3];
-	s32 prev_acc[3];
-	s32 still_sum[3];
-	u32 still_ticks;
-	u32 still_n;
-	u32 last_ts;
-	u32 dt_rem;
-	u32 next_tick;
-	u32 retry_tick;
-	u32 lpf_alpha;
-	u32 lpf_alpha_dt_us;
+	euler_q_t att __attribute__((aligned(4)));
+	s32 lpf[3] __attribute__((aligned(4)));
+	s32 gyro_rem[3] __attribute__((aligned(4)));
+	s32 rate[3] __attribute__((aligned(4)));
+	s32 prev_acc[3] __attribute__((aligned(4)));
+	s32 still_sum[3] __attribute__((aligned(4)));
+	u32 still_ticks __attribute__((aligned(4)));
+	u32 still_n __attribute__((aligned(4)));
+	u32 last_ts __attribute__((aligned(4)));
+	u32 dt_rem __attribute__((aligned(4)));
+	u32 next_tick __attribute__((aligned(4)));
+	u32 retry_tick __attribute__((aligned(4)));
+	u32 lpf_alpha __attribute__((aligned(4)));
+	u32 lpf_alpha_dt_us __attribute__((aligned(4)));
 	u8 lpf_ok;
 	u8 have_ts;
 	u8 still_prev_ok;
@@ -41,6 +43,26 @@ typedef struct {
 } FlightLoopState;
 
 static FlightLoopState s_fl;
+
+// 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。
+#define FLIGHT_ALIGN4(expr) ((expr) & 3u)
+typedef char flight_align_rc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, rc)) ? -1 : 1];
+typedef char flight_align_attc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, attc)) ? -1 : 1];
+typedef char flight_align_ratec[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, ratec)) ? -1 : 1];
+typedef char flight_align_att[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, att)) ? -1 : 1];
+typedef char flight_align_lpf[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, lpf)) ? -1 : 1];
+typedef char flight_align_gyro_rem[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, gyro_rem)) ? -1 : 1];
+typedef char flight_align_rate[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, rate)) ? -1 : 1];
+typedef char flight_align_prev_acc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, prev_acc)) ? -1 : 1];
+typedef char flight_align_still_sum[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, still_sum)) ? -1 : 1];
+typedef char flight_align_rc_cmd[FLIGHT_ALIGN4(__builtin_offsetof(RcInput, cmd)) ? -1 : 1];
+typedef char flight_align_rc_pkt[FLIGHT_ALIGN4(__builtin_offsetof(RcInput, pkt_tick)) ? -1 : 1];
+typedef char flight_align_event_cmd[FLIGHT_ALIGN4(__builtin_offsetof(RcInputEvent, cmd)) ? -1 : 1];
+typedef char flight_align_euler_q[FLIGHT_ALIGN4(__builtin_offsetof(euler_q_t, q)) ? -1 : 1];
+typedef char flight_align_euler_t[FLIGHT_ALIGN4(__builtin_offsetof(euler_q_t, t_ms)) ? -1 : 1];
+typedef char flight_align_att_tgt[FLIGHT_ALIGN4(__builtin_offsetof(AttitudeControl, tgt_rate)) ? -1 : 1];
+typedef char flight_align_rate_corr[FLIGHT_ALIGN4(__builtin_offsetof(RateControl, corr)) ? -1 : 1];
+typedef char flight_align_mix_front[(__builtin_offsetof(MotorMixerOutput, front) & 1u) ? -1 : 1];
 
 static void flight_still_reset(void)
 {
@@ -121,6 +143,9 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 	u8 still = Euler_IsStill(acc_mg, gyr_q10, s_fl.prev_acc, s_fl.still_prev_ok);
 	int i;
 
+	// 本拍输入和“上一拍”prev_acc 一起送诊断；prev_acc 在函数末尾才更新。
+	FlightArmDebug_OnStillSample(acc_mg, gyr_q10, s_fl.prev_acc,
+								 s_fl.still_prev_ok, dt_ticks, still);
 	if (!still) {
 		flight_still_reset();
 	} else {
@@ -137,9 +162,15 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 			avg[0] = s_fl.still_sum[0] / (s32)s_fl.still_n;
 			avg[1] = s_fl.still_sum[1] / (s32)s_fl.still_n;
 			avg[2] = s_fl.still_sum[2] / (s32)s_fl.still_n;
-			if (!Euler_InitFromAccel(&s_fl.att, avg,
-									 ts / FLIGHT_TICKS_PER_MS)) {
-				flight_still_reset();
+			{
+				u8 init_ok = Euler_InitFromAccel(&s_fl.att, avg,
+											 ts / FLIGHT_TICKS_PER_MS);
+
+				// 使用真实的初始化返回值；失败时才重开静置窗口。
+				FlightArmDebug_OnStartupResult(init_ok);
+				if (!init_ok) {
+					flight_still_reset();
+				}
 			}
 		}
 	}

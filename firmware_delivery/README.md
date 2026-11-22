@@ -4,6 +4,25 @@
 所有 Car 应用镜像都烧到 **0x4000**（bootloader 占 0x0–0x3FFF；本轮不写 0x10000 以上的 OTA/日志候选区）。
 当前主联调版为 **200 Hz 飞控联调**；历史 400 Hz 镜像只作回退参考。
 
+## 0. 对齐修复候选（待无桨验收，不替换日常件）
+
+| 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 | 构建开关 |
+|---|---|---:|---|---|---|
+| 正常飞控 | [`candidates/Robin_24G_Car_flight_control_alignfix.bin`](candidates/Robin_24G_Car_flight_control_alignfix.bin) | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | 0x4000 | `-DC_FLIGHT_CONTROL_EN=1` |
+| 解锁诊断 | [`candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin`](candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin) | 30452 | `1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189` | 0x4000 | `-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1` |
+
+- 两份候选均从同一修复提交构建；正常候选无 UART 诊断，诊断候选复用现有
+  `--arm-debug` GUI/CSV。
+- 应用区：`0x4000+24900=0xA144`、`0x4000+30452=0xB6F4`，均不超过 `0xF000`。
+- **日常 28500/`AA3D...` 件和 b3cb56f 回退件保持原样**；候选未通过无桨验收前
+  不替换日常件。
+- 诊断采集命令（新 CSV 名）：
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\data\arm_debug_alignfix.csv"
+```
+
 ## 1. 日常只列这两份
 
 | 用途 | 交付文件 | 字节 | SHA256 | 烧录地址 | 上位机 |

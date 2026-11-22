@@ -3,7 +3,7 @@
 
 #include "UserEuler.h"
 
-typedef struct {
+typedef struct __attribute__((aligned(4))) {
 	int tgt_att[2];       // 横滚/俯仰目标，0.01°
 	int tgt_up[3];        // 目标向上比力 Q15
 	int tgt_yaw_rate;     // 偏航目标角速度 Q10

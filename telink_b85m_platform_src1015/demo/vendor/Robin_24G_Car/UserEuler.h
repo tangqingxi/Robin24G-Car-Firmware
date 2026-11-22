@@ -100,14 +100,16 @@ typedef unsigned short att_u16;
 #define ATT_Q15_ONE   32768     // Q15 的 1.0
 
 // 四元数姿态估计器状态
-typedef struct {
+// 状态被 Euler_* 以指针整块访问；类型基址对齐到 4 字节，t_ms 放到两个 u8 之前，
+// 避免 -fpack-struct 把 32 位时间戳放到奇数偏移。
+typedef struct __attribute__((aligned(4))) {
 	att_i32 q[4];              // 四元数 w, x, y, z（Q15）
 	att_i32 gyro_prev[3];      // 上一拍角速度（Q10 rad/s），用于梯形积分
 	att_i32 dq_rem[4];         // Δq 整数截断的余数（1/10000 LSB）
 	att_i32 trap_rem[3];       // 梯形平均的余数（1/2 Q10），避免负数取整偏置
+	att_u32 t_ms;              // 最近一次有效更新时刻（毫秒）
 	att_u8  have_prev;         // 是否已有一拍角速度
 	att_u8  ready;             // 姿态是否已就绪
-	att_u32 t_ms;              // 最近一次有效更新时刻（毫秒）
 } euler_q_t;
 
 //********************************************************************
