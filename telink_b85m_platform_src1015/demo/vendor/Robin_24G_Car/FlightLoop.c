@@ -82,7 +82,9 @@ void FlightLoop_Init(void)
 {
 	u32 now = clock_time();
 	u8 rb = 0;
+	u8 st;
 
+	FlightArmDebug_Init();
 	if (s_fl.inited) {
 		return;
 	}
@@ -91,7 +93,12 @@ void FlightLoop_Init(void)
 	}
 	s_fl.retry_tick = now + CLOCK_SYS_CLOCK_HZ;
 
-	if (t3488_bench_init(C_GYRO_LPF_SEL, &rb)) {
+	st = t3488_bench_init(C_GYRO_LPF_SEL, &rb);
+	if (st) {
+		// 初始化失败也把真实返回码/lpf 回读交给主循环发送
+		FlightArmDebug_OnInit(st, rb,
+							  s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
+							  s_fl.att.ready, s_fl.safety.pwm_ready);
 		return;
 	}
 
@@ -103,6 +110,8 @@ void FlightLoop_Init(void)
 	now = clock_time();
 	s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	s_fl.inited = 1;
+	FlightArmDebug_OnInit(0, rb, s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
+						  s_fl.att.ready, s_fl.safety.pwm_ready);
 }
 
 // 启动阶段：连续静止 500ms 后取平均加速度定姿；移动/间断就重开窗口。
@@ -175,7 +184,8 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 		} else {
 			FlightArmDebug_OnUnlockAttempt(ev.key, fb, ev.cmd,
 										   ev.packet_valid, thr_low, center,
-										   s_fl.att.ready, s_fl.rc.link);
+										   s_fl.att.ready, s_fl.rc.link,
+										   s_fl.lpf, s_fl.rate);
 			if (ev.packet_valid) {
 				AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
 			}
@@ -234,7 +244,11 @@ void FlightLoop_Process(void)
 	// 必须在下面的 t3488_read_6axis/Euler 之前完成四路清零
 	FlightLoop_PreSampleSafety();
 
-	if (t3488_read_6axis(raw_a, raw_g)) {
+	{
+		u8 read_fail = t3488_read_6axis(raw_a, raw_g);
+
+		FlightArmDebug_OnRead(read_fail);
+		if (read_fail) {
 		AttitudeControl_ClearOutputs(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
@@ -270,6 +284,7 @@ void FlightLoop_Process(void)
 			s_fl.last_ts = t_read1;
 		}
 		if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * FLIGHT_TICKS_PER_100US) {
+			FlightArmDebug_OnGapBreak();
 			s_fl.dt_rem = 0;
 			s_fl.att.have_prev = 0;
 			flight_still_reset();
@@ -316,6 +331,7 @@ void FlightLoop_Process(void)
 				att_updated = 1;
 			}
 		}
+	}
 	}
 
 	if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {

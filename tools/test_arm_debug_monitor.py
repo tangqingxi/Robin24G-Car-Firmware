@@ -61,6 +61,42 @@ class ArmDebugStateTest(unittest.TestCase):
         self.assertIn("已解锁", s.status)
 
 
+class ArmDebugImuStatsTest(unittest.TestCase):
+    def test_read_counts_still_break_and_reject_accel(self):
+        s = arm.ArmDebugState()
+        feed(s, "ADB t=100 st=0 rb=3 still=0 att=0 pwm=1")
+        feed(s, "ADI t=1000 ok=199 f=1 sm=480 b=norm bn=2 bg=0 bj=0 bp=0 bi=0")
+        self.assertEqual((s.read_ok, s.read_fail, s.still_max_ms), (199, 1, 480))
+        self.assertEqual(s.break_reason, "norm")
+        self.assertEqual(s.break_counts["norm"], 2)
+        feed(s, "ADU t=1100 n=1 rt=0400 cmd=-307/0/0/0 pkt=1 low=1 ctr=0 att=1 lk=1 ok=0 why=roll")
+        feed(s, "ADG t=1100 n=1 a=FFF6/0000/FC0E g=0000/0000/0000")
+        self.assertEqual(s.last_acc[0], -10)
+        self.assertEqual(s.last_acc[2], -1010)
+        self.assertEqual(s.last_gyro, [0, 0, 0])
+
+    def test_csv_imu_stats_and_samples(self):
+        s = arm.ArmDebugState()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "arm.csv"
+            fp, writer = arm.make_csv_writer(path)
+            for line in [
+                "ADB t=100 st=0 rb=3 still=0 att=0 pwm=1",
+                "ADI t=1000 ok=199 f=1 sm=480 b=gyro bn=0 bg=1 bj=0 bp=0 bi=0",
+                "ADU t=1100 n=1 rt=0400 cmd=-180/0/0/0 pkt=1 low=0 ctr=1 att=1 lk=1 ok=0 why=thr",
+                "ADG t=1100 n=1 a=FFF6/0000/FC0E g=0001/0002/0003",
+            ]:
+                arm.write_record(writer, fp, feed(s, line))
+            fp.close()
+            with path.open(encoding="utf-8-sig", newline="") as f:
+                rows = list(csv.DictReader(f))
+        self.assertEqual(rows[1]["read_ok"], "199")
+        self.assertEqual(rows[1]["break_reason"], "gyro")
+        self.assertEqual(rows[3]["acc_x"], "-10")
+        self.assertEqual(rows[3]["acc_z"], "-1010")
+        self.assertEqual(rows[3]["gyro_z"], "3")
+
+
 class ArmDebugCsvTest(unittest.TestCase):
     def test_csv_has_board_host_attempt_and_raw(self):
         s = arm.ArmDebugState()

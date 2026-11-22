@@ -71,12 +71,15 @@ int main(void)
 {
 	int cmd_bad[4] = {-180, 0, 0, 0};
 	int cmd_ok[4] = {-307, 0, 0, 0};
+	int acc[3] = {-10, 0, -1010};
+	int gyro[3] = {0, 0, 0};
+	int prev[3] = {-10, 0, -1010};
 	unsigned short pwm[4] = {64, 90, 60, 50};
 
 	FlightArmDebug_Init();
-	FlightArmDebug_OnInit(1, 0, 0, 0);
+	FlightArmDebug_OnInit(1, 0, 0, 0, 0);
 	FlightArmDebug_Process();
-	FlightArmDebug_OnInit(0, 500, 1, 1);
+	FlightArmDebug_OnInit(0, 3, 500, 1, 1);
 	FlightArmDebug_Process();
 
 	g_now = 2 * CLOCK_SYS_CLOCK_HZ;
@@ -85,11 +88,11 @@ int main(void)
 	FlightArmDebug_Process();
 
 	busy_once = 1;
-	FlightArmDebug_OnUnlockAttempt(0x0002, 0x0400, cmd_bad, 1, 0, 1, 1, 1);
+	FlightArmDebug_OnUnlockAttempt(0x0002, 0x0400, cmd_bad, 1, 0, 1, 1, 1, acc, gyro);
 	FlightArmDebug_Process();       // 第一次 UART 忙，保留
 	FlightArmDebug_Process();       // 重试
-	FlightArmDebug_OnUnlockAttempt(0x0000, 0, cmd_bad, 0, 0, 0, 0, 0);
-	FlightArmDebug_OnUnlockAttempt(0x0002, 0x0400, cmd_ok, 1, 1, 1, 1, 1);
+	FlightArmDebug_OnUnlockAttempt(0x0000, 0, cmd_bad, 0, 0, 0, 0, 0, acc, gyro);
+	FlightArmDebug_OnUnlockAttempt(0x0002, 0x0400, cmd_ok, 1, 1, 1, 1, 1, acc, gyro);
 	FlightArmDebug_Process();
 
 	FlightArmDebug_OnControl(1, 1, 1, 0, pwm);

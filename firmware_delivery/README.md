@@ -52,18 +52,20 @@
 [`arm_debug/Robin_24G_Car_flight_arm_debug.bin`](arm_debug/Robin_24G_Car_flight_arm_debug.bin)
 
 ```text
-32052 字节
-SHA256 CB6AE7FC57C560F2035A7E160C0CA31D21160A08AA8E4577195B51FBE5F23761
+33876 字节
+SHA256 DFDBE4E4C6888388EAC037DF88333A55E796A7C054A80C2C045A2705458A3955
 烧录地址 0x4000
-0x4000 + 32052 = 0xBAB4 <= 0xF000，剩余 13004 字节
+0x4000 + 33876 = 0xBAB4 <= 0xF000，剩余 11180 字节
 ```
 
 构建开关 `-DC_FLIGHT_ARM_DEBUG=1`；正式镜像仍静默，交付件哈希不变。
 诊断镜像走同一 IMU/遥控/解锁/PWM 路径，仅额外从主循环非阻塞发送：
 
-- `ADB` 启动；
+- `ADB` 启动，`st` 是 IMU 初始化真实返回码，`rb` 是 lpf 回读；
 - `ADS` 每秒摘要；
+- `ADI` 每秒六轴读取成功/失败、最长连续静置、静置打断原因计数；
 - `ADU` 每次新 `0002` 的原始油门/四轴/门限/接受或拒绝；
+- `ADG` 被拒绝时的三轴加速度（mg）和角速度（Q10）；
 - `ADO` 解锁后第一拍；
 - `ADL` 解锁后锁回；
 - `ADE` 急停后的四路零 PWM。

@@ -17,9 +17,22 @@ typedef struct {
 	unsigned char last_boot_pwm;
 
 	unsigned char st;
+	unsigned char lpf_rb;
 	unsigned int still_ms;
 	unsigned char att_ready;
 	unsigned char pwm_ready;
+
+	unsigned int read_ok;
+	unsigned int read_fail;
+	unsigned int still_run_ticks;
+	unsigned int still_max_ticks;
+	unsigned char still_active;
+	unsigned char break_code;
+	unsigned int break_norm;
+	unsigned int break_gyro;
+	unsigned int break_jump;
+	unsigned int break_gap;
+	unsigned int break_init;
 
 	unsigned int rx;
 	unsigned int valid;
@@ -123,6 +136,64 @@ static unsigned int now_ms(void)
 	return clock_time() / FLIGHT_TICKS_PER_MS;
 }
 
+static const char *break_text(unsigned char code)
+{
+	switch (code) {
+	case 1: return "norm";
+	case 2: return "gyro";
+	case 3: return "jump";
+	case 4: return "gap";
+	case 5: return "init";
+	default: return "none";
+	}
+}
+
+static void record_break(unsigned char code)
+{
+	d.break_code = code;
+	switch (code) {
+	case 1: d.break_norm++; break;
+	case 2: d.break_gyro++; break;
+	case 3: d.break_jump++; break;
+	case 4: d.break_gap++; break;
+	case 5: d.break_init++; break;
+	default: break;
+	}
+	d.still_run_ticks = 0;
+	d.still_active = 0;
+}
+
+// 与 Euler_IsStill 使用同一组阈值，仅用于解释静置窗口为何被打断。
+static unsigned char still_break_reason(const int acc[3], const int gyro[3],
+										const int prev[3], unsigned char have_prev)
+{
+	int n2 = acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2];
+	int lo = C_ATT_INIT_ACC_LO_MG;
+	int hi = C_ATT_INIT_ACC_HI_MG;
+	int i;
+
+	if (n2 < lo * lo || n2 > hi * hi) {
+		return 1;
+	}
+	for (i = 0; i < 3; i++) {
+		if (gyro[i] > C_ATT_INIT_GYRO_MAX_Q10
+			|| gyro[i] < -C_ATT_INIT_GYRO_MAX_Q10) {
+			return 2;
+		}
+	}
+	if (have_prev) {
+		for (i = 0; i < 3; i++) {
+			int diff = acc[i] - prev[i];
+
+			if (diff > C_ATT_INIT_ACC_DEV_MG
+				|| diff < -C_ATT_INIT_ACC_DEV_MG) {
+				return 3;
+			}
+		}
+	}
+	return 0;
+}
+
 static const char *why_text(unsigned char why)
 {
 	switch (why) {
@@ -151,13 +222,15 @@ void FlightArmDebug_Init(void)
 	d.inited = 1;
 }
 
-void FlightArmDebug_OnInit(unsigned char st, unsigned int still_ms,
-						   unsigned char att_ready, unsigned char pwm_ready)
+void FlightArmDebug_OnInit(unsigned char st, unsigned char lpf_rb,
+						   unsigned int still_ms, unsigned char att_ready,
+						   unsigned char pwm_ready)
 {
 	char buf[UART_DATA_LEN];
 	char *p = buf;
 
 	d.st = st;
+	d.lpf_rb = lpf_rb;
 	d.still_ms = still_ms;
 	d.att_ready = att_ready;
 	d.pwm_ready = pwm_ready;
@@ -207,6 +280,47 @@ void FlightArmDebug_OnPacket(unsigned short thr, unsigned short rot,
 	d.last_key = key;
 }
 
+void FlightArmDebug_OnRead(unsigned char ok)
+{
+	if (ok) {
+		d.read_fail++;
+	} else {
+		d.read_ok++;
+	}
+}
+
+void FlightArmDebug_OnStillSample(const int acc[3], const int gyro[3],
+								  const int prev[3], unsigned char have_prev,
+								  unsigned int dt_ticks, unsigned char still)
+{
+	if (still) {
+		d.still_active = 1;
+		d.still_run_ticks += dt_ticks;
+		if (d.still_run_ticks > d.still_max_ticks) {
+			d.still_max_ticks = d.still_run_ticks;
+		}
+	} else if (d.still_active) {
+		unsigned char reason = still_break_reason(acc, gyro, prev, have_prev);
+
+		record_break(reason ? reason : 3);
+	}
+}
+
+void FlightArmDebug_OnGapBreak(void)
+{
+	record_break(4);
+}
+
+void FlightArmDebug_OnStartupResult(unsigned char ok)
+{
+	if (!ok) {
+		record_break(5);
+	} else {
+		d.still_run_ticks = 0;
+		d.still_active = 0;
+	}
+}
+
 void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 									unsigned int raw_thr,
 									const int cmd[4],
@@ -214,7 +328,8 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 									unsigned char thr_low,
 									unsigned char center,
 									unsigned char att_ready,
-									unsigned char link_ok)
+									unsigned char link_ok,
+									const int acc[3], const int gyro[3])
 {
 	unsigned char new_e2 = (key & 0x0002)
 						   && !(d.attempt_prev & 0x0002);
@@ -277,6 +392,25 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 	p = p_str(p, why_text(why));
 	*p++ = '\n';
 	q_line(buf, (unsigned char)(p - buf));
+
+	if (!accepted) {
+		// 拒绝时附上本包对应的三轴加速度（mg）和角速度（Q10）
+		p = buf;
+		p = p_str(p, "ADG t=");
+		p = p_u32(p, now_ms());
+		p = p_str(p, " n=");
+		p = p_u32(p, d.attempt);
+		p = p_str(p, " a=");
+		p = p_hex(p, (unsigned int)acc[0] & 0xFFFF, 4); *p++ = '/';
+		p = p_hex(p, (unsigned int)acc[1] & 0xFFFF, 4); *p++ = '/';
+		p = p_hex(p, (unsigned int)acc[2] & 0xFFFF, 4);
+		p = p_str(p, " g=");
+		p = p_hex(p, (unsigned int)gyro[0] & 0xFFFF, 4); *p++ = '/';
+		p = p_hex(p, (unsigned int)gyro[1] & 0xFFFF, 4); *p++ = '/';
+		p = p_hex(p, (unsigned int)gyro[2] & 0xFFFF, 4);
+		*p++ = '\n';
+		q_line(buf, (unsigned char)(p - buf));
+	}
 
 	if (accepted) {
 		d.accepted_pending = 1;
@@ -386,6 +520,34 @@ void FlightArmDebug_Process(void)
 		p = p_str(p, " drop="); p = p_u32(p, d.qdrop);
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
+
+		// 每秒 IMU 统计：读取成功/失败、最长连续静置、打断原因
+		p = buf;
+		p = p_str(p, "ADI t=");
+		p = p_u32(p, now_ms());
+		p = p_str(p, " ok="); p = p_u32(p, d.read_ok);
+		p = p_str(p, " f="); p = p_u32(p, d.read_fail);
+		p = p_str(p, " sm=");
+		p = p_u32(p, d.still_max_ticks / FLIGHT_TICKS_PER_MS);
+		p = p_str(p, " b=");
+		p = p_str(p, break_text(d.break_code));
+		p = p_str(p, " bn="); p = p_u32(p, d.break_norm);
+		p = p_str(p, " bg="); p = p_u32(p, d.break_gyro);
+		p = p_str(p, " bj="); p = p_u32(p, d.break_jump);
+		p = p_str(p, " bp="); p = p_u32(p, d.break_gap);
+		p = p_str(p, " bi="); p = p_u32(p, d.break_init);
+		*p++ = '\n';
+		q_line(buf, (unsigned char)(p - buf));
+
+		d.read_ok = 0;
+		d.read_fail = 0;
+		d.still_max_ticks = 0;
+		d.break_code = 0;
+		d.break_norm = 0;
+		d.break_gyro = 0;
+		d.break_jump = 0;
+		d.break_gap = 0;
+		d.break_init = 0;
 	}
 
 	while (d.qcount) {

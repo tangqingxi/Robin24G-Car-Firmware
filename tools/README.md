@@ -18,7 +18,7 @@
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
 | `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
-| `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADU/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
+| `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
 | `test_package_bin.py` | 0x4000+bin ≤0xF000 打包门：超限非零且不覆盖交付文件 |
 | `check_bin_size.py` | 最终 .bin 应用区上限检查；超限非零退出 |
@@ -232,13 +232,22 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 板端协议（每行 ≤160 字节）：
 
 ```text
-ADB t=... st=0 still=... att=... pwm=...
+ADB t=... st=.. rb=.. still=... att=... pwm=...
 ADS t=... st=.. still=.. att=.. pwm=.. rx=.. vld=.. hb=.. e2=.. n=.. arm=.. x=.. drop=..
+ADI t=... ok=.. f=.. sm=.. b=.. bn=.. bg=.. bj=.. bp=.. bi=..
 ADU t=... n=.. rt=.... cmd=t/y/p/r pkt=.. low=.. ctr=.. att=.. lk=.. ok=.. why=...
+ADG t=... n=.. a=xxxx/xxxx/xxxx g=xxxx/xxxx/xxxx
 ADO t=... n=.. up=.. ctrl=.. arm=.. x=.. pwm=fff/fff/fff/fff
 ADL t=... n=.. x=.. pwm=fff/fff/fff/fff
 ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 ```
+
+- `ADB st` 是 `t3488_bench_init` 的真实返回码，`rb` 是 lpf 回读；
+- `ADI` 每秒统计：`ok/f` 六轴读取成功/失败，`sm` 最长连续静置毫秒，
+  `b` 最近一次打断原因；`bn/bg/bj/bp/bi` 分别累计模长越界、陀螺超限、
+  相邻跳变、采样长间隔、500ms 后姿态初始化失败；
+- 拒绝尝试额外发 `ADG`，`a/g` 是当时三轴加速度（mg）和角速度（Q10）的有符号 16 位十六进制；
+- 除新增诊断外，校准值、`Euler_IsStill` 判稳阈值和所有解锁条件未改。
 
 `why` 具体为 `pkt/estop/thr/roll/pitch/yaw/att/link`；GUI 会翻译成
 “油门过高（-180，要求 ≤ -250）”等中文。CSV 同时写板端时间、主机时间、
@@ -279,8 +288,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
   烧 0x4000。`0x4000 + 28500 = 0xAF54 <= 0xF000`，应用区剩余 16556 字节。
 - 专用解锁诊断镜像（C_FLIGHT_ARM_DEBUG=1，不改正式件）：
   `firmware_delivery/arm_debug/Robin_24G_Car_flight_arm_debug.bin`，
-  32052 字节，SHA256 `CB6AE7FC57C560F2035A7E160C0CA31D21160A08AA8E4577195B51FBE5F23761`，
-  烧 0x4000，应用区剩余 13004 字节。
+  33876 字节，SHA256 `DFDBE4E4C6888388EAC037DF88333A55E796A7C054A80C2C045A2705458A3955`，
+  烧 0x4000，应用区剩余 11180 字节。
 - 同选项移除前后对比：
 
   ```text
@@ -335,10 +344,10 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
   目标姿态换算不在急停包执行；失联/指令超时在采样前清 PWM（`test_flight_order.c`）；
 - 真实启动路径：静置 −10/0/−1010mg 满 500ms 后 `att.ready`，再送合法低油门
   `0002` 能解锁（`test_flight_startup.c`，链接真实 UserEuler）；
-- 诊断协议：ADB/ADS/ADU/ADO/ADL/ADE、行长 ≤159、UART 忙重试
+- 诊断协议：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、行长 ≤159、UART 忙重试
   （`test_flight_arm_debug.c`，链接真实 FlightArmDebug.c）；
 - GUI/CSV 五种状态：IMU 失败、无 0002、油门拒绝、解锁后锁回、正常 PWM
-  （`python test_arm_debug_monitor.py`，6 项）；
+  （`python test_arm_debug_monitor.py`，8 项）；
 - `0x4000 + bin <= 0xF000` 打包门：超限返回非零且不覆盖旧交付件
   （`test_package_bin.py`）；
 - 25 项监视器解析/模拟/旧报文兼容；四元数、积分除余回归。

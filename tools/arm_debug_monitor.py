@@ -32,7 +32,10 @@ CSV_FIELDS = [
     "packet_valid", "thr_low", "center", "att_ready", "link_ok",
     "accepted", "why", "armed", "lock_reason", "pwm_ready",
     "pwm_front", "pwm_rear", "pwm_left", "pwm_right",
-    "rx", "valid", "heartbeat", "e2", "still_ms", "boot_st", "raw_line",
+    "rx", "valid", "heartbeat", "e2", "still_ms", "boot_st", "lpf_rb",
+    "read_ok", "read_fail", "still_max_ms", "break_reason",
+    "break_norm", "break_gyro", "break_jump", "break_gap", "break_init",
+    "acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z", "raw_line",
 ]
 
 _HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
@@ -47,6 +50,11 @@ def _to_int(text: str, default: Optional[int] = None) -> Optional[int]:
 
 def _hex4(text: str) -> int:
     return int(text, 16) if text and _HEX_RE.match(text) else 0
+
+
+def _s16(value: int) -> int:
+    value &= 0xFFFF
+    return value - 0x10000 if value & 0x8000 else value
 
 
 def parse_kv(line: str) -> tuple[str, dict[str, str]]:
@@ -104,9 +112,18 @@ def why_text(why: str, cmd: list[int]) -> str:
 @dataclass
 class ArmDebugState:
     boot_st: Optional[int] = None
+    lpf_rb: Optional[int] = None
     still_ms: int = 0
     att_ready: Optional[int] = None
     pwm_ready: Optional[int] = None
+    read_ok: int = 0
+    read_fail: int = 0
+    still_max_ms: int = 0
+    break_reason: str = "none"
+    break_counts: dict = field(default_factory=lambda: {
+        "norm": 0, "gyro": 0, "jump": 0, "gap": 0, "init": 0})
+    last_acc: list[int] = field(default_factory=lambda: [0, 0, 0])
+    last_gyro: list[int] = field(default_factory=lambda: [0, 0, 0])
     rx: int = 0
     valid: int = 0
     heartbeat: int = 0
@@ -149,6 +166,50 @@ class ArmDebugState:
                 self.status = f"IMU 初始化失败（st={self.boot_st}）"
             else:
                 self.status = self._status_without_e2()
+
+        elif kind == "ADI":
+            self.seen_serial = True
+            self.read_ok = _to_int(data.get("ok"), 0) or 0
+            self.read_fail = _to_int(data.get("f"), 0) or 0
+            self.still_max_ms = _to_int(data.get("sm"), 0) or 0
+            self.break_reason = data.get("b", "none")
+            self.break_counts = {
+                "norm": _to_int(data.get("bn"), 0) or 0,
+                "gyro": _to_int(data.get("bg"), 0) or 0,
+                "jump": _to_int(data.get("bj"), 0) or 0,
+                "gap": _to_int(data.get("bp"), 0) or 0,
+                "init": _to_int(data.get("bi"), 0) or 0,
+            }
+            record.update({
+                "read_ok": self.read_ok, "read_fail": self.read_fail,
+                "still_max_ms": self.still_max_ms,
+                "break_reason": self.break_reason,
+                "break_norm": self.break_counts["norm"],
+                "break_gyro": self.break_counts["gyro"],
+                "break_jump": self.break_counts["jump"],
+                "break_gap": self.break_counts["gap"],
+                "break_init": self.break_counts["init"],
+                "boot_st": self.boot_st, "lpf_rb": self.lpf_rb,
+            })
+            self.events.append(
+                f"[{record['board_ms']}] IMU ok={self.read_ok} fail={self.read_fail} "
+                f"stillmax={self.still_max_ms}ms break={self.break_reason}")
+
+        elif kind == "ADG":
+            self.seen_serial = True
+            n = _to_int(data.get("n"), 0) or 0
+            self.last_acc = [_s16(_hex4(x)) for x in data.get("a", "0/0/0").split("/")]
+            self.last_gyro = [_s16(_hex4(x)) for x in data.get("g", "0/0/0").split("/")]
+            record.update({
+                "attempt": n,
+                "acc_x": self.last_acc[0], "acc_y": self.last_acc[1],
+                "acc_z": self.last_acc[2],
+                "gyro_x": self.last_gyro[0], "gyro_y": self.last_gyro[1],
+                "gyro_z": self.last_gyro[2],
+            })
+            self.events.append(
+                f"[{record['board_ms']}] 拒绝样本 acc={self.last_acc} "
+                f"gyro={self.last_gyro}")
 
         elif kind == "ADS":
             self.seen_serial = True
@@ -327,7 +388,7 @@ class SimArmSource:
 
     def __init__(self):
         self.lines = [
-            "ADB t=100 st=0 still=0 att=0 pwm=1",
+            "ADB t=100 st=0 rb=3 still=0 att=0 pwm=1",
             "ADS t=500 st=0 still=0 att=0 pwm=1 rx=10 vld=8 hb=2 e2=0 n=0 arm=0 x=1 drop=0",
             "ADS t=1500 st=0 still=1200 att=1 pwm=1 rx=30 vld=26 hb=4 e2=0 n=0 arm=0 x=1 drop=0",
             "ADU t=2000 n=1 rt=0400 cmd=-180/0/0/0 pkt=1 low=0 ctr=1 att=1 lk=1 ok=0 why=thr",
@@ -522,7 +583,13 @@ def run_gui(args, source, csv_path: Path) -> int:
                 f"IMU 初始化：{'成功' if state.boot_st == 0 else '失败'}（st={state.boot_st}）\n"
                 f"静置累计：{state.still_ms} ms\n"
                 f"姿态就绪：{'是' if state.att_ready else '否'}\n"
-                f"PWM 初始化：{'完成' if state.pwm_ready else '未完成'}"
+                f"PWM 初始化：{'完成' if state.pwm_ready else '未完成'}\n"
+                f"本秒读取：成功 {state.read_ok} / 失败 {state.read_fail}\n"
+                f"最长连续静置：{state.still_max_ms} ms\n"
+                f"静置打断：{state.break_reason} "
+                f"(模长{state.break_counts['norm']} 陀螺{state.break_counts['gyro']} "
+                f"跳变{state.break_counts['jump']} 间隔{state.break_counts['gap']} "
+                f"初始化{state.break_counts['init']})"
             )
         else:
             imu_text = "尚未收到启动状态"
@@ -546,7 +613,9 @@ def run_gui(args, source, csv_path: Path) -> int:
                 f"映射四轴：T={cmd[0]} Y={cmd[1]} P={cmd[2]} R={cmd[3]}\n"
                 f"包有效={a['packet_valid']} 低油门={a['thr_low']} "
                 f"回中={a['center']}\n"
-                f"姿态={a['att_ready']} 链路={a['link_ok']}"
+                f"姿态={a['att_ready']} 链路={a['link_ok']}\n"
+                f"三轴加速度：{state.last_acc[0]}/{state.last_acc[1]}/{state.last_acc[2]}\n"
+                f"三轴角速度：{state.last_gyro[0]}/{state.last_gyro[1]}/{state.last_gyro[2]}"
             )
         else:
             unlock_text = ("有串口状态但尚未收到 0002"
