@@ -32,7 +32,7 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 
 - 日志区 `0x10000..0x1CFFF`（13×4KiB）；命令邮箱 `0x1D000`，不属于日志区。
 - 首版 25Hz、750 条（约30s），满了停止并保留。
-- 启动/擦除：BDT 在 `0x1D000` 写小端 `31 47 4F 4C`，四路锁定且 PWM 全零时执行。
+- 启动/擦除：BDT 在 `0x1D000` 写小端 `4C 4F 47 31`，四路锁定且 PWM 全零时执行。
 - BDT 读回 `0x10000` 起 `0xD000` 字节：
 
 ```powershell
