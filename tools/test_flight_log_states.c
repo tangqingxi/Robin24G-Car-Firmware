@@ -210,6 +210,26 @@ int main(int argc, char **argv)
 		printf("PASS reconnect old key ignored until release\n");
 		return 0;
 	}
+	if (strcmp(argv[1], "closing") == 0) {
+		start_key();
+		for (i = 0; i < 30; i++) {
+			step();
+		}
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x1000, 0x1000, 0x0001);
+		FlightLog_Service(1);
+		if (FlightLog_State() != FLIGHT_LOG_ST_CLOSING) {
+			printf("FAIL not closing after estop\n");
+			return 1;
+		}
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
+		if (FlightLog_State() != FLIGHT_LOG_ST_CLOSING) {
+			printf("FAIL K3 accepted during closing\n");
+			return 1;
+		}
+		drain_log();
+		printf("PASS K3 ignored during closing\n");
+		return 0;
+	}
 	if (strcmp(argv[1], "locked") == 0) {
 		start_key();
 		for (i = 0; i < 400; i++) {
