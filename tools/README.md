@@ -20,7 +20,9 @@
 | `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
 | `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |
 | `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
-| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |\n| `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + BDT 命令 + Python 导出 |\n| `test_flash_fw_check.c` | 真实 CRC 函数 + Flash 桩：0xB000/256 边界/坏 CRC/越界 |
+| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |
+| `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + BDT 命令 + Python 导出 |
+| `test_flash_fw_check.c` | 真实 CRC 函数 + Flash 桩：0xB000/256 边界/坏 CRC/越界 |
 | `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
