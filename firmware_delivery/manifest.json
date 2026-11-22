@@ -143,7 +143,7 @@
   },
   "task2": {
     "status": "awaiting_no_prop_acceptance",
-    "build_commit": "46f3401",
+    "build_commit": "b713713",
     "behavior_baseline": "b3cb56f",
     "bootloader": {
       "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
@@ -190,7 +190,8 @@
       "sha256": "C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09",
       "flash_address": "0x0",
       "key": "0x0004 StuntShow short press",
-      "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间"
+      "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间",
+      "build_commit": "0c27a88"
     }
   }
 }
