@@ -318,7 +318,7 @@ L400_STALE_S = 1.0
 #   L400Q f=F a=0023 v=0012 k=001F q=7FFF/0000/0000/0000
 #         r=00000/00000/00000 c=0000/0000/0000
 _L400_SHORT_RE = re.compile(
-    r"^L400Q\s+f=([0-9A-F])\s+a=([0-9A-F]{4})\s+v=([0-9A-F]{4})\s+"
+    r"^(?:L400Q|FCQ)\s+f=([0-9A-F])\s+a=([0-9A-F]{4})\s+v=([0-9A-F]{4})\s+"
     r"k=([0-9A-F]{4})\s+"
     r"q=([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})/([0-9A-F]{4})\s+"
     r"r=([0-9A-F]{5})/([0-9A-F]{5})/([0-9A-F]{5})\s+"
@@ -592,7 +592,7 @@ _L400_PREP_RE = re.compile(
 # L400S 统计行新格式：定宽十六进制；miss=整拍超期，cmiss=控制完成超期，
 # ctl=控制完成时延（本周期最大/上电峰值）；late/exec/rx/tx 为分项耗时。
 _L400_STAT_HEX_RE = re.compile(
-    r"^L400S\s+bad=([0-9A-F]{4})\s+n=([0-9A-F]{6})\s+f=([0-9A-F]{4})\s+"
+    r"^(?:L400S|FCS)\s+bad=([0-9A-F]{4})\s+n=([0-9A-F]{6})\s+f=([0-9A-F]{4})\s+"
     r"eul=([0-9A-F]{6})\s+miss=([0-9A-F]{6})\s+cmiss=([0-9A-F]{6})\s+"
     r"skip=([0-9A-F]{6})\s+txd=([0-9A-F]{6})\s+ctl=([0-9A-F]{4})/([0-9A-F]{4})\s+"
     r"late=([0-9A-F]{4})/([0-9A-F]{4})\s+exec=([0-9A-F]{4})/([0-9A-F]{4})\s+"
@@ -1029,7 +1029,7 @@ class SimL400Source:
             qz = -math.sin(pp / 2) * math.sin(rr / 2)
             flags = (1 if rdy else 0) | 0x02 | 0x04 | (0x08 if on else 0)
             self._push(
-                f"L400Q f={flags:X} a={_hex(alk, 4)} v={_hex(avld, 4)} "
+                f"FCQ f={flags:X} a={_hex(alk, 4)} v={_hex(avld, 4)} "
                 f"k={_hex(gpk, 4)} "
                 f"q={_q15_hex(qw)}/{_q15_hex(qx)}/{_q15_hex(qy)}/{_q15_hex(qz)} "
                 f"r={_hex(gx & 0xFFFFF, 5)}/{_hex(gy & 0xFFFFF, 5)}/"
@@ -1051,7 +1051,7 @@ class SimL400Source:
             rx_avg = 30 + (self.n_stat * 3) % 20
             tx_avg = 45 + (self.n_stat * 5) % 25
             self._push(
-                f"L400S bad={_hex(0, 4)} n={_hex(self.sample, 6)} "
+                f"FCS bad={_hex(0, 4)} n={_hex(self.sample, 6)} "
                 f"f={_hex(0, 4)} eul={_hex(self.euler, 6)} "
                 f"miss={_hex(self.miss, 6)} cmiss={_hex(self.cmiss, 6)} "
                 f"skip={_hex(self.skip, 6)} txd={_hex(self.txd, 6)} "
@@ -2491,8 +2491,8 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--attitude", action="store_true",
                       help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
-    mode.add_argument("--l400", action="store_true",
-                      help="按联调固件文本协议采集（L400Q/L400S，画 g/c 角速度与实测姿态）")
+    mode.add_argument("--flight-control", "--l400", dest="l400", action="store_true",
+                      help="按 200Hz 飞控协议采集（FCQ/FCS；--l400 为兼容别名）")
     args = ap.parse_args()
 
     if args.list:

@@ -7,13 +7,15 @@
 | `imu_axis_map.py` | 传感器轴 → 机体 FRD 映射（六面摆法） |
 | `accel_six_face_cal.py` | 加速度计六面校准 / 单面补测 |
 | `gyro_bias_cal.py` | 陀螺仪静止零偏 |
-| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与 200Hz 联调（`--l400`）监视与 CSV 记录（只查看，不校准） |
+| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与 200 Hz 飞控联调（`--flight-control`，`--l400` 兼容）监视与 CSV 记录（只查看，不校准） |
 | `uart_proto.py` | 0x269A / 0x269B 帧解析（纯标准库，被上面几个工具共用） |
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
 | `test_euler_normalize.c` | UserEuler 正常 2.5ms、90ms 长间隔、大单步和损坏四元数的主机侧回归 |
 | `test_euler_div.c` | 积分 `%10000` 改为商求余后，正负输入/q/dq_rem 逐点一致和异常步长保护 |
-| `test_l400_motor.c` | 俯仰/偏航限幅前后符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
+| `test_l400_motor.c` | 混控俯仰/偏航符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
+| `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
+| `patch_flight_build.py` | 把拆分后的 7 个飞控 .c/.o/规则写入 TC32 subdir.mk（可重复运行） |
 | `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
@@ -125,13 +127,14 @@ python accel_six_face_cal.py --port COM12 --axis-map "..\data\imu_axis_map_frd.j
 
 ### 3.1 先刷地面维护镜像（校准专用）
 
-校准脚本吃的是 **0x269A 原始六轴帧**，当前联调固件发的是 L400Q 短文本，两者不兼容，
+校准脚本吃的是 **0x269A 原始六轴帧**，当前联调固件发的是 FCQ 短文本，两者不兼容，
 所以标定前必须换成维护镜像：
 
 | 用途 | 交付镜像 | 串口输出 |
 |---|---|---|
 | 六轴校准（本节目录下的三个脚本） | `firmware_delivery/daily/Robin_24G_Car_maint_269a.bin` | 只有 0x269A 二进制帧，约 100 Hz |
-| 400Hz 历史联调 / 200Hz 测试镜像（`--l400`） | 日常 `Robin_24G_Car_rc_loop400.bin` / 测试 `_ctrl.bin` | L400 长行 / L400Q 短行 + L400S |
+| 200 Hz 飞控联调（`--flight-control`，`--l400` 别名） | `firmware_delivery/daily/Robin_24G_Car_flight_control.bin` | FCQ 短行 + FCS |
+| 历史 400 Hz 联调（仅回退） | `firmware_delivery/archive/Robin_24G_Car_rc_loop400.bin` | 旧 L400 长行 |
 
 两份都烧到应用区 **0x4000**（bootloader 0x0–0x3FFF 与 0x10000 以上的 Flash 区域都不动）。
 完整的路径、字节数、SHA256、归档镜像和构建模式说明见
@@ -182,25 +185,39 @@ python uart_sensor_monitor.py --port COM12
 
 加 `--no-plot --duration 60 --csv "..\data\monitor.csv"` 可以不画图、定时记录。
 
-### 200Hz 联调固件（文本协议，--l400）
+### 200 Hz 飞控联调（FCQ/FCS，--flight-control）
 
-本测试镜像把 IMU 读取、四元数估计和双环统一到 **200Hz（5ms）**；姿态积分
-继续使用实际采样间隔，遥控指令/链路超时仍是原来的 200ms/500ms，超期门限
-随周期改为 5ms。A/B 仍是 2s 连续有效后各跑 10s，默认关闭、按特技键开启。
+本测试镜像把 IMU 读取、四元数估计和双环统一到 **200Hz（5ms，`FLIGHT_LOOP_HZ`）**；
+姿态积分继续使用实际采样间隔，遥控指令/链路超时仍是原来的 200ms/500ms，
+超期门限随周期改为 5ms。A/B 仍是 2s 连续有效后各跑 10s，默认关闭、按特技键开启。
+
+拆分后的源码：`UserRxdFunc.c` 只保留板级入口和无线解码，调用 `FlightLoop`；
+`RcInput` 负责包校验/映射/包龄，`AttitudeControl` 负责横滚俯仰外环，
+`RateControl` 负责三轴内环，`MotorMixer` 负责油门/十字混控/统一限幅，
+`FlightSafety` 负责解锁/急停/失联/姿态/诊断锁定，`FlightTelemetry` 负责
+FCQ/FCS 与非阻塞提交。PWM 硬件写入仍在 `UserPwm.c`。
 
 
-7d01167 固件输出 10Hz 的 `L400 ...` 观察行和 1Hz 的 `L400S ...` 统计行；
-带分项耗时的新 L400 固件把 `L400S` 改成定宽十六进制，并追加
+当前 200 Hz 飞控输出 10Hz 的 `FCQ ...` 观察行和 1Hz 的 `FCS ...` 统计行；
+`FCS` 为定宽十六进制，并带
 `late/exec/rx/tx` 四个耗时字段，监视器同时兼容新旧两种格式。
 图形监视命令：
 
 ```powershell
 Set-Location "E:\泡沫纸飞机\code\tools"
-python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\l400.csv"
+python uart_sensor_monitor.py --port COM12 --flight-control --duration 120 --csv "..\data\flight_control.csv"
+```
+
+**60 秒无桨验收采集（推荐直接运行）：**
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --flight-control --duration 60 --no-plot `
+  --csv "..\data\fc60_obs.csv" --stats-csv "..\data\fc60_stats.csv"
 ```
 
 - 常规路径默认开启，A/B 默认关闭（按需按键才启动）。验收时遥控关闭，
-  先启动监视器再给板子上电，应能从 `rdy=0` 到 `rdy=1` 持续收到 `L400Q`；
+  先启动监视器再给板子上电，应能从 `rdy=0` 到 `rdy=1` 持续收到 `FCQ`；
   监视器关闭后重新打开，应继续接收，不需要复位板子。
 - 三张图：第一张 **实测角速度 g (°/s)**，第二张 **内环 PID 纠偏 c (°/s)**，
   第三张 **实测姿态 (°)**。g/c 是机体 FRD 角速度量与纠偏量，**不是欧拉角**；
@@ -230,7 +247,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   才开启（会先锁电机）；不按键时走常规采样/遥测路径，诊断函数不逐拍调用。
   开启后用“连续有效状态起始 tick”与当前 tick 的差判断满 2s；中途失效
   重新计时。满 2s 后 A 段 10s 只跑收包+姿态估计（双环关闭），B 段 10s
-  再开双环。两段内 **暂缓所有常规 L400/L400S 行**。两段结果先存快照，
+  再开双环。两段内 **暂缓所有常规 FCQ/FCS 行**。两段结果先存快照，
   再用 `UartTrySend()` 逐行发送两行 `L400D` 汇总；串口忙时保留待发，
   发完自动恢复正常遥测；队列为空后不再逐拍调用诊断。`rfirq` 只统计
   确实有射频中断源的 ISR 调用。A/B 期间 GUI 约 20s 无新观察帧、
@@ -241,7 +258,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   刷新包龄，失联/超时后的首个有效包强制重算。
 - 报告延期原因：发生余量不足或 UART/DMA 忙时，优先在剩余 >200us 或
   无常规报告占用本拍时补发一行 `L400T budget=... busy=...`；监视器打印
-  `[报告延期]` 并写入 `<统计 CSV>.diag.txt`。L400S 里的 `txd` 仍是两类之和，
+  `[报告延期]` 并写入 `<统计 CSV>.diag.txt`。FCS 里的 `txd` 仍是两类之和，
   排查时看 `L400T` 的独立计数。
 - 统计区：采样 `n`、姿态更新 `eul`、读失败 `f`、坏包 `bad`；
   新固件显示“整拍超期 `miss`、控制超期 `cmiss`、跳拍 `skip`、串口推迟 `txd`、
@@ -261,11 +278,11 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   L400S bad=0 n=12345 f=0 gap=0 eul=12000 miss=0 skip=0 txd=0 cyc=2490/3100
   ```
 
-  当前固件的常规姿态/电机观测是短的定宽 `L400Q`（最长 118 字节）：
+  当前固件的常规姿态/电机观测是短的定宽 `FCQ`（最长 118 字节）：
 
   ```text
-  L400Q f=F a=0023 v=0012 k=001F q=7FFF/0000/0000/0000 r=00064/00000/FFFFF c=FFC0/0000/0040 m=1 x=0 pwm=064/05A/03C/032
-  L400S bad=0000 n=0012C0 f=0000 eul=0012C0 miss=000003 cmiss=000001 skip=000000 txd=000002 ctl=09BA/0C1C late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096
+  FCQ f=F a=0023 v=0012 k=001F q=7FFF/0000/0000/0000 r=00064/00000/FFFFF c=FFC0/0000/0040 m=1 x=0 pwm=064/05A/03C/032
+  FCS bad=0000 n=0012C0 f=0000 eul=0012C0 miss=000003 cmiss=000001 skip=000000 txd=000002 ctl=09BA/0C1C late=04B0/09C4 exec=0384/0514 rx=0028/005A tx=0032/0096
   ```
 
   - `f`：状态位，bit0=姿态就绪、bit1=链路、bit2=指令有效、bit3=控制使能；
@@ -279,7 +296,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   - `pwm`：四路**实际**占空比，3 位十六进制，固定顺序 **前/后/左/右**；
   - 角度、°/s、欧拉角全部由 Python 换算，固件不再拼长小数文本。
 
-  `L400S` 仍是 160 字节（等于 `UART_DATA_LEN`）。旧 `7d01167`/`81748c4`
+  `FCS` 仍是 160 字节（等于 `UART_DATA_LEN`）。旧 `7d01167`/`81748c4`
   的 `L400 ...` 长观察行仍可解析；当前镜像不再发送。
 
   报告延期原因短行（最多 1s 一行）：
@@ -360,7 +377,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
 ### 左侧上/下键原始收包抓取
 
 1. 电机断开，烧 `Robin_24G_Car_rc_loop400_keycap.bin`；该镜像不初始化电机 PWM。
-2. 打开串口监视器（`--l400 --no-plot`），先长按左侧上键、再短按左侧下键，
+2. 打开串口监视器（`--flight-control --no-plot`），先长按左侧上键、再短按左侧下键，
    两次间隔 1s 以上。
 3. 控制台出现 `[按键] L400K ...`，同时写入 `<统计 CSV>.diag.txt`。
 4. 把左侧上键的按下、保持、松开三行（包括 `key=0000` 的释放行）留档；
@@ -389,17 +406,52 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
    前=LF/PWM1、后=LB/PWM3、左=RB/PWM0、右=RF/PWM2；确认转向与桨的 CW/CCW
    要求一致。任何一项不符先不要装桨。
 
-- 本轮控制器联调测试镜像（未纳入 `firmware_delivery/daily`）：
-  `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_rc_loop400_ctrl.bin`，
-  35108 字节，SHA256 `F8607D150B56FCDABEDC10F1DE8AE514039CED1CCEB6F500DC5B35A3C8824BF5`，
-  烧 0x4000。上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
-  左侧上/下键原始抓包镜像：`Robin_24G_Car_rc_loop400_keycap.bin`（34420 字节，
-  SHA256 `E5C254733A3D8CBDD78D79E4B61127C47396328F56A7994F2E30A4CAAE61A197`），
-  不初始化电机 PWM，仅用于抓包。
+- 当前主联调镜像：
+  `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_flight_control.bin`，
+  42516 字节，SHA256 `91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD`，
+  烧 0x4000。
+- 拆分前回退件 `firmware_delivery/archive/Robin_24G_Car_flight_control_b3cb56f.bin`
+  （35108 / `F8607D15…`）仅作回退，不再作为当前联调镜像。
+- 上一版调度测试镜像 `_sched.bin` 继续保留（26644 / `CAFEAC6C…`）。
+- 左侧上/下键原始抓包镜像（无 PWM，仅台架）：
+  `Robin_24G_Car_rc_loop400_keycap.bin`（40708 字节，
+  SHA256 `90DE52F67004AC15C13B9CD3E8F8BF468D154019F532BC4E0C7D22FD5D92BCCE`）。
 
-- 无硬件自测：`python uart_sensor_monitor.py --l400 --simulate --duration 5`；
+- 构建目录被 `.gitignore` 忽略，新增的 7 个飞控 .c 需要用脚本写入生成清单：
+
+  ```powershell
+  Set-Location "E:\泡沫纸飞机\code"
+  python tools\patch_flight_build.py `
+    "telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\vendor\Robin_24G_Car\subdir.mk"
+  # 在 subdir.mk 的 UserRxdFunc.c 编译行加入 -DC_FLIGHT_CONTROL_EN=1 后：
+  mingw32-make clean
+  mingw32-make all
+  ```
+
+  抓包构建再加 `-DC_L400_KEY_CAPTURE=1`；新入口只用 `C_FLIGHT_CONTROL_EN`，
+  旧 `C_RC_LOOP_400_EN` 仅作兼容别名。
+
+**已跑的主机回归**
+
+- 偏航/俯仰符号、200 ms 0002 重复包/无效包、0001 优先与重新解锁
+  （`test_l400_motor.c`，链接 `MotorMixer.c` + `FlightSafety.c`）；
+- RcInput 映射/心跳/200 ms/500 ms 超时、外环偏航直通、内环 P
+  （`test_flight_modules.c`）；
+- 25 项监视器解析/模拟/旧报文兼容；四元数、A/B、积分除余回归。
+
+**待做的上板无桨验收**
+
+1. 60 秒采集中约 200 Hz，`FCS` 的 `miss/cmiss/skip` 不增长；
+2. 正/负偏航时 `左+右` 与 `前+后` 的大小关系正确；
+3. 左侧下键短按后四路马上为 0，`m=0 x=5`；
+4. 解锁后关遥控器，四路回 0，`x=2/3`；
+5. 重新连接后仍锁定，必须重新长按左侧上键产生新的 `0002` 才解锁。
+
+- 无硬件自测：`python uart_sensor_monitor.py --flight-control --simulate --duration 5`；
   只记录不画图：把 `--simulate` 换成实际串口并加 `--no-plot`。
-- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（24 项）。
+  兼容别名仍可用：`--l400`。
+- 解析/分块收包/CSV/四元数换算自测：`python test_l400_monitor.py`（25 项，
+  同时覆盖旧 `L400Q/L400S` 和新 `FCQ/FCS`）。
 - 四元数异常更新回归（主机侧，不烧板）：
 
   ```powershell
@@ -455,7 +507,7 @@ python uart_sensor_monitor.py --port COM12 --l400 --duration 120 --csv "..\data\
   保留已完成阶段/原因，以及 UART 忙后 A/B 两行仍能按序发出。
 
 - 旧 7d01167 十进制格式已在 COM12 实机抓取验证；新十六进制/控制器字段
-  已由模拟源、解析和 CSV 测试覆盖，实机控制器验收需烧录 `_ctrl.bin` 后再采集。
+  已由模拟源、解析和 CSV 测试覆盖，实机控制器验收需烧录 `Robin_24G_Car_flight_control.bin` 后再采集。
 
 ### 台架姿态固件（文本协议，--attitude）
 
@@ -476,12 +528,12 @@ python uart_sensor_monitor.py --port COM12 --attitude --duration 120 --csv "..\d
 
 | 烧录镜像 | 监视器参数 | 图形内容 |
 |---|---|---|
-| 400Hz 联调版（当前 7d01167） | `--l400` | g / c 三轴角速度，单位 °/s |
+| 200 Hz 飞控联调版（当前） | `--flight-control` | g / c 三轴角速度，单位 °/s |
 | 历史姿态版（归档） | `--attitude` | 横滚 / 俯仰 / 相对偏航，单位 ° |
 | 六轴校准维护版 | 不加文本参数（默认二进制帧） | 加速度 g / 陀螺 dps |
 
 镜像路径、SHA256 与烧录地址见 [`firmware_delivery/README.md`](../firmware_delivery/README.md)；
-**当前板上固件是 7d01167 联调版，直接用 `--l400` 即可，不需要重烧。**
+**当前交付镜像为 200 Hz 飞控联调版；`--l400` 仍作为兼容别名可用。**
 
 ---
 

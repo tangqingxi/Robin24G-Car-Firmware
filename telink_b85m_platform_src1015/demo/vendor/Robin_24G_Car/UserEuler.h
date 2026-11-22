@@ -36,10 +36,14 @@
 #define C_RC_BRINGUP_EN           0
 #endif
 
-// 400Hz 地面联调镜像：收包 + 姿态 + 角速度 P 环（电机停转）
-//	用 -DC_RC_LOOP_400_EN=1 单独构建；串口同时输出包龄与整拍统计
-#ifndef C_RC_LOOP_400_EN
-#define C_RC_LOOP_400_EN          0
+// 200Hz 飞控联调镜像：收包 + 姿态 + 横滚/俯仰外环 + 三轴角速度内环
+//	用 -DC_FLIGHT_CONTROL_EN=1 单独构建；旧 C_RC_LOOP_400_EN 仅作兼容别名
+#ifndef C_FLIGHT_CONTROL_EN
+#if defined(C_RC_LOOP_400_EN)
+#define C_FLIGHT_CONTROL_EN       C_RC_LOOP_400_EN
+#else
+#define C_FLIGHT_CONTROL_EN       0
+#endif
 #endif
 
 // ---- 采样与串口 ----

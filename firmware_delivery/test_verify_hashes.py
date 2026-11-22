@@ -41,14 +41,14 @@ class VerifyHashesTest(unittest.TestCase):
         manifest = json.loads((root / "firmware_delivery" / "manifest.json").read_text(
             encoding="utf-8"))
         entry = manifest["build_artifacts"]
-        return root / entry["dir"] / entry["generic_bin"]
+        return root / entry["dir"] / (entry.get("file") or entry["generic_bin"])
 
     def _copy_build_bin(self, root, mutate=False):
         """复制真实构建产物；mutate=True 时翻转首字节制造哈希变化"""
         manifest = json.loads((REPO / "firmware_delivery" / "manifest.json").read_text(
             encoding="utf-8"))
         entry = manifest["build_artifacts"]
-        src = REPO / entry["dir"] / entry["generic_bin"]
+        src = REPO / entry["dir"] / (entry.get("file") or entry["generic_bin"])
         if not src.is_file():
             self.skipTest("本仓库没有构建产物，跳过“构建产物变化”用例")
         dst = self._build_bin_path(root)

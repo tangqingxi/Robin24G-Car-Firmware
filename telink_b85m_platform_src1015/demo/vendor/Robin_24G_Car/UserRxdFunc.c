@@ -18,7 +18,7 @@
 #include <UserUart.h>
 #include "UserFilter.h"
 #include "UserEuler.h"
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 #include "FlightLoop.h"
 #include "FlightConfig.h"
 #endif
@@ -631,7 +631,7 @@ unsigned short u16RemotorKeyVal=0;
 //UserRfRcvBuffer[19] = km_ptr->dat[9]	u16LRmove_Rxd;
 //*************************************************************************
 #if 1
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 void RcLoop_OnPacket(void);
 static void RcLoop_RecordRx(u32 ticks);
 #endif
@@ -650,14 +650,14 @@ void car_work(void)
 #endif
 			// ★v22: 黑匣子自动擦除已取消（v20/v21 擦除阻塞丢 RF 包致无法解锁），
 			//   录制区改由用户烧录后用 BDT 手动擦除。
-#if (!C_RC_LOOP_400_EN)
+#if (!C_FLIGHT_CONTROL_EN)
 			return;
 #endif
 			// L400 不在这里丢弃重连后的第一包：0001/0002 可能正好是这一包，
 			// 必须继续映射/校验并交给按键事件状态机。
 		}
 		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 		// 无线收包处理计时起点：整包解码 + 映射 + 按键 + 时间戳
 		u32 t_rx0 = clock_time();
 #endif
@@ -670,7 +670,7 @@ void car_work(void)
 		u16FBmove_Rxd = (UserRfRcvBuffer[16]<<8) + UserRfRcvBuffer[17];
 		u16LRmove_Rxd = (UserRfRcvBuffer[18]<<8) + UserRfRcvBuffer[19];
 
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 		// L400 新路径只保留有效整包解码后的映射、按键与时间戳；
 		// 旧按键业务和重复摇杆换算不再进入这条路径。
 		RcLoop_OnPacket();
@@ -1936,7 +1936,7 @@ static void RcBringup_Report(void)
 }
 #endif /* C_RC_BRINGUP_EN */
 
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 // 板级入口只做轻量转接：收包路径更新 RcInput/FlightSafety，
 // 5ms 调度由 FlightLoop 负责；抓包模式仍保留原始按键文本。
 #if C_L400_KEY_CAPTURE
@@ -2040,7 +2040,7 @@ void User_main_loop_process(void)
 	wd_32k_feed();
 
 #if (C_ATT_BENCH_EN)
-#if (C_RC_LOOP_400_EN)
+#if (C_FLIGHT_CONTROL_EN)
 	// 200Hz 到点时先执行采样/控制；射频中断仍在后台收包，
 	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
 	FlightLoop_Process();

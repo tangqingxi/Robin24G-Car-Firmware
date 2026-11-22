@@ -1,17 +1,18 @@
 {
-  "generated_at": "2026-11-20T18:45:00+08:00",
+  "generated_at": "2026-11-22T16:01:53+08:00",
   "flash_address_car_app": "0x4000",
   "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的通用 .bin 与命名副本已清理，重新编译才生成，不能按文件名判断用途。",
   "daily": [
     {
-      "role": "400hz_l400",
-      "file": "daily/Robin_24G_Car_rc_loop400.bin",
-      "bytes": 25156,
-      "sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
-      "build_commit": "7d01167",
-      "build_flag": "-DC_RC_LOOP_400_EN=1",
-      "monitor": "--l400",
-      "serial_protocol": "L400/L400S text"
+      "role": "flight_control_200hz",
+      "file": "daily/Robin_24G_Car_flight_control.bin",
+      "bytes": 42516,
+      "sha256": "91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD",
+      "build_commit": "b3cb56f",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "monitor": "--flight-control (--l400 alias)",
+      "serial_protocol": "FCQ/FCS text, 10Hz/1Hz",
+      "flash_address": "0x4000"
     },
     {
       "role": "maint_269a",
@@ -29,6 +30,28 @@
     }
   ],
   "archive": [
+    {
+      "role": "flight_control_b3cb56f_rollback",
+      "file": "archive/Robin_24G_Car_flight_control_b3cb56f.bin",
+      "bytes": 35108,
+      "sha256": "F8607D150B56FCDABEDC10F1DE8AE514039CED1CCEB6F500DC5B35A3C8824BF5",
+      "build_commit": "b3cb56f",
+      "build_flag": "-DC_RC_LOOP_400_EN=1",
+      "monitor": "--l400 (historical)",
+      "serial_protocol": "L400Q/L400S text",
+      "note": "拆分前主联调镜像，回退用；不是当前主镜像"
+    },
+    {
+      "role": "historical_400hz_l400",
+      "file": "archive/Robin_24G_Car_rc_loop400.bin",
+      "bytes": 25156,
+      "sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
+      "build_commit": "7d01167",
+      "build_flag": "-DC_RC_LOOP_400_EN=1",
+      "monitor": "--l400",
+      "serial_protocol": "L400/L400S text",
+      "note": "历史 400Hz 联调件，仅回退参考"
+    },
     {
       "role": "rc_bringup",
       "file": "archive/Robin_24G_Car_rc_bringup.bin",
@@ -53,11 +76,15 @@
   ],
   "build_artifacts": {
     "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
-    "generic_bin": "Robin_24G_Car_Flash.bin",
-    "generic_bin_bytes": 25156,
-    "generic_bin_sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
-    "generic_bin_mode": "reference only; file removed by cleanup, regenerated on build",
-    "retained": false
+    "file": "Robin_24G_Car_flight_control.bin",
+    "bytes": 42516,
+    "sha256": "91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD",
+    "flash_address": "0x4000",
+    "data_bytes": 440,
+    "bss_bytes": 2070,
+    "stack_reserve_bytes": 600,
+    "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+    "generic_bin": "Robin_24G_Car_Flash.bin"
   },
   "baseline": {
     "file": "firmware_baseline/Robin_24G_Car_Flash/Robin_24G_Car_Flash.bin",

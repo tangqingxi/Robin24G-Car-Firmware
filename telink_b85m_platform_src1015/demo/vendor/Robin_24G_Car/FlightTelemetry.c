@@ -354,7 +354,7 @@ static u8 t_send_obs(FlightTelemetry *t, const FlightTelemetrySnapshot *s)
 					| (s->cmd_ok ? 0x04 : 0)
 					| (s->ctrl_ok ? 0x08 : 0));
 
-	q = t_put_str(q, "L400Q f=");
+	q = t_put_str(q, "FCQ f=");
 	q = t_put_hex(q, flags, 1);
 	q = t_put_str(q, " a=");
 	q = t_put_hex(q, t_cap(s->link_age_ms, 0xFFFF), 4);
@@ -403,7 +403,7 @@ static u8 t_send_stats(FlightTelemetry *t, u32 now, const FlightTelemetrySnapsho
 	u32 rx = t->rx_cnt ? t->rx_sum / t->rx_cnt : 0;
 	u32 tx = t->tx_cnt ? t->tx_sum / t->tx_cnt : 0;
 
-	q = t_put_str(q, "L400S bad=");
+	q = t_put_str(q, "FCS bad=");
 	q = t_put_hex(q, t_cap(s->bad, 0xFFFFu), 4);
 	q = t_put_str(q, " n=");
 	q = t_put_hex(q, t_cap(t->sample, 0xFFFFFFu), 6);

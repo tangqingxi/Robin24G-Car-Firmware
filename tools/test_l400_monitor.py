@@ -47,6 +47,8 @@ L400_STAT_HEX_SAMPLE = ("L400S bad=0000 n=0012C0 f=0000 eul=0012C0 "
                         "miss=000003 cmiss=000001 skip=000000 txd=000002 "
                         "ctl=09BA/0C1C late=04B0/09C4 exec=0384/0514 "
                         "rx=0028/005A tx=0032/0096")
+FCQ_SAMPLE = L400_SHORT_SAMPLE.replace("L400Q ", "FCQ ", 1)
+FCS_SAMPLE = L400_STAT_HEX_SAMPLE.replace("L400S ", "FCS ", 1)
 L400_DIAG_A = ("L400D A late=900/1500 exec=1000/1600 cmiss=0 skip=0 "
                "rfirq=40/80 rf=30/60 app=20/50")
 L400_DIAG_ABORT = "L400D ABORT seg=B reason=cmd haveA=1"
@@ -176,6 +178,24 @@ class L400ParserTest(unittest.TestCase):
         self.assertEqual((data["exec_avg_us"], data["exec_max_us"]), (0x0384, 0x0514))
         self.assertEqual((data["rx_avg_us"], data["rx_max_us"]), (0x0028, 0x005A))
         self.assertEqual((data["tx_avg_us"], data["tx_max_us"]), (0x0032, 0x0096))
+
+    def test_parse_new_fcq_fcs(self):
+        # 新主协议 FCQ/FCS；旧 L400Q/L400S 仍由同一解析器兼容
+        kind, data = mon.parse_l400_line(FCQ_SAMPLE)
+        self.assertEqual(kind, "l400")
+        self.assertEqual((data["rdy"], data["lk"], data["vld"], data["ctrl_ok"]),
+                         (1, 1, 1, 1))
+        self.assertEqual(data["q15"], [0x7FFF, 0, 0, 0])
+        self.assertEqual((data["pwm_front"], data["pwm_rear"],
+                          data["pwm_left"], data["pwm_right"]),
+                         (0x064, 0x05A, 0x03C, 0x032))
+        kind, data = mon.parse_l400_line(FCS_SAMPLE)
+        self.assertEqual(kind, "l400s")
+        self.assertEqual(data["n"], 0x12C0)
+        self.assertEqual(data["cmiss"], 1)
+        # 旧报文也必须继续可解析
+        self.assertEqual(mon.parse_l400_line(L400_SHORT_SAMPLE)[0], "l400")
+        self.assertEqual(mon.parse_l400_line(L400_STAT_HEX_SAMPLE)[0], "l400s")
 
     def test_parse_ab_diagnostic(self):
         kind, data = mon.parse_l400_line(L400_DIAG_A)
