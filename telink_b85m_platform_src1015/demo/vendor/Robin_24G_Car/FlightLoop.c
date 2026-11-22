@@ -6,6 +6,7 @@
 #include "FlightSafety.h"
 #include "MotorMixer.h"
 #include "FlightArmDebug.h"
+#include "FlightLog.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
 
@@ -43,6 +44,38 @@ typedef struct __attribute__((aligned(4))) {
 } FlightLoopState;
 
 static FlightLoopState s_fl;
+
+// 序列化前只读取标量，所有值按小端显式写字节，避免把打包结构地址直接交给整型指针。
+static void flight_log_fill(FlightLogSample *ls, u8 imu_ok, u8 att_updated,
+							u8 limited)
+{
+	unsigned short pwm[4];
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		ls->q[i] = s_fl.att.q[i];
+	}
+	for (i = 0; i < 3; i++) {
+		ls->gyro[i] = (s16)s_fl.rate[i];
+		ls->acc[i] = (s16)s_fl.lpf[i];
+	}
+	ls->t_ms = clock_time() / FLIGHT_TICKS_PER_MS;
+	ls->yaw_stick = (s16)s_fl.rc.cmd[1];
+	ls->yaw_target = (s16)s_fl.attc.tgt_rate[2];
+	ls->yaw_corr = (s16)s_fl.ratec.corr[2];
+	ls->thrust = (unsigned short)MotorMixer_Thrust(s_fl.rc.cmd[0]);
+	FlightSafety_GetPwm(&s_fl.safety, pwm);
+	for (i = 0; i < 4; i++) {
+		ls->pwm[i] = pwm[i];
+	}
+	ls->flags = 0;
+	if (imu_ok) ls->flags |= FLIGHT_LOG_F_IMU_OK;
+	if (s_fl.att.ready) ls->flags |= FLIGHT_LOG_F_ATT_READY;
+	if (att_updated) ls->flags |= FLIGHT_LOG_F_ATT_UPD;
+	if (s_fl.safety.armed) ls->flags |= FLIGHT_LOG_F_ARMED;
+	if (limited) ls->flags |= FLIGHT_LOG_F_LIMITED;
+	if (!s_fl.safety.armed) ls->flags |= FLIGHT_LOG_F_LOCKED;
+}
 
 // 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。
 #define FLIGHT_ALIGN4(expr) ((expr) & 3u)
@@ -134,6 +167,17 @@ void FlightLoop_Init(void)
 	s_fl.inited = 1;
 	FlightArmDebug_OnInit(0, rb, s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
 						  s_fl.att.ready, s_fl.safety.pwm_ready);
+}
+
+unsigned char FlightLoop_CanEraseLog(void)
+{
+	unsigned short pwm[4];
+
+	if (!s_fl.inited || s_fl.safety.armed) {
+		return 0;
+	}
+	FlightSafety_GetPwm(&s_fl.safety, pwm);
+	return (pwm[0] | pwm[1] | pwm[2] | pwm[3]) == 0;
 }
 
 // 启动阶段：连续静止 500ms 后取平均加速度定姿；移动/间断就重开窗口。

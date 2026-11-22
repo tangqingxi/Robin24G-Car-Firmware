@@ -17,7 +17,7 @@
 | `test_l400_motor.c` | 混控俯仰/偏航符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
-| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |\n| `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |\n| `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
+| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |\n| `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |\n| `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |\n| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |\n| `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
 | `test_package_bin.py` | 0x4000+bin ≤0xF000 打包门：超限非零且不覆盖交付文件 |
@@ -237,6 +237,24 @@ TC32 反汇编核对：`Euler_IsStill` 收到 `s_fl+0xA8`/`s_fl+0xCC`，
 
 候选镜像在 `firmware_delivery/candidates/`，日常交付件暂不替换。
 
+### 无 OTA + FlightLog（任务二候选）
+
+- 日志区：`0x10000..0x1CFFF`，13 个 4KiB 扇区；应用仍限制到 `0xF000`。
+- 记录：56B/条，25Hz（每 8 个 5ms 拍），最多 750 条，约 30s。
+- 每条含原始 `q[w,x,y,z]`（s32 Q15，保留 +32768）、陀螺 Q10、估计器加速度 mg、
+  偏航杆/目标/纠偏、推力、四路 PWM、标志；急停/失联另写事件。
+- 页头 32B，记录 56B，页头/记录 CRC16；掉电时未完成页不写入页头，导出跳过。
+- 外部启动/擦除命令：BDT 在 `0x1D000` 写 4 字节 `31 47 4F 4C`（"LOG1" 小端），
+  四路锁定、PWM 全零时应用会擦除日志区并开始一趟记录。
+- BDT 读回 `0x10000` 起 `0xD000` 字节，导出：
+
+```powershell
+python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
+```
+
+> 首版在 25Hz 日志点同步写 56B；写页阻塞时延尚未上板实测。控制/急停优先，
+> 不做飞行中 UART 导出。
+
 ### 专用解锁诊断（--arm-debug）
 
 诊断镜像单独构建，正式镜像仍静默：
@@ -321,7 +339,7 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
     SHA256 `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087`；
   - `candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin`：30452 字节，
     SHA256 `1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189`。
-  - 两者均烧 0x4000；日常 `AA3D...` 件未替换。
+  - 两者均烧 0x4000；日常 `AA3D...` 件未替换。\n- 任务二无 OTA + 日志候选：\n  - `candidates/Robin_24G_Bootloader_no_ota.bin`：6912 字节，\n    SHA256 `20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB`，烧 0x0；\n  - `candidates/Robin_24G_Car_flight_control_log.bin`：24756 字节，\n    SHA256 `2D5D30E8400E55651C23A4809436D752DE30EB621A93557B780E7ABFD5275837`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

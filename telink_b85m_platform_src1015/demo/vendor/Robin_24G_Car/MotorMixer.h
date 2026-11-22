@@ -23,6 +23,7 @@ typedef struct __attribute__((aligned(2))) {
 	unsigned short rear;
 	unsigned short left;
 	unsigned short right;
+	unsigned char limited;       // 1=本拍发生统一缩放限幅
 } MotorMixerOutput;
 
 int MotorMixer_Thrust(int fb);

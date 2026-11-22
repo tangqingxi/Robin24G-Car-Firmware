@@ -3,6 +3,7 @@
 
 void FlightLoop_Init(void);
 void FlightLoop_Process(void);
+unsigned char FlightLoop_CanEraseLog(void);
 void FlightLoop_PreSampleSafety(void);
 void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 						   unsigned short fb, unsigned short lr,

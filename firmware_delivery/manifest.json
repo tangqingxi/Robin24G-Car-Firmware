@@ -140,5 +140,42 @@
       "flash_address": "0x4000",
       "app_remaining_bytes": 14604
     }
+  },
+  "task2": {
+    "status": "awaiting_no_prop_acceptance",
+    "build_commit": "PENDING_LOG_COMMIT",
+    "behavior_baseline": "b3cb56f",
+    "bootloader": {
+      "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
+      "bytes": 6912,
+      "sha256": "20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB",
+      "flash_address": "0x0",
+      "ota": false,
+      "app_validate": [
+        "startup_flag",
+        "size<=0xB000",
+        "crc32"
+      ]
+    },
+    "app": {
+      "file": "candidates/Robin_24G_Car_flight_control_log.bin",
+      "bytes": 24756,
+      "sha256": "2D5D30E8400E55651C23A4809436D752DE30EB621A93557B780E7ABFD5275837",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
+    },
+    "log": {
+      "base": "0x10000",
+      "end": "0x1D000",
+      "sectors": 13,
+      "bytes": 53248,
+      "record_bytes": 56,
+      "records_max": 750,
+      "rate_hz": 25,
+      "seconds_nominal": 30,
+      "command_addr": "0x1D000",
+      "command_magic": "0x31474F4C",
+      "export": "tools/flight_log_export.py"
+    }
   }
 }

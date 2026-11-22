@@ -89,6 +89,7 @@ void MotorMixer_Mix(int thrust, int corr_roll, int corr_pitch,
 	if (ml < MOTOR_PWM_MIN_RUN) ml = MOTOR_PWM_MIN_RUN;
 	if (mm < MOTOR_PWM_MIN_RUN) mm = MOTOR_PWM_MIN_RUN;
 
+	out->limited = (scale < 256) ? 1 : 0;
 	out->front = (unsigned short)mf;
 	out->rear = (unsigned short)mr;
 	out->left = (unsigned short)ml;

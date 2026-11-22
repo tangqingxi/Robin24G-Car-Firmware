@@ -23,6 +23,28 @@ Set-Location "E:\泡沫纸飞机\code\tools"
 python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\data\arm_debug_alignfix.csv"
 ```
 
+## 0.1 任务二：无 OTA + 板载日志候选
+
+| 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 |
+|---|---|---:|---|---|
+| 无 OTA bootloader | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6912 | `20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB` | 0x0 |
+| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 24756 | `2D5D30E8400E55651C23A4809436D752DE30EB621A93557B780E7ABFD5275837` | 0x4000 |
+
+- 日志区 `0x10000..0x1CFFF`（13×4KiB）；命令邮箱 `0x1D000`，不属于日志区。
+- 首版 25Hz、750 条（约30s），满了停止并保留。
+- 启动/擦除：BDT 在 `0x1D000` 写小端 `31 47 4F 4C`，四路锁定且 PWM 全零时执行。
+- BDT 读回 `0x10000` 起 `0xD000` 字节：
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
+```
+
+- **旧 bootloader 与日志应用不进入验收**；须同烧无 OTA bootloader。旧 bootloader
+  回退件是 `firmware_baseline/Robin_24G_Bootloader_Flash/...`（12756 字节，
+  `46506F44720D2A56C04E6A3E69A54533DC5759F1B2847047359DD9ED13A96D52`）。
+- 写页阻塞时延尚未上板实测；先按无桨测试版验收，不装桨。
+
 ## 1. 日常只列这两份
 
 | 用途 | 交付文件 | 字节 | SHA256 | 烧录地址 | 上位机 |

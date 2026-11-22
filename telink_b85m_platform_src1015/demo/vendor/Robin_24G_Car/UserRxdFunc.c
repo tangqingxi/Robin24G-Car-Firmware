@@ -22,6 +22,7 @@
 #include "FlightLoop.h"
 #include "FlightConfig.h"
 #include "FlightArmDebug.h"
+#include "FlightLog.h"
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -2039,6 +2040,7 @@ void User_main_loop_process(void)
 	TimeBaseGenerate();
 	car_work();
 	FlightArmDebug_Process();       // 控制/收包之后非阻塞发送诊断
+	FlightLog_PollCommand(FlightLoop_CanEraseLog());
 	return;
 #elif (C_RC_BRINGUP_EN)
 	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转
