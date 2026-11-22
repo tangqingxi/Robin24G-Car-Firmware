@@ -91,7 +91,7 @@ static unsigned char key_event(FlightSafety *fs, unsigned short key,
 							   unsigned char packet_valid)
 {
 	unsigned char stop = FlightSafety_OnKey(fs, key, packet_valid,
-											1, 1, 1, 1, 0);
+											1, 1, 1, 1);
 
 	if (stop) {
 		FlightSafety_Lock(fs, stop);

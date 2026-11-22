@@ -49,7 +49,7 @@ void FlightSafety_NoteAttitude(FlightSafety *s)
 
 /*
  * 每个 RF 包调用一次。0001 收到新事件立即要求锁定；0002 只在
- * 该包有效、油门低位、三轴回中、姿态就绪、链路有效且未诊断时解锁。
+ * 该包有效、油门低位、三轴回中、姿态就绪、链路有效时解锁。
  * 条件不满足的 0002 也消费事件沿，后续重复包不能补解锁。
  * 返回非 0 表示调用方必须立即执行 FlightSafety_Lock()。
  */
@@ -58,8 +58,7 @@ unsigned char FlightSafety_OnKey(FlightSafety *s, unsigned short key,
 								 unsigned char thr_low,
 								 unsigned char sticks_center,
 								 unsigned char att_ready,
-								 unsigned char link_ok,
-								 unsigned char diag_enabled)
+								 unsigned char link_ok)
 {
 	unsigned char new_estop = (key & FLIGHT_EVENT_ESTOP)
 							  && !(s->key_prev & FLIGHT_EVENT_ESTOP);
@@ -78,7 +77,7 @@ unsigned char FlightSafety_OnKey(FlightSafety *s, unsigned short key,
 	if (new_unlock) {
 		if (packet_valid && !(key & FLIGHT_EVENT_ESTOP)
 			&& thr_low && sticks_center && att_ready && link_ok
-			&& !diag_enabled) {
+			) {
 			s->armed = 1;
 			s->reason = FLIGHT_LOCK_NONE;
 		}
@@ -87,10 +86,10 @@ unsigned char FlightSafety_OnKey(FlightSafety *s, unsigned short key,
 	return 0;
 }
 
-// 失联/指令超时/姿态未更新/控制失败/诊断段统一锁定。
+// 失联/指令超时/姿态未更新/控制失败统一锁定。
 void FlightSafety_UpdateFaults(FlightSafety *s, unsigned char link_ok,
 							   unsigned char cmd_ok, unsigned char att_updated,
-							   unsigned char ctrl_ok, unsigned char diag_enabled)
+							   unsigned char ctrl_ok)
 {
 	if (!link_ok) {
 		FlightSafety_Lock(s, FLIGHT_LOCK_LINK);
@@ -101,8 +100,6 @@ void FlightSafety_UpdateFaults(FlightSafety *s, unsigned char link_ok,
 						  ? FLIGHT_LOCK_ATT : FLIGHT_LOCK_BOOT);
 	} else if (!ctrl_ok) {
 		FlightSafety_Lock(s, FLIGHT_LOCK_ATT);
-	} else if (diag_enabled) {
-		FlightSafety_Lock(s, FLIGHT_LOCK_DIAG);
 	}
 }
 

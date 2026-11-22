@@ -4,12 +4,11 @@
 #include "AttitudeControl.h"
 #include "RateControl.h"
 #include "FlightSafety.h"
-#include "FlightTelemetry.h"
 #include "MotorMixer.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
 
-// 与台架固件一致的校准常数；L400 迁移时保持数值不变。
+// 与台架固件一致的校准常数；迁移控制链时保持数值不变。
 static const s32 s_fc_acc_off_lsb[3] = { -3, -8, -29 };
 static const s32 s_fc_acc_scale_q14[3] = { 16436, 16429, 16357 };
 static const s32 s_fc_gyro_bias_q6[3] = { -93, -232, -381 };
@@ -19,7 +18,6 @@ typedef struct {
 	AttitudeControl attc;
 	RateControl ratec;
 	FlightSafety safety;
-	FlightTelemetry tele;
 
 	euler_q_t att;
 	s32 lpf[3];
@@ -52,7 +50,7 @@ static void flight_still_reset(void)
 	s_fl.still_sum[2] = 0;
 }
 
-static void flight_state_reset(u32 now)
+static void flight_state_reset(void)
 {
 	int i;
 
@@ -60,7 +58,6 @@ static void flight_state_reset(u32 now)
 	AttitudeControl_Init(&s_fl.attc);
 	RateControl_Init(&s_fl.ratec);
 	FlightSafety_Init(&s_fl.safety);
-	FlightTelemetry_Init(&s_fl.tele, now);
 
 	Euler_Reset(&s_fl.att);
 	s_fl.have_ts = 0;
@@ -97,19 +94,17 @@ void FlightLoop_Init(void)
 		return;
 	}
 
-	flight_state_reset(now);
+	flight_state_reset();
 #if (!C_L400_KEY_CAPTURE)
 	FlightSafety_InitPwm(&s_fl.safety);
 #endif
 
 	now = clock_time();
 	s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
-	s_fl.tele.tx_tick = now + FLIGHT_REPORT_TICKS;
-	s_fl.tele.stat_tick = now + CLOCK_SYS_CLOCK_HZ;
-	s_fl.tele.prep_tick = now + CLOCK_SYS_CLOCK_HZ;
 	s_fl.inited = 1;
 }
 
+// 启动阶段：连续静止 500ms 后取平均加速度定姿；移动/间断就重开窗口。
 static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 						   u32 dt_ticks, u32 ts)
 {
@@ -143,41 +138,7 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 	s_fl.still_prev_ok = 1;
 }
 
-static void flight_build_snapshot(FlightTelemetrySnapshot *s, u32 now)
-{
-	RcInputFrame rcf;
-
-	RcInput_Get(&s_fl.rc, &rcf, now);
-	s->now = now;
-	s->att_ready = s_fl.att.ready;
-	s->link = rcf.link;
-	s->cmd_ok = rcf.cmd_ok;
-	s->ctrl_ok = 0;
-	s->q[0] = s_fl.att.q[0];
-	s->q[1] = s_fl.att.q[1];
-	s->q[2] = s_fl.att.q[2];
-	s->q[3] = s_fl.att.q[3];
-	s->rate[0] = s_fl.rate[0];
-	s->rate[1] = s_fl.rate[1];
-	s->rate[2] = s_fl.rate[2];
-	s->corr[0] = s_fl.ratec.corr[0];
-	s->corr[1] = s_fl.ratec.corr[1];
-	s->corr[2] = s_fl.ratec.corr[2];
-	s->tgt_att[0] = s_fl.attc.tgt_att[0];
-	s->tgt_att[1] = s_fl.attc.tgt_att[1];
-	s->tgt_rate[0] = s_fl.attc.tgt_rate[0];
-	s->tgt_rate[1] = s_fl.attc.tgt_rate[1];
-	s->tgt_rate[2] = s_fl.attc.tgt_rate[2];
-	s->armed = s_fl.safety.armed;
-	s->reason = s_fl.safety.reason;
-	FlightSafety_GetPwm(&s_fl.safety, s->pwm);
-	s->link_age_ms = (u16)rcf.link_age_ms;
-	s->pkt_age_ms = (u16)rcf.pkt_age_ms;
-	s->gap_ms = (u16)rcf.gap_ms;
-	s->bad = (u16)rcf.bad;
-}
-
-// 收包路径：先更新 RC 状态，再消费 0001/0002 事件；急停在同包立即清 PWM。
+// 收包路径：先消费 0001/0002，再更新同包目标；0001 在本包立即清四路。
 void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 						   unsigned short fb, unsigned short lr,
 						   unsigned short key)
@@ -191,15 +152,6 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 	ev = RcInput_OnPacket(&s_fl.rc, thr, rot, fb, lr, key, now);
 
 #if (!C_L400_KEY_CAPTURE)
-	if (ev.packet_valid) {
-		// A/B 按键沿只在有效摇杆包上识别，保持原台架入口行为
-		FlightTelemetry_OnKey(&s_fl.tele, ev.key, now);
-		if (s_fl.tele.diag_enabled) {
-			FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_DIAG);
-		}
-		AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
-	}
-
 	{
 		u8 thr_low = (ev.cmd[0] <= MOTOR_ARM_THR_MAX) ? 1 : 0;
 		u8 center = (ev.cmd[1] >= -MOTOR_ARM_STICK_MAX
@@ -210,27 +162,45 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 					 && ev.cmd[3] <= MOTOR_ARM_STICK_MAX) ? 1 : 0;
 		u8 stop = FlightSafety_OnKey(&s_fl.safety, ev.key, ev.packet_valid,
 									 thr_low, center, s_fl.att.ready,
-									 s_fl.rc.link, s_fl.tele.diag_enabled);
+									 s_fl.rc.link);
+
 		if (stop) {
+			// 急停优先：先写零 PWM，不再做同包目标换算
 			FlightSafety_Lock(&s_fl.safety, stop);
+		} else if (ev.packet_valid) {
+			AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
 		}
 	}
 #endif
+}
+
+// 采样前安全门：失联/指令超时先把四路写 0，之后才允许读 IMU。
+void FlightLoop_PreSampleSafety(void)
+{
+	if (!s_fl.rc.link) {
+		AttitudeControl_Inhibit(&s_fl.attc);
+		RateControl_ClearOutputs(&s_fl.ratec);
+#if (!C_L400_KEY_CAPTURE)
+		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_LINK);
+#endif
+	} else if (!s_fl.rc.cmd_ok) {
+		AttitudeControl_Inhibit(&s_fl.attc);
+		RateControl_ClearOutputs(&s_fl.ratec);
+#if (!C_L400_KEY_CAPTURE)
+		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_CMD);
+#endif
+	}
 }
 
 void FlightLoop_Process(void)
 {
 	short raw_a[3], raw_g[3];
 	s32 acc_frd[3], acc_mg[3], gyr_q10[3];
-	u32 now, planned, t_sample0, t_exec1, t_prep1 = 0, t_eul1 = 0;
-	u32 end, total, exec_us, ctrl_total;
+	u32 now, planned;
 	u32 dt_ticks = 0;
 	s32 dt_100us = 0;
 	u8 att_updated = 0;
-	u8 prep_timed = 0;
-	u8 eul_timed = 0;
 	u8 ctrl_ok = 0;
-	FlightTelemetrySnapshot snap;
 	int i;
 
 	if (!s_fl.inited) {
@@ -245,37 +215,16 @@ void FlightLoop_Process(void)
 
 	planned = s_fl.next_tick;
 	s_fl.next_tick = planned + FLIGHT_PERIOD_TICKS;
-	{
-		u32 late = now - planned;
-
-		if (late >= FLIGHT_PERIOD_TICKS) {
-			FlightTelemetry_OnSkip(&s_fl.tele, late / FLIGHT_PERIOD_TICKS);
-			s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
-		}
+	if ((u32)(now - planned) >= FLIGHT_PERIOD_TICKS) {
+		// 已错过至少一拍：从当前时刻重新排下一拍，不追发补拍
+		s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	}
 
 	RcInput_UpdateTimeouts(&s_fl.rc, now);
-	if (!s_fl.rc.link) {
-		AttitudeControl_Inhibit(&s_fl.attc);
-		RateControl_ClearOutputs(&s_fl.ratec);
-	} else if (!s_fl.rc.cmd_ok) {
-		AttitudeControl_Inhibit(&s_fl.attc);
-		RateControl_ClearOutputs(&s_fl.ratec);
-	}
-
-	// A/B 状态机在采样前推进，保证 A/B 段的控制使能当拍生效
-	flight_build_snapshot(&snap, now);
-	FlightTelemetry_DiagStep(&s_fl.tele, &snap);
-
-	t_sample0 = clock_time();
-	FlightTelemetry_OnLate(&s_fl.tele,
-						   (t_sample0 - planned) / FLIGHT_TICKS_PER_US);
-	FlightTelemetry_OnTick(&s_fl.tele);
+	// 必须在下面的 t3488_read_6axis/Euler 之前完成四路清零
+	FlightLoop_PreSampleSafety();
 
 	if (t3488_read_6axis(raw_a, raw_g)) {
-		FlightTelemetry_OnFail(&s_fl.tele);
-		t_prep1 = clock_time();
-		prep_timed = 1;
 		AttitudeControl_ClearOutputs(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
@@ -284,9 +233,7 @@ void FlightLoop_Process(void)
 	} else {
 		u32 t_read1;
 
-		FlightTelemetry_OnSample(&s_fl.tele);
 		t_read1 = clock_time();
-
 		acc_frd[0] = raw_a[0];
 		acc_frd[1] = -raw_a[1];
 		acc_frd[2] = -raw_a[2];
@@ -352,43 +299,19 @@ void FlightLoop_Process(void)
 
 		if (!s_fl.att.ready) {
 			flight_startup(s_fl.lpf, gyr_q10, dt_ticks, t_read1);
-			t_prep1 = clock_time();
-			prep_timed = 1;
 		} else if (dt_100us > 0) {
-			t_prep1 = clock_time();
-			prep_timed = 1;
 			if (Euler_Update(&s_fl.att, s_fl.lpf, gyr_q10, dt_100us,
 							 t_read1 / FLIGHT_TICKS_PER_MS)) {
-				FlightTelemetry_OnEuler(&s_fl.tele);
 				FlightSafety_NoteAttitude(&s_fl.safety);
 				att_updated = 1;
 			}
-			t_eul1 = clock_time();
-			eul_timed = 1;
-		} else {
-			t_prep1 = clock_time();
-			prep_timed = 1;
 		}
-	}
-
-	if (prep_timed) {
-		FlightTelemetry_OnPrep(&s_fl.tele,
-							   (t_prep1 - t_sample0) / FLIGHT_TICKS_PER_US);
-	}
-	if (eul_timed) {
-		FlightTelemetry_OnEul(&s_fl.tele,
-							  (t_eul1 - t_prep1) / FLIGHT_TICKS_PER_US);
 	}
 
 	if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {
-		if (FlightTelemetry_CtrlEnable(&s_fl.tele)) {
-			AttitudeControl_Update(&s_fl.attc, &s_fl.att);
-			RateControl_Update(&s_fl.ratec, s_fl.attc.tgt_rate, s_fl.rate);
-			ctrl_ok = 1;
-		} else {
-			AttitudeControl_ClearOutputs(&s_fl.attc);
-			RateControl_ClearOutputs(&s_fl.ratec);
-		}
+		AttitudeControl_Update(&s_fl.attc, &s_fl.att);
+		RateControl_Update(&s_fl.ratec, s_fl.attc.tgt_rate, s_fl.rate);
+		ctrl_ok = 1;
 	} else {
 		AttitudeControl_ClearOutputs(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
@@ -396,8 +319,7 @@ void FlightLoop_Process(void)
 
 #if (!C_L400_KEY_CAPTURE)
 	FlightSafety_UpdateFaults(&s_fl.safety, s_fl.rc.link, s_fl.rc.cmd_ok,
-							  att_updated, ctrl_ok,
-							  s_fl.tele.diag_enabled);
+							  att_updated, ctrl_ok);
 	{
 		MotorMixerOutput mix;
 
@@ -407,66 +329,26 @@ void FlightLoop_Process(void)
 		FlightSafety_Apply(&s_fl.safety, &mix);
 	}
 #endif
-
-	t_exec1 = clock_time();
-	exec_us = (t_exec1 - t_sample0) / FLIGHT_TICKS_PER_US;
-	FlightTelemetry_OnExec(&s_fl.tele, exec_us);
-	ctrl_total = t_exec1 - planned;
-	FlightTelemetry_OnCtrl(&s_fl.tele, ctrl_total);
-
-	snap.now = t_exec1;
-	snap.att_ready = s_fl.att.ready;
-	snap.link = s_fl.rc.link;
-	snap.cmd_ok = s_fl.rc.cmd_ok;
-	snap.ctrl_ok = ctrl_ok;
-	snap.q[0] = s_fl.att.q[0];
-	snap.q[1] = s_fl.att.q[1];
-	snap.q[2] = s_fl.att.q[2];
-	snap.q[3] = s_fl.att.q[3];
-	for (i = 0; i < 3; i++) {
-		snap.rate[i] = s_fl.rate[i];
-		snap.corr[i] = s_fl.ratec.corr[i];
-		snap.tgt_rate[i] = s_fl.attc.tgt_rate[i];
-	}
-	snap.tgt_att[0] = s_fl.attc.tgt_att[0];
-	snap.tgt_att[1] = s_fl.attc.tgt_att[1];
-	snap.armed = s_fl.safety.armed;
-	snap.reason = s_fl.safety.reason;
-	FlightSafety_GetPwm(&s_fl.safety, snap.pwm);
-	{
-		RcInputFrame rcf;
-
-		RcInput_Get(&s_fl.rc, &rcf, t_exec1);
-		snap.link_age_ms = (u16)rcf.link_age_ms;
-		snap.pkt_age_ms = (u16)rcf.pkt_age_ms;
-		snap.gap_ms = (u16)rcf.gap_ms;
-		snap.bad = (u16)rcf.bad;
-	}
-	FlightTelemetry_Update(&s_fl.tele, &snap);
-	if (FlightTelemetry_WindowReset(&s_fl.tele)) {
-		RcInput_ClearGap(&s_fl.rc);
-	}
-
-	end = clock_time();
-	total = end - planned;
-	if (total > FLIGHT_PERIOD_TICKS) {
-		FlightTelemetry_OnMiss(&s_fl.tele);
-	}
 }
 
-void FlightLoop_RecordRx(unsigned int ticks)
+#ifdef FLIGHT_ORDER_TEST
+// 仅主机顺序回归使用：建立最小可运行状态，不启动 IMU/PWM 采样。
+void FlightLoop_OrderTestReset(void)
 {
-	if (!s_fl.inited) return;
-	FlightTelemetry_OnRx(&s_fl.tele, ticks / FLIGHT_TICKS_PER_US);
+	RcInput_Init(&s_fl.rc);
+	AttitudeControl_Init(&s_fl.attc);
+	RateControl_Init(&s_fl.ratec);
+	FlightSafety_Init(&s_fl.safety);
+	FlightSafety_InitPwm(&s_fl.safety);
+	s_fl.att.ready = 1;
+	s_fl.rc.link = 1;
+	s_fl.rc.cmd_ok = 1;
+	s_fl.inited = 1;
 }
 
-void FlightLoop_RecordRfLoop(unsigned int ticks)
+void FlightLoop_OrderTestSetRc(unsigned char link, unsigned char cmd_ok)
 {
-	if (!s_fl.inited) return;
-	FlightTelemetry_RecordRfLoop(&s_fl.tele, ticks);
+	s_fl.rc.link = link;
+	s_fl.rc.cmd_ok = cmd_ok;
 }
-
-unsigned char FlightLoop_DiagActive(void)
-{
-	return s_fl.inited ? FlightTelemetry_DiagActive(&s_fl.tele) : 0;
-}
+#endif

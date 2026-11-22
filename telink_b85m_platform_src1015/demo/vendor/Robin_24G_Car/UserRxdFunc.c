@@ -633,7 +633,6 @@ unsigned short u16RemotorKeyVal=0;
 #if 1
 #if (C_FLIGHT_CONTROL_EN)
 void RcLoop_OnPacket(void);
-static void RcLoop_RecordRx(u32 ticks);
 #endif
 void car_work(void)
 {
@@ -657,10 +656,6 @@ void car_work(void)
 			// 必须继续映射/校验并交给按键事件状态机。
 		}
 		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
-#if (C_FLIGHT_CONTROL_EN)
-		// 无线收包处理计时起点：整包解码 + 映射 + 按键 + 时间戳
-		u32 t_rx0 = clock_time();
-#endif
 		rf_received_type=UserRfRcvBuffer[9];
 		rf_received_key=UserRfRcvBuffer[8];
 		//从UserRfRcvBuffer[10]开始是扩展数据
@@ -674,7 +669,6 @@ void car_work(void)
 		// L400 新路径只保留有效整包解码后的映射、按键与时间戳；
 		// 旧按键业务和重复摇杆换算不再进入这条路径。
 		RcLoop_OnPacket();
-		RcLoop_RecordRx(clock_time() - t_rx0);
 #else
 		Rxdata_Handler();
 #endif
@@ -2028,10 +2022,6 @@ void RcLoop_OnPacket(void)
 						  u16RemotorKeyVal);
 }
 
-static void RcLoop_RecordRx(u32 ticks)
-{
-	FlightLoop_RecordRx(ticks);
-}
 #endif
 
 //**************************************************************
@@ -2044,14 +2034,7 @@ void User_main_loop_process(void)
 	// 200Hz 到点时先执行采样/控制；射频中断仍在后台收包，
 	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
 	FlightLoop_Process();
-	if (FlightLoop_DiagActive()) {
-		u32 t_rf0 = clock_time();
-
-		d24_rx_main_loop();
-		FlightLoop_RecordRfLoop(clock_time() - t_rf0);
-	} else {
-		d24_rx_main_loop();
-	}
+	d24_rx_main_loop();
 	TimeBaseGenerate();
 	car_work();
 	return;

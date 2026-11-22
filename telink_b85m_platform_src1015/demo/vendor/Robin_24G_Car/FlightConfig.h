@@ -18,7 +18,6 @@
 #define FLIGHT_TICKS_PER_MS        (CLOCK_SYS_CLOCK_HZ / 1000)
 #define FLIGHT_TICKS_PER_100US     (CLOCK_SYS_CLOCK_HZ / 10000)
 #define FLIGHT_TICKS_PER_US        (CLOCK_SYS_CLOCK_HZ / 1000000)
-#define FLIGHT_REPORT_TICKS        (CLOCK_SYS_CLOCK_HZ / 10)
 
 // 遥控超时保持原毫秒数，不随控制周期缩放。
 #define FLIGHT_CMD_TIMEOUT_MS      200
@@ -40,7 +39,5 @@
 #define FLIGHT_CORR_LIMIT_Q10      4096
 
 #define FLIGHT_INIT_STILL_TICKS    ((u32)C_ATT_INIT_STILL_US * FLIGHT_TICKS_PER_US)
-#define FLIGHT_CNT_MAX             9999999u
-#define FLIGHT_MS_MAX              9999u
 
 #endif /* FLIGHT_CONFIG_H */

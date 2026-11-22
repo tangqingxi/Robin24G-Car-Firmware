@@ -7,14 +7,13 @@
 #define FLIGHT_EVENT_ESTOP        0x0001
 #define FLIGHT_EVENT_UNLOCK       0x0002
 
-// 锁定原因（FCQ 的 x 字段）
+// 锁定原因（历史遥测帧的 x 字段曾使用；本版仅作内部状态）
 #define FLIGHT_LOCK_NONE          0
 #define FLIGHT_LOCK_BOOT          1
 #define FLIGHT_LOCK_LINK          2
 #define FLIGHT_LOCK_CMD           3
 #define FLIGHT_LOCK_ATT           4
 #define FLIGHT_LOCK_MANUAL        5
-#define FLIGHT_LOCK_DIAG          6
 
 typedef struct {
 	unsigned char armed;
@@ -32,12 +31,11 @@ unsigned char FlightSafety_OnKey(FlightSafety *s, unsigned short key,
 								 unsigned char thr_low,
 								 unsigned char sticks_center,
 								 unsigned char att_ready,
-								 unsigned char link_ok,
-								 unsigned char diag_enabled);
+								 unsigned char link_ok);
 void FlightSafety_NoteAttitude(FlightSafety *s);
 void FlightSafety_UpdateFaults(FlightSafety *s, unsigned char link_ok,
 							   unsigned char cmd_ok, unsigned char att_updated,
-							   unsigned char ctrl_ok, unsigned char diag_enabled);
+							   unsigned char ctrl_ok);
 void FlightSafety_Apply(FlightSafety *s, const MotorMixerOutput *out);
 void FlightSafety_GetPwm(const FlightSafety *s, unsigned short out[4]);
 

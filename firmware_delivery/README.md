@@ -8,13 +8,19 @@
 
 | 用途 | 交付文件 | 字节 | SHA256 | 烧录地址 | 上位机 |
 |---|---|---|---|---|---|
-| **当前 200 Hz 飞控联调版** | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 42516 | `91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD` | 0x4000 | `uart_sensor_monitor.py --flight-control`（`--l400` 兼容） |
+| **当前 200 Hz 飞控（无实时串口）** | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937` | 0x4000 | 正常运行无实时图；历史报文仍可用 `--l400` 解析 |
 | **六轴校准维护版** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 | 三个校准脚本；默认 0x269A 六轴模式 |
 
-- **200 Hz 飞控联调版**：源码基线 `b3cb56f`，构建开关 `-DC_FLIGHT_CONTROL_EN=1`；
-  5ms 节拍，常规观测/统计帧为 `FCQ`/`FCS`（字段沿用原 `L400Q`/`L400S`）。
-  串口 10 Hz FCQ + 1 Hz FCS，监视器用 `--flight-control`，画 g/c 三轴角速度（°/s），
-  **不是欧拉角**。历史 400 Hz 镜像已移到 `archive/`，仅回退用。
+- **200 Hz 飞控**：构建源码以清单 `build_commit` 为准，行为基线单独记录
+  `b3cb56f`；构建开关 `-DC_FLIGHT_CONTROL_EN=1`。5ms 节拍，正常运行不再发送
+  `FCQ/FCS`、A/B、计时或延期报告；`FlightTelemetry` 已从主镜像链接移除。
+  UART 底层保留给后续停机日志，历史报文解析能力保留。历史 400 Hz 镜像已移到
+  `archive/`，仅回退用。
+- **应用空间**：`0x4000 + 28500 = 0xAF54 <= 0xF000`，剩余 **16556 字节
+  （0x40AC）**；相比移除前 42612 字节，镜像缩小 **14112 字节**。
+- **未来日志候选 Flash**：原 OTA 暂存区 `0x10000–0x1BFFF`（48KB，12 个 4KB
+  扇区）和标记扇区 `0x1C000–0x1CFFF`（4KB），合计 13 个扇区；本轮不改分区、
+  不写日志，留待任务二统一处理。
 - **六轴校准维护版**：构建开关 `-DC_MAINT_269A_EN=1`；只发 0x269A 原始六轴二进制帧，
   约 100Hz。`imu_axis_map.py`、`accel_six_face_cal.py`、`gyro_bias_cal.py` 三个脚本都用它；
   默认（不加 `--attitude` / `--flight-control`）的监视器也能看原始六轴波形。
@@ -57,23 +63,27 @@ telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 构建目录当前主产物：
 
 ```text
-Robin_24G_Car_flight_control.bin   42516 字节
-SHA256 91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD
-.data 440 / .bss 2070 / 链接器栈预留 600 字节
+Robin_24G_Car_flight_control.bin   28500 字节
+SHA256 1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937
+.text 27976 / .data 440 / .bss 1246 / 链接器栈预留 600 字节
 ```
 
+构建 post-build 已接入 `tools/check_bin_size.py --limit 45056`：超限返回非零并
+停止发布；交付副本由 `tools/package_flight_control.py` 检查后再原子复制。
+清单中 `build_commit` 记录**实际构建源码**，`behavior_baseline` 单独记录
+`b3cb56f`，两者不再混用。
+
 拆分后 `UserRxdFunc.c` 只保留板级入口和无线解码，5ms 调度在 `FlightLoop`；
-`RcInput`、`AttitudeControl`、`RateControl`、`MotorMixer`、`FlightSafety`、
-`FlightTelemetry` 各自持有状态。常规帧改为 `FCQ`/`FCS`，字段和 CSV 列沿用
-原 `L400Q`/`L400S`；A/B 和按键抓包仍走台架入口（`L400D`/`L400K`）。
-上电默认锁定；左侧上键长按发 `0002`，在油门低位、三轴回中、姿态就绪、
-链路有效且该包有效时解锁；左侧下键短按发 `0001`，收到即急停并清四路。
-每个事件沿只处理一次；急停/失联/姿态异常/诊断段后必须新的 `0002`。
+`RcInput`、`AttitudeControl`、`RateControl`、`MotorMixer`、`FlightSafety`
+各自持有状态。主飞控不再链接 `FlightTelemetry`，正常运行时无 FCQ/FCS、
+A/B、分项计时或延期报告；`UserUart` 底层保留。上电默认锁定；左侧上键长按
+发 `0002`，在油门低位、三轴回中、姿态就绪、链路有效且该包有效时解锁；
+左侧下键短按发 `0001`，收到即急停并清四路。每个事件沿只处理一次；
+急停/失联/姿态异常后必须新的 `0002`。
 
 拆分前 `_ctrl` 已移入 `archive/Robin_24G_Car_flight_control_b3cb56f.bin`
 （35108 / `F8607D15...`）；`_sched.bin` 仍留在构建目录作调度回退参考，
-两者都不再作为当前主联调镜像。A/B 默认关闭，按一次“特技”键后连续有效 2s 再跑
-A/B 各 10s；期间暂缓常规遥测，结束后输出 `L400D` 汇总。
+两者都不再作为当前主联调镜像。A/B 台架诊断已不随主镜像提供。
 
 **OTA 决定（本轮）**：调试期间停用 OTA；原 OTA 暂存区只作为飞行日志候选，
 不在本轮改 Flash 分区、OTA 启动路径或日志写入。这些与日志落盘一起放到任务二。
@@ -89,12 +99,12 @@ A/B 各 10s；期间暂缓常规遥测，结束后输出 `L400D` 汇总。
 1. **哈希**：对受版本管理的日常/归档件、基线和构建目录的当前/历史镜像
    分别计算 SHA256。
 2. **镜像内字符串**：
-   - 200 Hz 飞控：包含 `FCQ f=`、`FCS bad=`；不得再包含 `L400Q`/`L400S`；
+   - 200 Hz 飞控：不得包含 `FCQ`/`FCS`、`L400Q`/`L400S`、`L400D` 发送字符串；
    - RC 联调：包含 `RC lk=`；
    - 姿态：包含 `ATT t=`、`STA n=`；
    - 维护：以上文本都没有，只有 0x269A 二进制帧逻辑。
 3. **重建对照**：
-   - 当前飞控在 `-DC_FLIGHT_CONTROL_EN=1` 下干净重建两次，哈希都是 `91C78F38...`；
+   - 当前飞控在 `-DC_FLIGHT_CONTROL_EN=1` 下干净重建两次，哈希都是 `1EA318D9...`；
    - 旧 `C_RC_LOOP_400_EN` 仅作为兼容别名，不再作为新构建入口；
    - 维护/RC/姿态的历史原件与“同源码 + 当前 makefile 链接顺序”的重建件大小相同、哈希不同，
      说明历史件使用了不同的链接顺序/构建环境。历史件保留原样，不用重建件替换。
@@ -130,7 +140,7 @@ python firmware_delivery\test_verify_hashes.py
 
 | 镜像 | 监视器参数 | 校准脚本 |
 |---|---|---|
-| 200 Hz 飞控联调版 | `--flight-control`（`--l400` 别名） | 不适用（发 FCQ/FCS 文本，不是 0x269A） |
+| 200 Hz 飞控（无实时串口） | 无；历史报文可用 `--l400` 解析 | 不适用（正常运行不发实时文本） |
 | 六轴校准维护版 | 默认二进制帧模式（不加 `--attitude` / `--flight-control`） | `imu_axis_map.py`、`accel_six_face_cal.py`、`gyro_bias_cal.py` |
 | 历史姿态版（归档） | `--attitude` | 不适用 |
 | RC 联调版（归档） | 当前未解析（文本 `RC lk=...`） | 不适用 |

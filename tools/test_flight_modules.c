@@ -23,7 +23,6 @@ static void test_rc_mapping_and_timeouts(void)
 {
 	RcInput rc;
 	RcInputEvent ev;
-	RcInputFrame f;
 	unsigned int now = 100000;
 	unsigned int t;
 
@@ -36,7 +35,6 @@ static void test_rc_mapping_and_timeouts(void)
 
 	ev = RcInput_OnPacket(&rc, 0x2000, 0x1000, 0x1000, 0x1000, 0, now + 10);
 	check(!ev.packet_valid, "out-of-range packet rejected");
-	check(rc.bad == 1, "bad counter");
 
 	ev = RcInput_OnPacket(&rc, 0, 0, 0, 0, 0, now + 20);
 	check(ev.heartbeat && !ev.packet_valid, "all-zero heartbeat");
@@ -46,8 +44,6 @@ static void test_rc_mapping_and_timeouts(void)
 	RcInput_UpdateTimeouts(&rc, t);
 	check(!rc.cmd_ok, "200ms command timeout");
 	check(rc.link, "500ms link still valid");
-	RcInput_Get(&rc, &f, t);
-	check(f.pkt_age_ms >= FLIGHT_CMD_TIMEOUT_MS, "packet age");
 
 	t += FLIGHT_LINK_TIMEOUT_TICKS + 1;
 	RcInput_UpdateTimeouts(&rc, t);

@@ -20,20 +20,7 @@ typedef struct {
 	unsigned char have_link;
 	unsigned int pkt_tick;
 	unsigned int link_tick;
-	unsigned int gap_max_tick;
-	unsigned int bad;
 } RcInput;
-
-typedef struct {
-	int cmd[4];
-	unsigned short key;
-	unsigned char cmd_ok;
-	unsigned char link;
-	unsigned int link_age_ms;
-	unsigned int pkt_age_ms;
-	unsigned int gap_ms;
-	unsigned int bad;
-} RcInputFrame;
 
 void RcInput_Init(RcInput *rc);
 RcInputEvent RcInput_OnPacket(RcInput *rc, unsigned short thr,
@@ -41,7 +28,5 @@ RcInputEvent RcInput_OnPacket(RcInput *rc, unsigned short thr,
 							  unsigned short lr, unsigned short key,
 							  unsigned int now);
 void RcInput_UpdateTimeouts(RcInput *rc, unsigned int now);
-void RcInput_Get(const RcInput *rc, RcInputFrame *out, unsigned int now);
-void RcInput_ClearGap(RcInput *rc);
 
 #endif /* RC_INPUT_H */

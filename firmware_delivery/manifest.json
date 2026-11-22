@@ -1,18 +1,27 @@
 {
-  "generated_at": "2026-11-22T16:01:53+08:00",
+  "generated_at": "2026-11-22T16:40:42+08:00",
   "flash_address_car_app": "0x4000",
   "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的通用 .bin 与命名副本已清理，重新编译才生成，不能按文件名判断用途。",
   "daily": [
     {
       "role": "flight_control_200hz",
       "file": "daily/Robin_24G_Car_flight_control.bin",
-      "bytes": 42516,
-      "sha256": "91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD",
-      "build_commit": "b3cb56f",
+      "bytes": 28500,
+      "sha256": "1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937",
+      "build_commit": "PENDING_FIX_COMMIT",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-      "monitor": "--flight-control (--l400 alias)",
-      "serial_protocol": "FCQ/FCS text, 10Hz/1Hz",
-      "flash_address": "0x4000"
+      "monitor": "无实时图；历史报文可用 --l400",
+      "serial_protocol": "无实时串口；UART 底层保留",
+      "flash_address": "0x4000",
+      "behavior_baseline": "b3cb56f",
+      "size_limit_bytes": 45056,
+      "app_base": "0x4000",
+      "app_end": "0xF000",
+      "app_remaining_bytes": 16556,
+      "log_candidate_flash": [
+        "0x10000-0x1BFFF",
+        "0x1C000-0x1CFFF"
+      ]
     },
     {
       "role": "maint_269a",
@@ -77,14 +86,18 @@
   "build_artifacts": {
     "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
     "file": "Robin_24G_Car_flight_control.bin",
-    "bytes": 42516,
-    "sha256": "91C78F38957B014649EB4680F1BB13B6A55628861A84A2794ED9CEF8A6A217CD",
+    "bytes": 28500,
+    "sha256": "1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937",
     "flash_address": "0x4000",
     "data_bytes": 440,
-    "bss_bytes": 2070,
+    "bss_bytes": 1246,
     "stack_reserve_bytes": 600,
     "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-    "generic_bin": "Robin_24G_Car_Flash.bin"
+    "generic_bin": "Robin_24G_Car_Flash.bin",
+    "text_bytes": 27976,
+    "app_base": "0x4000",
+    "app_end": "0xF000",
+    "app_remaining_bytes": 16556
   },
   "baseline": {
     "file": "firmware_baseline/Robin_24G_Car_Flash/Robin_24G_Car_Flash.bin",

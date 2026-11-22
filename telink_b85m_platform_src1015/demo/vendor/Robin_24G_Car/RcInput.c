@@ -26,8 +26,6 @@ void RcInput_Init(RcInput *rc)
 	rc->have_link = 0;
 	rc->pkt_tick = 0;
 	rc->link_tick = 0;
-	rc->gap_max_tick = 0;
-	rc->bad = 0;
 }
 
 /*
@@ -70,7 +68,6 @@ RcInputEvent RcInput_OnPacket(RcInput *rc, unsigned short thr,
 		|| rot < RF_DATA_MIN || rot > RF_DATA_MAX
 		|| fb < RF_DATA_MIN || fb > RF_DATA_MAX
 		|| lr < RF_DATA_MIN || lr > RF_DATA_MAX) {
-		rc->bad++;
 		return ev;
 	}
 
@@ -80,13 +77,6 @@ RcInputEvent RcInput_OnPacket(RcInput *rc, unsigned short thr,
 	rc->cmd[2] = rc_convert(thr);
 	rc->cmd[3] = -rc_convert(rot);
 
-	if (rc->have_pkt) {
-		unsigned int gap = now - rc->pkt_tick;
-
-		if (gap > rc->gap_max_tick) {
-			rc->gap_max_tick = gap;
-		}
-	}
 	rc->pkt_tick = now;
 	rc->have_pkt = 1;
 	rc->cmd_ok = 1;
@@ -110,32 +100,4 @@ void RcInput_UpdateTimeouts(RcInput *rc, unsigned int now)
 		&& (unsigned int)(now - rc->pkt_tick) > FLIGHT_CMD_TIMEOUT_TICKS) {
 		rc->cmd_ok = 0;
 	}
-}
-
-void RcInput_Get(const RcInput *rc, RcInputFrame *out, unsigned int now)
-{
-	int i;
-
-	for (i = 0; i < 4; i++) {
-		out->cmd[i] = rc->cmd[i];
-	}
-	out->key = rc->key;
-	out->cmd_ok = rc->cmd_ok;
-	out->link = rc->link;
-	out->link_age_ms = rc->have_link
-		? (unsigned int)((now - rc->link_tick + FLIGHT_TICKS_PER_MS / 2)
-						 / FLIGHT_TICKS_PER_MS) : FLIGHT_MS_MAX;
-	out->pkt_age_ms = rc->have_pkt
-		? (unsigned int)((now - rc->pkt_tick + FLIGHT_TICKS_PER_MS / 2)
-						 / FLIGHT_TICKS_PER_MS) : FLIGHT_MS_MAX;
-	out->gap_ms = (unsigned int)((rc->gap_max_tick + FLIGHT_TICKS_PER_MS / 2)
-								 / FLIGHT_TICKS_PER_MS);
-	out->bad = rc->bad;
-	if (out->link_age_ms > FLIGHT_MS_MAX) out->link_age_ms = FLIGHT_MS_MAX;
-	if (out->pkt_age_ms > FLIGHT_MS_MAX) out->pkt_age_ms = FLIGHT_MS_MAX;
-	if (out->gap_ms > FLIGHT_MS_MAX) out->gap_ms = FLIGHT_MS_MAX;
-}
-void RcInput_ClearGap(RcInput *rc)
-{
-	rc->gap_max_tick = 0;
 }
