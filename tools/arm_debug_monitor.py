@@ -257,6 +257,8 @@ class ArmDebugState:
             self.seen_boot = True
             self.e2 = 1
             cmd = cmd_values(data.get("cmd", "0/0/0/0"))
+            self.last_acc = [0, 0, 0]
+            self.last_gyro = [0, 0, 0]
             accepted = _to_int(data.get("ok"), 0) or 0
             why = data.get("why", "none")
             self.attempts = _to_int(data.get("n"), self.attempts) or 0
