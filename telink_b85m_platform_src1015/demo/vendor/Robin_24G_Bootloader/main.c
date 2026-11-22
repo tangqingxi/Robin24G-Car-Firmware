@@ -32,7 +32,8 @@
 #include "bootloader_ota/boot_copy_data.h"
 #include "ota_config.h"
 #include "sdk_version.h"
-#include "flash_fw_check.h"\n#include "boot_validate.h"
+#include "flash_fw_check.h"
+#include "boot_validate.h"
 
 
 //volatile unsigned char sample_cnt=0;
@@ -50,8 +51,6 @@ _attribute_ram_code_sec_noinline_ void irq_handler(void)
 
 #if (BOOTLOADER_ENABLE)
 // 只校验 app 启动标记、长度、边界和 CRC；无效时停在安全循环，等待 BDT 恢复。
-#define BOOT_APP_MAX_SIZE  (0xF000 - FW_ADDRESS)
-
 static u8 boot_app_is_valid(void)
 {
 	u32 startup_flag = 0;
@@ -62,10 +61,11 @@ static u8 boot_app_is_valid(void)
 	if (startup_flag != START_UP_FLAG) {
 		return 0;
 	}
-	if (fw_size < 0x20 || fw_size > BOOT_APP_MAX_SIZE) {
-		return 0;
+	if (!boot_validate_header(startup_flag, fw_size, 1)) {
+		return 0;                       // 先挡住坏标记/越界长度，避免 CRC 越界读
 	}
-	return (flash_fw_check(0xffffffff, FW_ADDRESS) == 0) ? 1 : 0;
+	return boot_validate_header(startup_flag, fw_size,
+								(flash_fw_check(0xffffffff, FW_ADDRESS) == 0));
 }
 #endif
 
