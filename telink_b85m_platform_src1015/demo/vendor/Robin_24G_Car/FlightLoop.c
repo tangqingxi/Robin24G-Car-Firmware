@@ -24,7 +24,7 @@ typedef struct {
 	s32 gyro_rem[3];
 	s32 rate[3];
 	s32 prev_acc[3];
-	u32 still_sum[3];
+	s32 still_sum[3];
 	u32 still_ticks;
 	u32 still_n;
 	u32 last_ts;
@@ -123,9 +123,10 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 		if (s_fl.still_ticks >= FLIGHT_INIT_STILL_TICKS && s_fl.still_n > 0) {
 			s32 avg[3];
 
-			avg[0] = (s32)(s_fl.still_sum[0] / s_fl.still_n);
-			avg[1] = (s32)(s_fl.still_sum[1] / s_fl.still_n);
-			avg[2] = (s32)(s_fl.still_sum[2] / s_fl.still_n);
+			// 静置和必须有符号；先把样本计数转 s32 再除，避免负数被当无符号
+			avg[0] = s_fl.still_sum[0] / (s32)s_fl.still_n;
+			avg[1] = s_fl.still_sum[1] / (s32)s_fl.still_n;
+			avg[2] = s_fl.still_sum[2] / (s32)s_fl.still_n;
 			if (!Euler_InitFromAccel(&s_fl.att, avg,
 									 ts / FLIGHT_TICKS_PER_MS)) {
 				flight_still_reset();
@@ -330,6 +331,23 @@ void FlightLoop_Process(void)
 	}
 #endif
 }
+
+#ifdef FLIGHT_STARTUP_TEST
+// 仅主机启动路径回归：读取真实 FlightLoop 内部状态。
+unsigned char FlightLoop_StartupTestReady(void)
+{
+	return s_fl.att.ready;
+}
+
+unsigned char FlightLoop_StartupTestArmed(void)
+{
+	return s_fl.safety.armed;
+}
+
+unsigned int FlightLoop_StartupTestStillN(void) { return s_fl.still_n; }
+unsigned int FlightLoop_StartupTestStillTicks(void) { return s_fl.still_ticks; }
+int FlightLoop_StartupTestLpf(int i) { return s_fl.lpf[i]; }
+#endif
 
 #ifdef FLIGHT_ORDER_TEST
 // 仅主机顺序回归使用：建立最小可运行状态，不启动 IMU/PWM 采样。

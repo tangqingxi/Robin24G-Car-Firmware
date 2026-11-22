@@ -8,7 +8,7 @@
 
 | 用途 | 交付文件 | 字节 | SHA256 | 烧录地址 | 上位机 |
 |---|---|---|---|---|---|
-| **当前 200 Hz 飞控（无实时串口）** | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937` | 0x4000 | 正常运行无实时图；历史报文仍可用 `--l400` 解析 |
+| **当前 200 Hz 飞控（无实时串口）** | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | 0x4000 | 正常运行无实时图；历史报文仍可用 `--l400` 解析 |
 | **六轴校准维护版** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 | 三个校准脚本；默认 0x269A 六轴模式 |
 
 - **200 Hz 飞控**：构建源码 `03b2061`，行为基线单独记录
@@ -64,7 +64,7 @@ telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
 
 ```text
 Robin_24G_Car_flight_control.bin   28500 字节
-SHA256 1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937
+SHA256 AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60
 .text 27976 / .data 440 / .bss 1246 / 链接器栈预留 600 字节
 ```
 
@@ -104,7 +104,7 @@ A/B、分项计时或延期报告；`UserUart` 底层保留。上电默认锁定
    - 姿态：包含 `ATT t=`、`STA n=`；
    - 维护：以上文本都没有，只有 0x269A 二进制帧逻辑。
 3. **重建对照**：
-   - 当前飞控在 `-DC_FLIGHT_CONTROL_EN=1` 下干净重建两次，哈希都是 `1EA318D9...`；
+   - 当前飞控在 `-DC_FLIGHT_CONTROL_EN=1` 下干净重建两次，哈希都是 `AA3D5359...`；
    - 旧 `C_RC_LOOP_400_EN` 仅作为兼容别名，不再作为新构建入口；
    - 维护/RC/姿态的历史原件与“同源码 + 当前 makefile 链接顺序”的重建件大小相同、哈希不同，
      说明历史件使用了不同的链接顺序/构建环境。历史件保留原样，不用重建件替换。

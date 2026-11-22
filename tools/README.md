@@ -16,6 +16,7 @@
 | `test_l400_motor.c` | 混控俯仰/偏航符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
+| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
 | `test_package_bin.py` | 45,056 字节打包门：超限返回非零且不覆盖交付文件 |
 | `check_bin_size.py` | 最终 .bin 尺寸检查；超限非零退出 |
 | `package_flight_control.py` | 检查尺寸后原子发布交付镜像 |
@@ -238,7 +239,7 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
 
 - 当前主联调镜像：
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_flight_control.bin`，
-  28500 字节，SHA256 `1EA318D9ED0C37C3FC3E9A24F092712625662A83CFD450AF33AA272D891B0937`，
+  28500 字节，SHA256 `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60`，
   烧 0x4000。`0x4000 + 28500 = 0xAF54 <= 0xF000`，应用区剩余 16556 字节。
 - 同选项移除前后对比：
 
@@ -292,6 +293,8 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
   （`test_flight_modules.c`）；
 - 真实 `FlightLoop_OnRcPacket`/`FlightLoop_PreSampleSafety`：0001 先清 PWM，
   目标姿态换算不在急停包执行；失联/指令超时在采样前清 PWM（`test_flight_order.c`）；
+- 真实启动路径：静置 −10/0/−1010mg 满 500ms 后 `att.ready`，再送合法低油门
+  `0002` 能解锁（`test_flight_startup.c`，链接真实 UserEuler）；
 - `0x4000 + bin <= 0xF000` 打包门：超限返回非零且不覆盖旧交付件
   （`test_package_bin.py`）；
 - 25 项监视器解析/模拟/旧报文兼容；四元数、积分除余回归。
