@@ -89,6 +89,16 @@ def cmd_values(text: str) -> list[int]:
     return out
 
 
+def break_text_cn(code: str) -> str:
+    return {
+        "norm": "加速度模长越界",
+        "gyro": "陀螺角速度超限",
+        "jump": "相邻加速度跳变",
+        "gap": "采样长间隔",
+        "init": "500ms后姿态初始化失败",
+    }.get(code, "无")
+
+
 def why_text(why: str, cmd: list[int]) -> str:
     if why == "pkt":
         return "包无效/摇杆无效"
@@ -193,7 +203,7 @@ class ArmDebugState:
             })
             self.events.append(
                 f"[{record['board_ms']}] IMU ok={self.read_ok} fail={self.read_fail} "
-                f"stillmax={self.still_max_ms}ms break={self.break_reason}")
+                f"stillmax={self.still_max_ms}ms break={break_text_cn(self.break_reason)}")
 
         elif kind == "ADG":
             self.seen_serial = True
@@ -586,7 +596,7 @@ def run_gui(args, source, csv_path: Path) -> int:
                 f"PWM 初始化：{'完成' if state.pwm_ready else '未完成'}\n"
                 f"本秒读取：成功 {state.read_ok} / 失败 {state.read_fail}\n"
                 f"最长连续静置：{state.still_max_ms} ms\n"
-                f"静置打断：{state.break_reason} "
+                f"静置打断：{break_text_cn(state.break_reason)} "
                 f"(模长{state.break_counts['norm']} 陀螺{state.break_counts['gyro']} "
                 f"跳变{state.break_counts['jump']} 间隔{state.break_counts['gap']} "
                 f"初始化{state.break_counts['init']})"
