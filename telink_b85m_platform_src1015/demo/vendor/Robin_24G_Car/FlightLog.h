@@ -9,7 +9,7 @@
 #define FLIGHT_LOG_SECTORS     13u
 #define FLIGHT_LOG_SECTOR_SIZE 0x1000u
 
-#define FLIGHT_LOG_VERSION     1u
+#define FLIGHT_LOG_VERSION     2u
 #define FLIGHT_LOG_PAGE_HDR    256u
 #define FLIGHT_LOG_REC_PER_PHYS 4u
 #define FLIGHT_LOG_PHYS_PER_SEC 15u
@@ -47,19 +47,22 @@ void FlightLog_Init(void);
 #define FLIGHT_LOG_REC 2
 #define FLIGHT_LOG_ST_END 3
 #define FLIGHT_LOG_REJECT 4
+#define FLIGHT_LOG_ST_CLOSING 5
 
 void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
 					 unsigned char can_start, unsigned char blocked);
 void FlightLog_BeginPrepare(void);
 unsigned char FlightLog_State(void);
 void FlightLog_OnSample(const FlightLogSample *sample);
-void FlightLog_Service(void);
+void FlightLog_Service(unsigned char budget_ok);
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample);
 void FlightLog_OnControlTick(void);
 void FlightLog_OnLinkDown(void);
 #define FLIGHT_LOG_TYPE_SHIFT 12u
 #define FLIGHT_LOG_TYPE_EVENT 1u
 #define FLIGHT_LOG_TYPE_SUMMARY 2u
+#define FLIGHT_LOG_TYPE_BASELINE 3u
+#define FLIGHT_LOG_TYPE_TAIL 4u
 void FlightLog_Stop(void);
 unsigned char FlightLog_Active(void);
 unsigned int FlightLog_Dropped(void);

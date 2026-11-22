@@ -29,6 +29,11 @@ typedef struct {
 	u8 link_seen;
 	u8 event_pending;
 	u8 event_code;
+	u8 closing;
+	u8 summary_pending;
+	u8 tail_pending;
+	u8 close_pending;
+	u8 baseline_written;
 	u16 key_prev;
 	u32 tick;
 	u32 dropped;
@@ -36,7 +41,11 @@ typedef struct {
 	u32 start_ms;
 	u32 end_ms;
 	u32 last_ctrl_tick;
+	u32 session_us;
 	u32 max_gap_ticks;
+	u32 base_max_gap_ticks;
+	u32 base_late_count;
+	u32 base_skip_count;
 	u32 late_count;
 	u32 skip_count;
 	u32 flash_peak_ticks;
@@ -125,91 +134,37 @@ static void erase_log(void)
 	}
 }
 
-static void write_summary(void)
-{
-	u8 rec[FLIGHT_LOG_REC_SIZE];
-	u16 flags = (u16)(FLIGHT_LOG_TYPE_SUMMARY << FLIGHT_LOG_TYPE_SHIFT);
-
-	if (!s_log.page_open) {
-		return;
-	}
-	if (s_log.page_count >= FLIGHT_LOG_REC_PER_SEC) {
-		close_page();
-		if (s_log.page_seq + 1 >= FLIGHT_LOG_SECTORS) {
-			return;
-		}
-		open_page((u16)(s_log.page_seq + 1));
-	}
-	memset(rec, 0, sizeof(rec));
-	put32(&rec[0], now_ms());
-	put16(&rec[4], s_log.session);
-	put16(&rec[6], (u16)s_log.record_seq);
-	put32(&rec[8], s_log.start_ms);
-	put32(&rec[12], now_ms());
-	put32(&rec[16], ticks_to_us(s_log.max_gap_ticks));
-	put16(&rec[20], (u16)s_log.late_count);
-	put16(&rec[22], (u16)s_log.skip_count);
-	put16(&rec[24], (u16)ticks_to_us(s_log.flash_peak_ticks));
-	put16(&rec[26], (u16)s_log.prep_ticks / FLIGHT_TICKS_PER_MS);
-	put16(&rec[28], (u16)s_log.data_records);
-	put16(&rec[30], (u16)s_log.dropped);
-	rec[32] = s_log.end_reason;
-	put16(&rec[52], flags);
-	put16(&rec[54], crc16_update(0xFFFF, rec, 54));
-	{
-		u32 phys = s_log.page_count / FLIGHT_LOG_REC_PER_PHYS;
-		u32 slot = s_log.page_count % FLIGHT_LOG_REC_PER_PHYS;
-		u32 addr = s_log.page_base + FLIGHT_LOG_PAGE_HDR
-				   + phys * 256u + slot * FLIGHT_LOG_REC_SIZE;
-
-		flash_write_page(addr, FLIGHT_LOG_REC_SIZE, rec);
-	}
-	s_log.page_crc = crc16_update(s_log.page_crc, rec, FLIGHT_LOG_REC_SIZE);
-	s_log.page_count++;
-	s_log.record_seq++;
-}
-
-static void finish_log(u8 reason)
-{
-	if (!s_log.active) {
-		return;
-	}
-	s_log.end_reason = reason;
-	s_log.end_ms = now_ms();
-	write_summary();
-	close_page();
-	s_log.active = 0;
-	s_log.state = FLIGHT_LOG_ST_END;
-	s_log.qcount = 0;
-}
-
-static void write_record(const u8 *rec, u8 is_data)
+static u8 write_blob(const u8 *rec, u8 is_data)
 {
 	u32 phys, slot, addr;
+	u32 t0, dt;
 
-	if (!s_log.active) {
-		return;
-	}
-	if (s_log.page_count >= FLIGHT_LOG_REC_PER_SEC) {
-		close_page();
+	if (!s_log.page_open) {
 		if (s_log.page_seq + 1 >= FLIGHT_LOG_SECTORS) {
-			finish_log(5);
-			return;
+			return 0;
 		}
 		open_page((u16)(s_log.page_seq + 1));
+	}
+	if (s_log.page_count >= FLIGHT_LOG_REC_PER_SEC) {
+		close_page();                  // 封口单独一次物理编程
+		return 0;
 	}
 	phys = s_log.page_count / FLIGHT_LOG_REC_PER_PHYS;
 	slot = s_log.page_count % FLIGHT_LOG_REC_PER_PHYS;
 	addr = s_log.page_base + FLIGHT_LOG_PAGE_HDR
 		   + phys * 256u + slot * FLIGHT_LOG_REC_SIZE;
-	{
-		u32 t0 = clock_time();
-		u32 dt;
-
-		flash_write_page(addr, FLIGHT_LOG_REC_SIZE, (u8 *)rec);
-		dt = (u32)(clock_time() - t0);
-		if (dt > s_log.flash_peak_ticks) {
-			s_log.flash_peak_ticks = dt;
+	t0 = clock_time();
+	flash_write_page(addr, FLIGHT_LOG_REC_SIZE, (u8 *)rec);
+	dt = (u32)(clock_time() - t0);
+	if (dt > s_log.flash_peak_ticks) {
+		s_log.flash_peak_ticks = dt;
+	}
+	if (s_log.closing) {
+		if (dt > s_log.max_gap_ticks) {
+			s_log.max_gap_ticks = dt;
+		}
+		if (dt > FLIGHT_PERIOD_TICKS) {
+			s_log.late_count++;
 		}
 	}
 	s_log.page_crc = crc16_update(s_log.page_crc, rec, FLIGHT_LOG_REC_SIZE);
@@ -218,6 +173,71 @@ static void write_record(const u8 *rec, u8 is_data)
 	if (is_data) {
 		s_log.data_records++;
 	}
+	return 1;
+}
+static u8 write_meta(u8 type)
+{
+	u8 rec[FLIGHT_LOG_REC_SIZE];
+	u16 flags = (u16)(type << FLIGHT_LOG_TYPE_SHIFT);
+
+	memset(rec, 0, sizeof(rec));
+	put32(&rec[0], s_log.session_us / 1000u);
+	put16(&rec[4], s_log.session);
+	put16(&rec[6], (u16)s_log.record_seq);
+	put32(&rec[8], 0);
+	put32(&rec[12], s_log.session_us / 1000u);
+	put32(&rec[16], ticks_to_us(s_log.max_gap_ticks));
+	put16(&rec[20], (u16)s_log.late_count);
+	put16(&rec[22], (u16)s_log.skip_count);
+	put16(&rec[24], (u16)ticks_to_us(s_log.flash_peak_ticks));
+	put16(&rec[26], (u16)(ticks_to_us(s_log.prep_ticks) / 1000u));
+	put16(&rec[28], (u16)s_log.data_records);
+	put16(&rec[30], (u16)s_log.dropped);
+	rec[32] = s_log.end_reason;
+	put16(&rec[52], flags);
+	put16(&rec[54], crc16_update(0xFFFF, rec, 54));
+	return write_blob(rec, 0);
+}
+
+static void write_baseline(void)
+{
+	u8 rec[FLIGHT_LOG_REC_SIZE];
+	u16 flags = (u16)(FLIGHT_LOG_TYPE_BASELINE << FLIGHT_LOG_TYPE_SHIFT);
+
+	memset(rec, 0, sizeof(rec));
+	put32(&rec[0], 0);
+	put16(&rec[4], s_log.session);
+	put16(&rec[6], (u16)s_log.record_seq);
+	put32(&rec[16], ticks_to_us(s_log.base_max_gap_ticks));
+	put16(&rec[20], (u16)s_log.base_late_count);
+	put16(&rec[22], (u16)s_log.base_skip_count);
+	put16(&rec[52], flags);
+	put16(&rec[54], crc16_update(0xFFFF, rec, 54));
+	write_blob(rec, 0);
+}
+
+static void finish_log(u8 reason)
+{
+	if (!s_log.active) {
+		return;
+	}
+	s_log.end_reason = reason;
+	s_log.end_ms = s_log.session_us / 1000u;
+	s_log.active = 0;
+	s_log.closing = 1;
+	s_log.qcount = 0;
+	s_log.summary_pending = 1;
+	s_log.tail_pending = 0;
+	s_log.close_pending = 0;
+	s_log.state = FLIGHT_LOG_ST_CLOSING;
+}
+
+static u8 write_record(const u8 *rec, u8 is_data)
+{
+	if (!s_log.active) {
+		return 0;
+	}
+	return write_blob(rec, is_data);
 }
 
 static void serialize(const FlightLogSample *s, u8 *rec, u8 type)
@@ -272,13 +292,19 @@ static void start_log(void)
 	s_log.skip_count = 0;
 	s_log.flash_peak_ticks = 0;
 	s_log.end_reason = 0;
+	s_log.session_us = 0;
 	s_log.active = 1;
+	s_log.closing = 0;
+	s_log.summary_pending = 0;
+	s_log.tail_pending = 0;
+	s_log.close_pending = 0;
 	s_log.state = FLIGHT_LOG_REC;
 	s_log.pending = 0;
 	s_log.last_result = FLIGHT_LOG_REC;
-	s_log.start_ms = now_ms();
+	s_log.start_ms = 0;
 	s_log.last_ctrl_tick = clock_time();
 	open_page(0);
+	write_baseline();              // 启录前基线先落盘，后续 BDT 一并读回
 }
 
 void FlightLog_Init(void)
@@ -341,23 +367,25 @@ void FlightLog_BeginPrepare(void)
 	s_log.pending = 0;
 	t0 = clock_time();
 	erase_log();
-	s_log.prep_ticks = (u32)(clock_time() - t0);
 	start_log();
+	s_log.prep_ticks = (u32)(clock_time() - t0);
 }
 
 unsigned char FlightLog_State(void) { return s_log.state; }
 
 void FlightLog_OnControlTick(void)
 {
-	u32 now;
+	u32 now = clock_time();
+	u32 gap;
 
-	if (!s_log.active) {
+	if (!s_log.last_ctrl_tick) {
+		s_log.last_ctrl_tick = now;
 		return;
 	}
-	now = clock_time();
-	if (s_log.last_ctrl_tick) {
-		u32 gap = (u32)(now - s_log.last_ctrl_tick);
-
+	gap = (u32)(now - s_log.last_ctrl_tick);
+	s_log.last_ctrl_tick = now;
+	if (s_log.active || s_log.closing) {
+		s_log.session_us += ticks_to_us(gap);
 		if (gap > s_log.max_gap_ticks) {
 			s_log.max_gap_ticks = gap;
 		}
@@ -367,12 +395,23 @@ void FlightLog_OnControlTick(void)
 		if (gap > (FLIGHT_PERIOD_TICKS + FLIGHT_PERIOD_TICKS / 2)) {
 			s_log.skip_count++;
 		}
+	} else {
+		if (gap > s_log.base_max_gap_ticks) {
+			s_log.base_max_gap_ticks = gap;
+		}
+		if (gap > FLIGHT_PERIOD_TICKS) {
+			s_log.base_late_count++;
+		}
+		if (gap > (FLIGHT_PERIOD_TICKS + FLIGHT_PERIOD_TICKS / 2)) {
+			s_log.base_skip_count++;
+		}
 	}
-	s_log.last_ctrl_tick = now;
 }
 
 void FlightLog_OnSample(const FlightLogSample *sample)
 {
+	FlightLogSample s;
+
 	if (!s_log.active || !sample || s_log.event_pending) {
 		return;
 	}
@@ -384,37 +423,64 @@ void FlightLog_OnSample(const FlightLogSample *sample)
 		s_log.dropped++;
 		return;
 	}
-	s_log.q[s_log.qtail] = *sample;
+	s = *sample;
+	s.t_ms = s_log.session_us / 1000u;  // 会话相对时间，跨 u32 tick 回绕仍单调
+	s_log.q[s_log.qtail] = s;
 	s_log.qtail = (u8)((s_log.qtail + 1) & 1);
 	s_log.qcount++;
 }
 
-void FlightLog_Service(void)
+void FlightLog_Service(unsigned char budget_ok)
 {
 	u8 rec[FLIGHT_LOG_REC_SIZE];
 
-	if (!s_log.active) {
+	if (!s_log.active && !s_log.closing) {
+		return;
+	}
+	if (!budget_ok) {
+		return;                        // 距下一控制拍余量不足，本轮不发起编程
+	}
+	if (s_log.summary_pending) {
+		if (write_meta(FLIGHT_LOG_TYPE_SUMMARY)) {
+			s_log.summary_pending = 0;
+			s_log.tail_pending = 1;
+		}
+		return;                        // 本次最多一次物理编程
+	}
+	if (s_log.tail_pending) {
+		if (write_meta(FLIGHT_LOG_TYPE_TAIL)) {
+			s_log.tail_pending = 0;
+			s_log.close_pending = 1;
+		}
+		return;
+	}
+	if (s_log.close_pending) {
+		close_page();
+		s_log.close_pending = 0;
+		s_log.closing = 0;
+		s_log.state = FLIGHT_LOG_ST_END;
 		return;
 	}
 	if (s_log.event_pending) {
 		serialize(&s_log.event_sample, rec, FLIGHT_LOG_TYPE_EVENT);
-		write_record(rec, 1);
-		s_log.event_pending = 0;
-		finish_log(s_log.event_code);
+		if (write_record(rec, 1)) {
+			s_log.event_pending = 0;
+			finish_log(s_log.event_code);
+		}
 		return;
 	}
 	if (!s_log.qcount) {
 		return;
 	}
 	serialize(&s_log.q[s_log.qhead], rec, 0);
-	s_log.qhead = (u8)((s_log.qhead + 1) & 1);
-	s_log.qcount--;
-	write_record(rec, 1);
-	if (s_log.data_records >= FLIGHT_LOG_MAX_RECORDS) {
-		finish_log(5);
+	if (write_record(rec, 1)) {
+		s_log.qhead = (u8)((s_log.qhead + 1) & 1);
+		s_log.qcount--;
+		if (s_log.data_records >= FLIGHT_LOG_MAX_RECORDS) {
+			finish_log(5);
+		}
 	}
 }
-
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 {
 	if (!s_log.active || !sample) {

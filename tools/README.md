@@ -251,6 +251,7 @@ TC32 反汇编核对：`Euler_IsStill` 收到 `s_fl+0xA8`/`s_fl+0xCC`，
 - 每条含原始 `q[w,x,y,z]`（s32 Q15，保留 +32768）、陀螺 Q10、估计器加速度 mg、
   偏航杆/目标/纠偏、推力、四路 PWM、标志；急停/失联另写事件。
 - 每扇区起始 256B 页头；15 个 256B 物理页，每页 4 条 56B 记录；页头/记录 CRC16，单条写不跨页。
+- 布局版本 2；启录时先写 baseline（启录前基线），结束写 summary 和 tail（收尾统计），导出仍兼容 v1。
 - 结束写 summary：会话号、起止、实际条数、丢样、max_dt_us、late、skip、flash_peak_us、prep_ms、结束原因。
 - 掉电未封口页可由导出工具扫描 CRC 正确的记录并标记 recovered；缺页/未完成明确报告。
 - 遥控“演示”键 0x0004 上升沿启动；四路锁定、PWM 全零时主循环擦除日志区并开始一趟记录。
@@ -283,6 +284,7 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 - 写缓冲在 RAM 栈上，满足 XIP 下“写数据不能位于 Flash”的限制。
 - 服务路径仅在距下一控制拍大于半个周期（2.5ms）时提交一条写入；余量不足延期，
   队列 2 条满则丢样计数。急停/失联清 PWM 不经过该预算。
+- 普通记录、停机事件、summary、tail、扇区封口拆成独立步骤；每次 `FlightLog_Service` 最多一次物理编程，主循环每轮重新检查预算。
 - 单次阻塞实测看日志 summary 的 `flash_peak_us`；最大关中断时间用 GPIO 在
   `flash_write_page()` 前后翻转，示波器量高电平宽度，或直接看 `flash_peak_us`
   （`clock_time()` 在驱动内也走定时器）。`summary` 另含 `prep_ms`、`max_dt_us`、
@@ -290,8 +292,8 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 
 ### 日志时序测量（调试候选）
 
-`candidates/Robin_24G_Car_flight_log_debug.bin`（33892 字节，
-SHA256 `799EFC081C7F3EF2D7991B8415C56698D81B10D38F09504F3753012DA2CE4A97`）
+`candidates/Robin_24G_Car_flight_log_debug.bin`（33828 字节，
+SHA256 `A11DE83B03894EC346D8E5985D04029749C3B079927B13382905CF9327A52960`）
 同时启用 FlightLog 和 `C_FLIGHT_ARM_DEBUG`。GUI 每秒额外收：
 
 ```text
@@ -390,8 +392,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：27716 字节，
-    SHA256 `ADC5FB4E8FECC7DB511BD6A22073EBEA32DC03609F719FB445BF5CFD35681556`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：27620 字节，
+    SHA256 `8C92AF25668075D57E2EDC5362A963E1B046F5C629B19A6E6A967977448D09CE`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

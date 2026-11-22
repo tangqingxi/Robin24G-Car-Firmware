@@ -9,6 +9,7 @@
 
 static unsigned char flash_mem[0x20000];
 static int bad_addr;
+static int write_ops;
 static unsigned int fake_clock;
 u32 clock_time(void) { return fake_clock; }
 
@@ -24,6 +25,7 @@ void flash_read_page(unsigned int addr, unsigned int len, unsigned char *buf)
 
 void flash_write_page(unsigned int addr, unsigned int len, unsigned char *buf)
 {
+	write_ops++;
 	if (addr + len > sizeof(flash_mem)) {
 		bad_addr = 1;
 		return;
@@ -108,9 +110,15 @@ int main(void)
 	}
 
 	for (i = 0; i < 6008; i++) {
+		int before = write_ops;
+
 		sample(&s, i * 5);
 		FlightLog_OnSample(&s);
-		FlightLog_Service();
+		FlightLog_Service(1);
+		if (write_ops - before > 1) {
+			printf("FAIL service issued %d flash ops\n", write_ops - before);
+			return 1;
+		}
 	}
 	FlightLog_OnSample(&s);              // 第 751 条样本触发“满则停止”
 	if (FlightLog_Active()) {
@@ -147,7 +155,7 @@ int main(void)
 						   i, r, a, rec[0], rec[1]);
 					return 1;
 				}
-				if (r == 0 && rd32(rec + 8) != 32768) {
+				if (r == 1 && rd32(rec + 8) != 32768) {
 					printf("FAIL q +32768 decode\n");
 					return 1;
 				}

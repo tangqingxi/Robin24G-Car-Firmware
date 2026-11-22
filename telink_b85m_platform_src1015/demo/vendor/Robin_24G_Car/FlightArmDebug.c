@@ -7,7 +7,9 @@
 
 #if C_FLIGHT_ARM_DEBUG
 
-#define ARM_DBG_QDEPTH 3
+#ifndef ARM_DBG_QDEPTH
+#define ARM_DBG_QDEPTH 2
+#endif
 #define ARM_DBG_LINE UART_DATA_LEN
 
 typedef struct {
@@ -427,7 +429,7 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 
 void FlightArmDebug_OnLogState(unsigned char state)
 {
-	static const char *names[] = {"idle", "prep", "rec", "end", "reject"};
+	static const char *names[] = {"idle", "prep", "rec", "end", "reject", "closing"};
 	char buf[UART_DATA_LEN];
 	char *p = buf;
 
@@ -439,7 +441,7 @@ void FlightArmDebug_OnLogState(unsigned char state)
 	p = p_str(p, "ALG t=");
 	p = p_u32(p, now_ms());
 	p = p_str(p, " s=");
-	p = p_str(p, names[state <= 4 ? state : 4]);
+	p = p_str(p, names[state <= 5 ? state : 5]);
 	*p++ = '\n';
 	q_line(buf, (unsigned char)(p - buf));
 }

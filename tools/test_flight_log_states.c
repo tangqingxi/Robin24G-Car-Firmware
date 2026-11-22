@@ -53,7 +53,7 @@ static void step(void)
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
-	FlightLog_Service();
+	FlightLog_Service(1);
 }
 
 static void boot_ready(void)
@@ -78,6 +78,15 @@ static void start_key(void)
 	if (!FlightLog_Active()) {
 		printf("FAIL key 0x0004 did not start\n");
 		exit(1);
+	}
+}
+
+static void drain_log(void)
+{
+	int n;
+
+	for (n = 0; n < 12 && FlightLog_State() == FLIGHT_LOG_ST_CLOSING; n++) {
+		FlightLog_Service(1);
 	}
 }
 
@@ -198,7 +207,8 @@ int main(int argc, char **argv)
 			FlightLoop_Process();
 		}
 		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x1000, 0x1000, 0x0001);
-		FlightLog_Service();
+		FlightLog_Service(1);
+		drain_log();
 		if (FlightLog_Active()) {
 			printf("FAIL explicit estop did not stop log\n");
 			return 1;
@@ -234,6 +244,7 @@ int main(int argc, char **argv)
 			printf("FAIL link/cmd lock did not stop log\n");
 			return 1;
 		}
+		drain_log();
 		dump("flight_log_unlock.bin");
 		printf("PASS unlocked->lock event after packets stopped; dropped=%u\n",
 			   FlightLog_Dropped());

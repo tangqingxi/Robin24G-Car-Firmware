@@ -28,11 +28,12 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 | 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
 | 无 OTA bootloader | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 |
-| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 27716 | `ADC5FB4E8FECC7DB511BD6A22073EBEA32DC03609F719FB445BF5CFD35681556` | 0x4000 |
-| 日志+时序诊断 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33892 | `799EFC081C7F3EF2D7991B8415C56698D81B10D38F09504F3753012DA2CE4A97` | 0x4000 |
+| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 27620 | `8C92AF25668075D57E2EDC5362A963E1B046F5C629B19A6E6A967977448D09CE` | 0x4000 |
+| 日志+时序诊断 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33828 | `A11DE83B03894EC346D8E5985D04029749C3B079927B13382905CF9327A52960` | 0x4000 |
 | 遥控器录制键修复 | [`candidates/Robin_24G_Remote_logkey.bin`](candidates/Robin_24G_Remote_logkey.bin) | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | 0x0 |
 
-- 日志区 `0x10000..0x1CFFF`（13×4KiB）；录制由遥控“演示”键 0x0004 启动。
+- 日志区 `0x10000..0x1CFFF`（13×4KiB），布局 v2；录制由遥控 K3“演示”键 0x0004 启动。
+- v2 每扇区 256B 头、15 个 256B 物理页、每页 4 条 56B；baseline/summary/tail 分步写入，旧 v1 仍可导出。
 - 首版 25Hz、750 条（约30s），满了停止并保留。
 - 启动/擦除：遥控“演示”键 0x0004 上升沿，四路锁定且 PWM 全零时由主循环执行；不再使用 BDT `LOG1`。
 - BDT 读回 `0x10000` 起 `0xD000` 字节：
@@ -44,7 +45,7 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 
 - 录制键实体位置：遥控方向键上排第三个，丝印 **“演示”**，位于“右”和“K7”之间；
   代码映射 `KEY_StuntShow -> RfSendKey_StuntShow(0x0004)`。交付前仍需实物抓包复核。
-- 应用空间：`0x4000 + 27716 = 0xAC44 <= 0xF000`，剩余 17340 字节。
+- 应用空间：`0x4000 + 27620 = 0xABE4 <= 0xF000`，剩余 17436 字节。
 - **旧 bootloader 与日志应用不进入验收**；须同烧无 OTA bootloader。旧 bootloader
   回退件是 `firmware_baseline/Robin_24G_Bootloader_Flash/...`（12756 字节，
   `46506F44720D2A56C04E6A3E69A54533DC5759F1B2847047359DD9ED13A96D52`）。

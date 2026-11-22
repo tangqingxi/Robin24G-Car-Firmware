@@ -76,7 +76,7 @@ int main(void)
 		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 			FlightLog_BeginPrepare();
 		}
-		FlightLog_Service();
+		FlightLog_Service(1);
 	}
 	if (!FlightLog_Active()) {
 		printf("FAIL real log not active\n");
@@ -85,7 +85,10 @@ int main(void)
 
 	// 0001：FlightLoop 先清 PWM，再写事件并 Stop。
 	FlightLoop_OnRcPacket(0x1000, 0x1000, 0x1000, 0x1000, 0x0001);
-	FlightLog_Service();
+	FlightLog_Service(1);
+	for (i = 0; i < 12 && FlightLog_State() == FLIGHT_LOG_ST_CLOSING; i++) {
+		FlightLog_Service(1);
+	}
 	if (FlightLog_Active()) {
 		printf("FAIL log not stopped by estop\n");
 		return 1;
