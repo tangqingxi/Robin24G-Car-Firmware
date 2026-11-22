@@ -117,5 +117,28 @@
     "app_remaining_bytes": 11180,
     "serial_protocol": "ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE",
     "monitor": "uart_sensor_monitor.py --arm-debug"
+  },
+  "candidates": {
+    "status": "awaiting_no_prop_acceptance",
+    "build_commit": "412d6b5",
+    "behavior_baseline": "b3cb56f",
+    "normal": {
+      "role": "candidate_normal",
+      "file": "candidates/Robin_24G_Car_flight_control_alignfix.bin",
+      "bytes": 24900,
+      "sha256": "008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "flash_address": "0x4000",
+      "app_remaining_bytes": 20156
+    },
+    "arm_debug": {
+      "role": "candidate_arm_debug",
+      "file": "candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin",
+      "bytes": 30452,
+      "sha256": "1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
+      "flash_address": "0x4000",
+      "app_remaining_bytes": 14604
+    }
   }
 }
