@@ -28,7 +28,7 @@ python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\d
 | 用途 | 候选文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
 | 无 OTA bootloader | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6912 | `20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB` | 0x0 |
-| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 24756 | `2D5D30E8400E55651C23A4809436D752DE30EB621A93557B780E7ABFD5275837` | 0x4000 |
+| 200Hz 飞控 + FlightLog | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 24724 | `BCCEA24EAF2D4B480876EF95571788251DB418E966952E7CB5B6F79E93C0F973` | 0x4000 |
 
 - 日志区 `0x10000..0x1CFFF`（13×4KiB）；命令邮箱 `0x1D000`，不属于日志区。
 - 首版 25Hz、750 条（约30s），满了停止并保留。

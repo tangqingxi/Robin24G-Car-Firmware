@@ -132,15 +132,7 @@ void toy_user_init()
 	TOY_LOG("---init car done---\n");
 }
 
-#if (BOOTLOADER_ENABLE)
-volatile int for_keep_ota_symbols = 0;
-volatile int ota_use_api(void)
-{
-	if(for_keep_ota_symbols){
-		boot_copy_data(0);
-	}
-}
-#endif
+// OTA 已停用，不再保留 OTA 搬运符号。
 
 //Adding EMI API to flash.bin increases RAM from 0x1EB3 to 0x220F, causing insufficient RAM.
 #if (!FLASH_ENABLE)
@@ -217,9 +209,7 @@ int main (void)   //must on ramcode
 		wd_32k_set_interval_ms(WATCHDOG_INIT_TIMEOUT + 2048);
         #endif
 
-	#if (BOOTLOADER_ENABLE)
-		ota_use_api();
-	#endif
+
 
 	#if (!FLASH_ENABLE)
 		emi_use_api();

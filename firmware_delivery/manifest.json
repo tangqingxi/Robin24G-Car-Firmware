@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 24756,
-      "sha256": "2D5D30E8400E55651C23A4809436D752DE30EB621A93557B780E7ABFD5275837",
+      "bytes": 24724,
+      "sha256": "BCCEA24EAF2D4B480876EF95571788251DB418E966952E7CB5B6F79E93C0F973",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
