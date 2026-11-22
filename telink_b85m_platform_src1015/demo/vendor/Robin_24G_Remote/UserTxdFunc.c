@@ -764,43 +764,45 @@ void KeyFuncHandler(void)
 	{	//开机状态下
 		if(key_Action_Flag)
 		{
-			key_Action_Flag=0;
-			g_u8NewKforSend=cSendTimes;
+			unsigned char new_key = 0;
 
+			key_Action_Flag=0;
 			if(key_final_value == KEY_ChangeSpeed)
 			{	//速度转换（高速/低速）
-				g_u8KeyVal_Buffer = RfSendKey_Xspeed;
+				new_key = RfSendKey_Xspeed;
 			}
-//			else if(key_final_value == KEY_OneKeyRun)
-//			{	//一键起降
-//				g_u8KeyVal_Buffer = RfSendKey_OneKRun;
-//			}
 			else if(key_final_value == KEY_StuntShow)
-			{	//特技表演
-				g_u8KeyVal_Buffer = RfSendKey_StuntShow;
+			{	//“演示/特技”键，短按发送 0x0004 开始记录
+				new_key = RfSendKey_StuntShow;
 			}
 			else if(key_final_value == KEY_MicroAdjMode)
 			{	//微调模式
-				g_u8KeyVal_Buffer = RfSendKey_MicroAdj;
+				new_key = RfSendKey_MicroAdj;
 			}
-//			else if(key_final_value == KEY_HeadlessMode)
-//			{	//无头模式
-//				g_u8KeyVal_Buffer = RfSendKey_Headless;
-//			}
-
+			// 只有识别出有效键值才启动重复发送；未映射键不能重发上一次键值。
+			if(new_key)
+			{
+				g_u8KeyVal_Buffer = new_key;
+				g_u8NewKforSend = cSendTimes;
+			}
 		}
 		else if(Longkey_Action)
 		{
-			Longkey_Action=0;
-			g_u8NewKforSend=cSendTimes;
+			unsigned char new_key = 0;
 
+			Longkey_Action=0;
 			if(key_final_value == LongKBVal02)
 			{	//无头模式(长按)
-				g_u8KeyVal_Buffer = RfSendKey_Headless;
+				new_key = RfSendKey_Headless;
 			}
 			else if(key_final_value == LongKBVal01)
 			{	//一键起降(长按)
-				g_u8KeyVal_Buffer = RfSendKey_OneKRun;
+				new_key = RfSendKey_OneKRun;
+			}
+			if(new_key)
+			{
+				g_u8KeyVal_Buffer = new_key;
+				g_u8NewKforSend = cSendTimes;
 			}
 		}
 	}
