@@ -7,7 +7,7 @@
 
 #if C_FLIGHT_ARM_DEBUG
 
-#define ARM_DBG_QDEPTH 2
+#define ARM_DBG_QDEPTH 3
 #define ARM_DBG_LINE UART_DATA_LEN
 
 typedef struct {

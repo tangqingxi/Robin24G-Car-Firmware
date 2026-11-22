@@ -15,6 +15,8 @@ static int line_count;
 static int busy_once;
 static int uart_calls;
 
+unsigned int FlightLog_Dropped(void) { return 0; }
+
 u8 UartTrySend(u8 *dat, u8 len)
 {
 	if (busy_once) {

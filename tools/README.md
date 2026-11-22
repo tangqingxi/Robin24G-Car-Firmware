@@ -259,8 +259,22 @@ TC32 反汇编核对：`Euler_IsStill` 收到 `s_fl+0xA8`/`s_fl+0xCC`，
 python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 ```
 
-> 控制拍只把 56B 快照入 4 条队列；主循环 Service 每次最多写一条。Flash 驱动仍会关中断等待，写页阻塞时延尚未上板实测；控制/急停优先，
+> 控制拍只把 56B 快照入 2 条队列；主循环 Service 每次最多写一条。Flash 驱动仍会关中断等待，写页阻塞时延尚未上板实测；控制/急停优先，
 > 不做飞行中 UART 导出。
+
+### 日志时序测量（调试候选）
+
+`candidates/Robin_24G_Car_flight_log_debug.bin`（32420 字节，
+SHA256 `C1C61909C56DE1415EB82B90D258F7193B235B1A0AC9938BD178728C13C291E2`）
+同时启用 FlightLog 和 `C_FLIGHT_ARM_DEBUG`。GUI 每秒额外收：
+
+```text
+ADT t=... dm=<控制拍间隔峰值ms> sk=<跳拍数> ld=<日志丢样数>
+```
+
+CSV 对应 `ctrl_dt_max_ms / ctrl_skips / log_drops`。无桨时用现有
+`--arm-debug` GUI 跑 30 秒以上，记录 `dm` 最大值、`sk` 总计和 `ld` 总计。
+该镜像有 UART 诊断，不能用于正式飞行；正式静默版仍是 `..._log.bin`。
 
 ### 专用解锁诊断（--arm-debug）
 

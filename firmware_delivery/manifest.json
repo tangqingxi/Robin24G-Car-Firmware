@@ -179,8 +179,8 @@
     },
     "debug": {
       "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
-      "bytes": 32452,
-      "sha256": "867344351FD241406506D79BBEA3971BD6D09D5E2A4E498BE50D98C56CDCBDBA",
+      "bytes": 32420,
+      "sha256": "C1C61909C56DE1415EB82B90D258F7193B235B1A0AC9938BD178728C13C291E2",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
     }
