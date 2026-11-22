@@ -32,7 +32,7 @@
 #include "bootloader_ota/boot_copy_data.h"
 #include "ota_config.h"
 #include "sdk_version.h"
-#include "flash_fw_check.h"
+#include "flash_fw_check.h"\n#include "boot_validate.h"
 
 
 //volatile unsigned char sample_cnt=0;
@@ -45,15 +45,28 @@
  */
 _attribute_ram_code_sec_noinline_ void irq_handler(void)
 {
-	irq_handle_private_1m();  // RF IRQ（OTA 收发）
+	// OTA 已停用：bootloader 不再处理 2.4G OTA 收发中断。
 }
 
 #if (BOOTLOADER_ENABLE)
-// OTA 流程已移到 bootloader（见 ota_boot.c）。
-// boot_need_ota()：标记存在 OR app 区无有效固件 OR OTA 区有完整固件 -> 需要 OTA
-// boot_ota_entry()：OTA 区有完整固件则重新搬运重启，否则进入 OTA 模式接收固件（不返回）
-extern void boot_ota_entry(void);
-extern u8   boot_need_ota(void);
+// 只校验 app 启动标记、长度、边界和 CRC；无效时停在安全循环，等待 BDT 恢复。
+#define BOOT_APP_MAX_SIZE  (0xF000 - FW_ADDRESS)
+
+static u8 boot_app_is_valid(void)
+{
+	u32 startup_flag = 0;
+	u32 fw_size = 0;
+
+	flash_read_page(FW_ADDRESS + 0x8, 4, (u8 *)&startup_flag);
+	flash_read_page(FW_ADDRESS + 0x18, 4, (u8 *)&fw_size);
+	if (startup_flag != START_UP_FLAG) {
+		return 0;
+	}
+	if (fw_size < 0x20 || fw_size > BOOT_APP_MAX_SIZE) {
+		return 0;
+	}
+	return (flash_fw_check(0xffffffff, FW_ADDRESS) == 0) ? 1 : 0;
+}
 #endif
 
 
@@ -92,20 +105,20 @@ int main (void)   //must on ramcode
 
 #if (BOOTLOADER_ENABLE)
 #if (MODULE_32K_WATCHDOG_ENABLE)
-	// boot_need_ota() 内含 app/OTA 两区整包 CRC 校验（flash_fw_check），耗时较长，
-	// 先关看门狗防止校验期间被误复位；判断完立即重新打开。
+	// app 整包 CRC 校验（flash_fw_check）耗时较长，先关看门狗防止误复位。
 	wd_32k_stop();
 #endif
-	u8 need_ota = boot_need_ota();
+	if (!boot_app_is_valid()) {
+		// 无效 app 不跳转、不进 OTA；停在安全循环，等待 BDT 恢复。
+		while (1) {
+			wd_32k_clear_status();
+		}
+	}
 #if (MODULE_32K_WATCHDOG_ENABLE)
 	wd_32k_set_interval_ms(WATCHDOG_INIT_TIMEOUT + 2048);  // 重新使能看门狗
 #endif
-	if (need_ota) {
-		// 搬运中断恢复（app 无效 + OTA 区完整 -> 重新搬运重启）或进 OTA 接收（不返回）
-		boot_ota_entry();
-	}
 
-	// app 区有有效固件：直接跳转运行 app
+	// 启动标记、长度、边界、CRC 全部通过后才跳转 app。
 	boot_copy_data(FW_ADDRESS);
 #endif
 

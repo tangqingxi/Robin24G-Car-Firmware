@@ -44,7 +44,7 @@ typedef enum {
 // 可通过编译参数 -DD24G_OTA_ENABLE=0 覆盖
 // =================================================
 #ifndef D24G_OTA_ENABLE
-#define D24G_OTA_ENABLE      1
+#define D24G_OTA_ENABLE      0
 #endif
 
 #define USER_DATA_CMD      EMPTY_CMD

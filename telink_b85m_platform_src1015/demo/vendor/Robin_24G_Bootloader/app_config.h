@@ -40,7 +40,7 @@ typedef enum {
 #define	 PKT_BUFF_SIZE						48
 
 // OTA 流程移到 bootloader：bootloader 直接与 dongle 通信接收固件
-#define D24G_OTA_ENABLE					1
+#define D24G_OTA_ENABLE					0
 
 #define USER_DATA_CMD      EMPTY_CMD
 #define USER_DATA_ACK_CMD  EMPTY_ACK_CMD
