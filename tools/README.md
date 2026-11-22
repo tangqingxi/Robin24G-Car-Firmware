@@ -17,7 +17,11 @@
 | `test_l400_motor.c` | 混控俯仰/偏航符号；200ms 0002 脉冲/重复包/无效包；0001 急停优先和新事件解锁 |
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
-| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |\n| `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |\n| `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |\n| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |\n| `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
+| `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
+| `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |
+| `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
+| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |
+| `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
 | `test_package_bin.py` | 0x4000+bin ≤0xF000 打包门：超限非零且不覆盖交付文件 |
