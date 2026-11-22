@@ -279,8 +279,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
   烧 0x4000。`0x4000 + 28500 = 0xAF54 <= 0xF000`，应用区剩余 16556 字节。
 - 专用解锁诊断镜像（C_FLIGHT_ARM_DEBUG=1，不改正式件）：
   `firmware_delivery/arm_debug/Robin_24G_Car_flight_arm_debug.bin`，
-  32132 字节，SHA256 `107FB8B7808B99038AE1D079416865EB0F2311782A46C2AB03746324ECDA72B2`，
-  烧 0x4000，应用区剩余 12924 字节。
+  32052 字节，SHA256 `CB6AE7FC57C560F2035A7E160C0CA31D21160A08AA8E4577195B51FBE5F23761`，
+  烧 0x4000，应用区剩余 13004 字节。
 - 同选项移除前后对比：
 
   ```text
