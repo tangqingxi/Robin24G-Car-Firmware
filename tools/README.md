@@ -275,6 +275,20 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 - **不再使用 BDT `LOG1` 启录**；避免上电遗留命令误擦除。
 - 需要实物抓包确认“演示”键确实发 0x0004；原理图/键表映射见 `UserKeyboard.h`。
 
+### 启录前基线与录制段
+
+正常日志镜像的验收顺序：
+
+1. 上电后保持锁定，静置 30 秒，不按 K3；
+2. 短按 K3 启录；
+3. 录制 30 秒或急停；
+4. BDT 读回 `0x10000` 起 `0xD000`。
+
+启录时先把上电到 K3 之间的控制节拍写成 `baseline` 记录，之后才是录制样本；
+`summary`/`tail` 给出录制段统计。因此在同一份 BDT 数据里可以同时看到
+“日志关闭（静置）基线”和“日志开启（录制）段”。`baseline`/`summary`/`tail`
+都是记录类型，不是另一个串口协议。
+
 ### Flash 阻塞与 XIP 核查
 
 - `flash_mspi_write_ram()` 在写/等待期间 `irq_disable()`，`flash_wait_done()` 忙等到
