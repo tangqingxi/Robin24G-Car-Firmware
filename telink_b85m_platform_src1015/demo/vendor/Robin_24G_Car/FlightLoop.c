@@ -77,6 +77,17 @@ static void flight_log_fill(FlightLogSample *ls, u8 imu_ok, u8 att_updated,
 	if (!s_fl.safety.armed) ls->flags |= FLIGHT_LOG_F_LOCKED;
 }
 
+// 停机事件必须先由 FlightSafety_Lock 清四路 PWM，再写事件并收尾日志。
+static void flight_log_event(u8 event, u16 extra_flags)
+{
+	FlightLogSample ls;
+
+	flight_log_fill(&ls, 1, 0, 0);
+	ls.flags |= extra_flags;
+	FlightLog_OnEvent(event, &ls);
+	FlightLog_Stop();
+}
+
 // 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。
 #define FLIGHT_ALIGN4(expr) ((expr) & 3u)
 typedef char flight_align_rc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, rc)) ? -1 : 1];
@@ -256,6 +267,7 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 			// 急停优先：先写零 PWM，不再做同包目标换算
 			FlightSafety_Lock(&s_fl.safety, stop);
 			FlightArmDebug_OnEstop();
+			flight_log_event(1, FLIGHT_LOG_F_ESTOP | FLIGHT_LOG_F_LOCKED);
 		} else {
 			FlightArmDebug_OnUnlockAttempt(ev.key, fb, ev.cmd,
 										   ev.packet_valid, thr_low, center,
@@ -278,12 +290,14 @@ void FlightLoop_PreSampleSafety(void)
 #if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_LINK);
 #endif
+		flight_log_event(2, FLIGHT_LOG_F_LINKLOSS | FLIGHT_LOG_F_LOCKED);
 	} else if (!s_fl.rc.cmd_ok) {
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_CMD);
 #endif
+		flight_log_event(3, FLIGHT_LOG_F_LOCKED);
 	}
 }
 
@@ -296,6 +310,8 @@ void FlightLoop_Process(void)
 	s32 dt_100us = 0;
 	u8 att_updated = 0;
 	u8 ctrl_ok = 0;
+	u8 imu_ok = 1;
+	u8 mixer_limited = 0;
 	int i;
 
 	if (!s_fl.inited) {
@@ -324,6 +340,7 @@ void FlightLoop_Process(void)
 
 		FlightArmDebug_OnRead(read_fail);
 		if (read_fail) {
+			imu_ok = 0;
 		AttitudeControl_ClearOutputs(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
@@ -427,6 +444,7 @@ void FlightLoop_Process(void)
 		MotorMixer_Mix(MotorMixer_Thrust(s_fl.rc.cmd[0]),
 					   s_fl.ratec.corr[0], s_fl.ratec.corr[1],
 					   s_fl.ratec.corr[2], &mix);
+		mixer_limited = mix.limited;
 		FlightSafety_Apply(&s_fl.safety, &mix);
 	}
 #endif
@@ -442,6 +460,13 @@ void FlightLoop_Process(void)
 								 s_fl.safety.reason, pwm);
 	}
 #endif
+	{
+		FlightLogSample ls;
+
+		// 本拍 Euler_Update 之后、PWM 已落定，记录同一拍原始状态。
+		flight_log_fill(&ls, imu_ok, att_updated, mixer_limited);
+		FlightLog_OnSample(&ls);
+	}
 }
 
 #ifdef FLIGHT_STARTUP_TEST

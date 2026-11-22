@@ -20,7 +20,7 @@
 | `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
 | `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |
 | `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
-| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |
+| `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |\n| `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + BDT 命令 + Python 导出 |\n| `test_flash_fw_check.c` | 真实 CRC 函数 + Flash 桩：0xB000/256 边界/坏 CRC/越界 |
 | `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
 | `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
 | `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
@@ -345,10 +345,10 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
     SHA256 `1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189`。
   - 两者均烧 0x4000；日常 `AA3D...` 件未替换。
 - 任务二无 OTA + 日志候选：
-  - `candidates/Robin_24G_Bootloader_no_ota.bin`：6912 字节，
-    SHA256 `20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：24724 字节，
-    SHA256 `BCCEA24EAF2D4B480876EF95571788251DB418E966952E7CB5B6F79E93C0F973`，烧 0x4000。
+  - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
+    SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：26324 字节，
+    SHA256 `8C4D28935218F541EDA32F5BC9605458AABD53666F9B5D6BC751893D66F05179`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

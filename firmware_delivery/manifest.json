@@ -147,8 +147,8 @@
     "behavior_baseline": "b3cb56f",
     "bootloader": {
       "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
-      "bytes": 6912,
-      "sha256": "20AE09E5DDF39388806949DEAB19AFDF7A5A949F859EFC866C8920B1C2C69FAB",
+      "bytes": 6844,
+      "sha256": "4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096",
       "flash_address": "0x0",
       "ota": false,
       "app_validate": [
@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 24724,
-      "sha256": "BCCEA24EAF2D4B480876EF95571788251DB418E966952E7CB5B6F79E93C0F973",
+      "bytes": 26324,
+      "sha256": "8C4D28935218F541EDA32F5BC9605458AABD53666F9B5D6BC751893D66F05179",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
