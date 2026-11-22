@@ -2493,11 +2493,16 @@ def main():
                       help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
     mode.add_argument("--flight-control", "--l400", dest="l400", action="store_true",
                       help="按 200Hz 飞控协议采集（FCQ/FCS；--l400 为兼容别名）")
+    mode.add_argument("--arm-debug", action="store_true",
+                      help="200Hz 飞控专用解锁诊断（默认 GUI；ADB/ADU/ADO/ADL/ADE）")
     args = ap.parse_args()
 
     if args.list:
         list_ports()
         return
+    if args.arm_debug:
+        from arm_debug_monitor import run_arm_debug
+        return run_arm_debug(args)
     run(args)
 
 

@@ -5,6 +5,7 @@
 #include "RateControl.h"
 #include "FlightSafety.h"
 #include "MotorMixer.h"
+#include "FlightArmDebug.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
 
@@ -147,6 +148,8 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 	RcInputEvent ev;
 	u32 now = clock_time();
 
+	// 初始化门槛之前也计数，IMU 未就绪时仍能看见 0002 是否收到
+	FlightArmDebug_OnPacket(thr, rot, fb, lr, key);
 	if (!s_fl.inited) {
 		return;
 	}
@@ -168,8 +171,14 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 		if (stop) {
 			// 急停优先：先写零 PWM，不再做同包目标换算
 			FlightSafety_Lock(&s_fl.safety, stop);
-		} else if (ev.packet_valid) {
-			AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
+			FlightArmDebug_OnEstop();
+		} else {
+			FlightArmDebug_OnUnlockAttempt(ev.key, fb, ev.cmd,
+										   ev.packet_valid, thr_low, center,
+										   s_fl.att.ready, s_fl.rc.link);
+			if (ev.packet_valid) {
+				AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
+			}
 		}
 	}
 #endif
@@ -328,6 +337,18 @@ void FlightLoop_Process(void)
 					   s_fl.ratec.corr[0], s_fl.ratec.corr[1],
 					   s_fl.ratec.corr[2], &mix);
 		FlightSafety_Apply(&s_fl.safety, &mix);
+	}
+#endif
+
+#if C_FLIGHT_ARM_DEBUG
+	{
+		unsigned short pwm[4];
+
+		FlightSafety_GetPwm(&s_fl.safety, pwm);
+		FlightArmDebug_OnStatus(s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
+								s_fl.att.ready, s_fl.safety.pwm_ready);
+		FlightArmDebug_OnControl(att_updated, ctrl_ok, s_fl.safety.armed,
+								 s_fl.safety.reason, pwm);
 	}
 #endif
 }

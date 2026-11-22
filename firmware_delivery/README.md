@@ -47,6 +47,38 @@
   它能作为 `--attitude` 的回退镜像，但不能冒充原件。
 - 如果以后从旧电脑/旧烧录目录找回原件，应先比对 `DFFB6463...` 前缀和 24852 字节，再替换本归档件。
 
+### 专用解锁诊断镜像
+
+[`arm_debug/Robin_24G_Car_flight_arm_debug.bin`](arm_debug/Robin_24G_Car_flight_arm_debug.bin)
+
+```text
+32132 字节
+SHA256 107FB8B7808B99038AE1D079416865EB0F2311782A46C2AB03746324ECDA72B2
+烧录地址 0x4000
+0x4000 + 32132 = 0xBAB4 <= 0xF000，剩余 12924 字节
+```
+
+构建开关 `-DC_FLIGHT_ARM_DEBUG=1`；正式镜像仍静默，交付件哈希不变。
+诊断镜像走同一 IMU/遥控/解锁/PWM 路径，仅额外从主循环非阻塞发送：
+
+- `ADB` 启动；
+- `ADS` 每秒摘要；
+- `ADU` 每次新 `0002` 的原始油门/四轴/门限/接受或拒绝；
+- `ADO` 解锁后第一拍；
+- `ADL` 解锁后锁回；
+- `ADE` 急停后的四路零 PWM。
+
+GUI 命令：
+
+```powershell
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\data\arm_debug.csv"
+```
+
+默认图形窗口，四块依次为 IMU/姿态、遥控/按键、解锁结果、四路 PWM；
+`--no-plot` 是控制台备用。窗口关闭会释放串口并写完 CSV。
+CSV 含板端时间、主机接收时间、尝试编号、诊断字段和原始行。
+
 ## 3. 构建产物 ≠ 交付镜像
 
 构建目录：

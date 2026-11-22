@@ -7,7 +7,8 @@
 | `imu_axis_map.py` | 传感器轴 → 机体 FRD 映射（六面摆法） |
 | `accel_six_face_cal.py` | 加速度计六面校准 / 单面补测 |
 | `gyro_bias_cal.py` | 陀螺仪静止零偏 |
-| `uart_sensor_monitor.py` | 六轴波形、台架姿态（`--attitude`）与历史联调报文（`--l400`/`--flight-control`）解析；当前主飞控无实时串口输出 |
+| `uart_sensor_monitor.py` | 六轴/台架/历史联调解析；`--arm-debug` 进入专用解锁诊断 GUI |
+| `arm_debug_monitor.py` | 解锁诊断 GUI/CSV 状态机：启动、收包、解锁判定、PWM、锁回 |
 | `uart_proto.py` | 0x269A / 0x269B 帧解析（纯标准库，被上面几个工具共用） |
 | `calib_common.py` | 三个校准工具共用的串口枚举/只收数据源、输出防覆盖、FRD 映射校验、均值/标准差 |
 | `test_l400_monitor.py` | L400 解析、分块收包、两份 CSV 与模拟采集自测 |
@@ -17,10 +18,12 @@
 | `test_flight_modules.c` | RcInput 映射/心跳/200ms/500ms 超时、外环目标/偏航直通、内环 P=64/256 |
 | `test_flight_order.c` | 真实 FlightLoop 包路径：0001 先清 PWM；采样前失联/指令超时清 PWM |
 | `test_flight_startup.c` | 真实启动路径：−10/0/−1010mg 静置 500ms 后就绪，再发合法 0002 解锁 |
-| `test_package_bin.py` | 45,056 字节打包门：超限返回非零且不覆盖交付文件 |
-| `check_bin_size.py` | 最终 .bin 尺寸检查；超限非零退出 |
+| `test_flight_arm_debug.c` | 诊断协议/队列：ADB/ADS/ADU/ADO/ADL/ADE、长度 ≤160、UART 忙重试 |
+| `test_arm_debug_monitor.py` | 五种 GUI/CSV 场景：IMU 失败、无 0002、油门拒绝、锁回、正常 PWM |
+| `test_package_bin.py` | 0x4000+bin ≤0xF000 打包门：超限非零且不覆盖交付文件 |
+| `check_bin_size.py` | 最终 .bin 应用区上限检查；超限非零退出 |
 | `package_flight_control.py` | 检查尺寸后原子发布交付镜像 |
-| `patch_flight_build.py` | 把拆分后的 6 个飞控 .c/.o/规则写入 TC32 subdir.mk（可重复运行） |
+| `patch_flight_build.py` | 把拆分后的 7 个飞控 .c/.o/规则写入 TC32 subdir.mk（可重复运行） |
 | `test_l400_diag.c` | A/B 状态机 2s/10s、失效重计时、掉链中止、UART 忙待发回归 |
 
 三个校准工具的命令、参数、采样判定、JSON 格式和单面补测能力保持不变；
@@ -208,6 +211,39 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
 主镜像验收不依赖串口图，按无桨电机行为检查：约 200 Hz、正负偏航差动、
 左侧下键急停四路归零、解锁后关遥控四路归零、重连后仍锁定并需重新长按上键。
 
+### 专用解锁诊断（--arm-debug）
+
+诊断镜像单独构建，正式镜像仍静默：
+
+```powershell
+# 在 subdir.mk 的编译行加入 -DC_FLIGHT_ARM_DEBUG=1 后重新 make
+# 产物：Robin_24G_Car_flight_arm_debug.bin，烧 0x4000
+Set-Location "E:\泡沫纸飞机\code\tools"
+python uart_sensor_monitor.py --port COM12 --arm-debug --duration 60 --csv "..\data\arm_debug.csv"
+```
+
+默认打开 GUI；`--no-plot` 是控制台备用。窗口四块固定顺序：
+
+1. IMU 与姿态：初始化返回码、静置毫秒、姿态就绪、PWM 初始化；
+2. 遥控与按键：收包/有效摇杆/心跳/是否收到 0002/尝试次数；
+3. 解锁结果：每次 0002 的原始油门、映射四轴、各门限、接受/拒绝原因；
+4. 四路 PWM：标为“PWM 指令”，实际转动由台架观察。
+
+板端协议（每行 ≤160 字节）：
+
+```text
+ADB t=... st=0 still=... att=... pwm=...
+ADS t=... st=.. still=.. att=.. pwm=.. rx=.. vld=.. hb=.. e2=.. n=.. arm=.. x=.. drop=..
+ADU t=... n=.. rt=.... cmd=t/y/p/r pkt=.. low=.. ctr=.. att=.. lk=.. ok=.. why=...
+ADO t=... n=.. up=.. ctrl=.. arm=.. x=.. pwm=fff/fff/fff/fff
+ADL t=... n=.. x=.. pwm=fff/fff/fff/fff
+ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
+```
+
+`why` 具体为 `pkt/estop/thr/roll/pitch/yaw/att/link`；GUI 会翻译成
+“油门过高（-180，要求 ≤ -250）”等中文。CSV 同时写板端时间、主机时间、
+尝试编号、诊断字段和原始行。UART 忙时板端队列保留，下一主循环重试。
+
 ### 左侧上/下键原始收包抓取
 
 1. 电机断开，烧 `Robin_24G_Car_rc_loop400_keycap.bin`；该镜像不初始化电机 PWM。
@@ -241,6 +277,10 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
   `telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\Robin_24G_Car_flight_control.bin`，
   28500 字节，SHA256 `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60`，
   烧 0x4000。`0x4000 + 28500 = 0xAF54 <= 0xF000`，应用区剩余 16556 字节。
+- 专用解锁诊断镜像（C_FLIGHT_ARM_DEBUG=1，不改正式件）：
+  `firmware_delivery/arm_debug/Robin_24G_Car_flight_arm_debug.bin`，
+  32132 字节，SHA256 `107FB8B7808B99038AE1D079416865EB0F2311782A46C2AB03746324ECDA72B2`，
+  烧 0x4000，应用区剩余 12924 字节。
 - 同选项移除前后对比：
 
   ```text
@@ -260,7 +300,7 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
   `Robin_24G_Car_rc_loop400_keycap.bin`（27076 字节，
   SHA256 `4571D27456AAD9A86D231243484EB3043B75C58CD882613B46E5FFD1E7D13DDF`）。
 
-- 构建目录被 `.gitignore` 忽略，新增的 6 个飞控 .c 需要用脚本写入生成清单：
+- 构建目录被 `.gitignore` 忽略，新增的 7 个飞控 .c 需要用脚本写入生成清单：
 
   ```powershell
   Set-Location "E:\泡沫纸飞机\code"
@@ -295,6 +335,10 @@ FCQ/FCS、A/B 诊断、分项计时或串口延期报告**。`FlightTelemetry` �
   目标姿态换算不在急停包执行；失联/指令超时在采样前清 PWM（`test_flight_order.c`）；
 - 真实启动路径：静置 −10/0/−1010mg 满 500ms 后 `att.ready`，再送合法低油门
   `0002` 能解锁（`test_flight_startup.c`，链接真实 UserEuler）；
+- 诊断协议：ADB/ADS/ADU/ADO/ADL/ADE、行长 ≤159、UART 忙重试
+  （`test_flight_arm_debug.c`，链接真实 FlightArmDebug.c）；
+- GUI/CSV 五种状态：IMU 失败、无 0002、油门拒绝、解锁后锁回、正常 PWM
+  （`python test_arm_debug_monitor.py`，6 项）；
 - `0x4000 + bin <= 0xF000` 打包门：超限返回非零且不覆盖旧交付件
   （`test_package_bin.py`）；
 - 25 项监视器解析/模拟/旧报文兼容；四元数、积分除余回归。
