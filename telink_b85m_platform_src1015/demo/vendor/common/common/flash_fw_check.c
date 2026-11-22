@@ -45,8 +45,13 @@
  *******************************************************************************************************/
 
 #include "flash_fw_check.h"
+#ifdef FLASH_FW_CHECK_HOST_TEST
+void flash_read_page(unsigned int addr, unsigned int len, unsigned char *buf);
+#define _attribute_no_inline_
+#else
 #include "flash.h"
 #include "driver.h"
+#endif
 
 
 extern unsigned long crc32_half_cal(unsigned long crc, unsigned char* input, unsigned long* table, int len);
@@ -86,56 +91,47 @@ unsigned long crc32_half_cal(unsigned long crc, unsigned char* input, unsigned l
  * 				1 - CRC is check fail
  */
 bool flash_fw_check( u32 crc_init_value ,u32 fw_flashAddr){
-
-	if(!crc_init_value){
-		fw_crc_init = 0xFFFFFFFF;
-	}else{
-		fw_crc_init = crc_init_value;
-	}
-
 	u32 fw_size;
-	flash_read_page( (fw_flashAddr+0x18), 4, (u8*)&fw_size); ///0x18 store bin size value
+	u32 data_len;
+	u32 off;
+	u32 stored;
+	u32 crc;
+	u8 chunk[FW_READ_SIZE];
+	u8 nib[FW_READ_SIZE << 1];
 
-	u16 fw_Block;
-	u16 fw_remainSizeByte;
-	fw_Block = fw_size/FW_READ_SIZE;
-	fw_remainSizeByte = fw_size%FW_READ_SIZE;
+	flash_read_page((fw_flashAddr + 0x18), 4, (u8 *)&fw_size);
+	if (fw_size < 0x20) {
+		return 1;
+	}
+	// 应用区专用边界；OTA 源码已停用，不再允许把任意大长度交给 CRC。
+	if (fw_flashAddr == 0x4000 && fw_size > 0xB000) {
+		return 1;
+	}
+	if ((fw_flashAddr + fw_size) < fw_flashAddr) {
+		return 1;
+	}
 
+	// CRC 只覆盖 bin 的 fw_size-4 字节，末尾 4 字节最后单独读取。
+	data_len = fw_size - 4;
+	crc = crc_init_value ? crc_init_value : 0xFFFFFFFF;
+	off = 0;
+	while (off < data_len) {
+		u32 n = data_len - off;
+		u32 i;
 
-	int i = 0;
-	u8 fw_tmpdata[FW_READ_SIZE]; ///
-	u8 ota_dat[FW_READ_SIZE<<1];
-	for(i=0; i < fw_Block; i++){ ///Telink bin must align 16 bytes.
-
-		flash_read_page( (fw_flashAddr+i*FW_READ_SIZE), FW_READ_SIZE, fw_tmpdata);
-		//printf("-[%d]_%01x%01x%01x%01x\r\n",i,fw_tmpdata[0],fw_tmpdata[1],fw_tmpdata[2],fw_tmpdata[3]);
-		//FW_READ_SIZE byte OTA data32  half byteCRC
-		for(int i=0;i<FW_READ_SIZE;i++){
-			ota_dat[i*2] = fw_tmpdata[i]&0x0f;
-			ota_dat[i*2+1] = fw_tmpdata[i]>>4;
+		if (n > FW_READ_SIZE) {
+			n = FW_READ_SIZE;
 		}
-		fw_crc_init = crc32_half_cal(fw_crc_init, ota_dat, (unsigned long* )fw_crc32_half_tbl, (FW_READ_SIZE<<1));
-	}
-	//printf("-1_%04x_%d\r\n",fw_crc_init, fw_Block);
-
-	//////////////////////////////
-	if(fw_remainSizeByte != 4){
-		flash_read_page( (fw_flashAddr+fw_size -fw_remainSizeByte), (fw_remainSizeByte-4), fw_tmpdata);
-		for(int i=0;i<(fw_remainSizeByte-4);i++){
-			ota_dat[i*2] = fw_tmpdata[i]&0x0f;
-			ota_dat[i*2+1] = fw_tmpdata[i]>>4;
+		flash_read_page(fw_flashAddr + off, n, chunk);
+		for (i = 0; i < n; i++) {
+			nib[i * 2] = chunk[i] & 0x0F;
+			nib[i * 2 + 1] = chunk[i] >> 4;
 		}
-		fw_crc_init = crc32_half_cal(fw_crc_init, ota_dat, (unsigned long* )fw_crc32_half_tbl, ((fw_remainSizeByte-4)<<1));
-		//printf("-2_%04x_%04x\r\n",fw_crc_init,(fw_flashAddr+fw_size -fw_remainSizeByte));
+		crc = crc32_half_cal(crc, nib,
+							 (unsigned long *)fw_crc32_half_tbl, (int)(n << 1));
+		off += n;
 	}
 
-	////////read crc value and compare
-	u32 fw_check_value;
-	flash_read_page( (fw_flashAddr+fw_size-4), 4, (u8*)&fw_check_value);
-	printf("-%04x_%04x\r\n",fw_check_value,fw_crc_init);
-	if(fw_check_value != fw_crc_init){
-		return 1;  ///CRC check fail
-	}
-
-	return 0; ///CRC check ok
+	flash_read_page(fw_flashAddr + data_len, 4, (u8 *)&stored);
+	return (stored == crc) ? 0 : 1;
 }
