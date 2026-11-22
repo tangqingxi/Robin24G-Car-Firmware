@@ -81,6 +81,22 @@
       "monitor": "--attitude",
       "serial_protocol": "ATT/STA text",
       "note": "原 24852 字节姿态件已被 40cae79 的 L400 构建覆盖；本文件是 dad49ff 源码重建的回退件，不是逐字节原件。原件 SHA256 前缀记录为 DFFB6463..."
+    },
+    {
+      "role": "bench_rc_loop400_keycap",
+      "file": "archive/Robin_24G_Car_rc_loop400_keycap.bin",
+      "bytes": 27076,
+      "sha256": "4571D27456AAD9A86D231243484EB3043B75C58CD882613B46E5FFD1E7D13DDF",
+      "flash_address": "0x4000",
+      "note": "历史台架镜像，唯一件归档"
+    },
+    {
+      "role": "bench_rc_loop400_sched",
+      "file": "archive/Robin_24G_Car_rc_loop400_sched.bin",
+      "bytes": 26644,
+      "sha256": "CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16",
+      "flash_address": "0x4000",
+      "note": "历史台架镜像，唯一件归档"
     }
   ],
   "build_artifacts": {
@@ -205,5 +221,38 @@
       "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间",
       "build_commit": "0c27a88"
     }
+  },
+  "burn": {
+    "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
+    "files": [
+      {
+        "role": "current_log_app",
+        "file": "Robin_24G_Car_flight_control_log.bin",
+        "bytes": 27636,
+        "sha256": "989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562",
+        "flash_address": "0x4000"
+      },
+      {
+        "role": "current_no_ota_boot",
+        "file": "Robin_24G_Bootloader_no_ota.bin",
+        "bytes": 6844,
+        "sha256": "4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096",
+        "flash_address": "0x0"
+      },
+      {
+        "role": "accepted_fallback",
+        "file": "Robin_24G_Car_flight_control_alignfix.bin",
+        "bytes": 24900,
+        "sha256": "008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087",
+        "flash_address": "0x4000"
+      },
+      {
+        "role": "current_log_debug",
+        "file": "Robin_24G_Car_flight_log_debug.bin",
+        "bytes": 33844,
+        "sha256": "AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A",
+        "flash_address": "0x4000"
+      }
+    ]
   }
 }

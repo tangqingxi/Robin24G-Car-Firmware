@@ -26,6 +26,9 @@ import time
 import unittest
 from types import SimpleNamespace
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
 import uart_sensor_monitor as mon
 
 # 7d01167 联调固件的实际输出样例（字段顺序与固件 l400_put_* 一致）
@@ -381,7 +384,7 @@ class L400SimulationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             obs_path = os.path.join(tmp, "cli_obs.csv")
             stat_path = os.path.join(tmp, "cli_stats.csv")
-            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+            script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                   "uart_sensor_monitor.py")
             env = dict(os.environ, PYTHONIOENCODING="utf-8")
             result = subprocess.run(
@@ -447,7 +450,7 @@ class CsvSameFileTest(unittest.TestCase):
     """--csv 与 --stats-csv 指向同一文件时必须先报错，不能截断已有内容"""
 
     def setUp(self):
-        self.script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+        self.script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                    "uart_sensor_monitor.py")
         self.env = dict(os.environ, PYTHONIOENCODING="utf-8")
 
