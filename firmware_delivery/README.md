@@ -11,7 +11,7 @@
 | **当前 200 Hz 飞控（无实时串口）** | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | 0x4000 | 正常运行无实时图；历史报文仍可用 `--l400` 解析 |
 | **六轴校准维护版** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 | 三个校准脚本；默认 0x269A 六轴模式 |
 
-- **200 Hz 飞控**：构建源码 `cd2164e`，行为基线单独记录
+- **200 Hz 飞控**：构建源码 `a89c17c`，行为基线单独记录
   `b3cb56f`；构建开关 `-DC_FLIGHT_CONTROL_EN=1`。5ms 节拍，正常运行不再发送
   `FCQ/FCS`、A/B、计时或延期报告；`FlightTelemetry` 已从主镜像链接移除。
   UART 底层保留给后续停机日志，历史报文解析能力保留。历史 400 Hz 镜像已移到

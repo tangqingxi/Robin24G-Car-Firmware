@@ -8,7 +8,7 @@
       "file": "daily/Robin_24G_Car_flight_control.bin",
       "bytes": 28500,
       "sha256": "AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60",
-      "build_commit": "cd2164e",
+      "build_commit": "a89c17c",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
       "monitor": "无实时图；历史报文可用 --l400",
       "serial_protocol": "无实时串口；UART 底层保留",
@@ -104,5 +104,18 @@
     "bytes": 34404,
     "sha256": "504042715AF62E84EB8580E35016FF0434992BC0867510C920425424BC9421DF",
     "note": "原始整机固件回退件，不是当前联调/校准镜像"
+  },
+  "arm_debug": {
+    "role": "flight_arm_debug",
+    "file": "arm_debug/Robin_24G_Car_flight_arm_debug.bin",
+    "bytes": 32132,
+    "sha256": "107FB8B7808B99038AE1D079416865EB0F2311782A46C2AB03746324ECDA72B2",
+    "build_commit": "a89c17c",
+    "behavior_baseline": "b3cb56f",
+    "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
+    "flash_address": "0x4000",
+    "app_remaining_bytes": 12924,
+    "serial_protocol": "ADB/ADS/ADU/ADO/ADL/ADE",
+    "monitor": "uart_sensor_monitor.py --arm-debug"
   }
 }
