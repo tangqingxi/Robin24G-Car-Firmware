@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 26484,
-      "sha256": "BB3984569C9AC007EE83879CD99AEBE4EC4388D7C9593FAA4F94F4297D5FBAF8",
+      "bytes": 26708,
+      "sha256": "1716C4977B2C6556FBD7FD7D7CA17E5E9063581662EFC5C27AB18F8DB0F0E0CB",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -179,10 +179,18 @@
     },
     "debug": {
       "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
-      "bytes": 32420,
-      "sha256": "C1C61909C56DE1415EB82B90D258F7193B235B1A0AC9938BD178728C13C291E2",
+      "bytes": 32868,
+      "sha256": "4EE42BE9B947BF9B5CD6EEA9BAE6ACFF4858021F28092E7D8A62E3110A266860",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
+    },
+    "remote": {
+      "file": "candidates/Robin_24G_Remote_logkey.bin",
+      "bytes": 19880,
+      "sha256": "C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09",
+      "flash_address": "0x0",
+      "key": "0x0004 StuntShow short press",
+      "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间"
     }
   }
 }

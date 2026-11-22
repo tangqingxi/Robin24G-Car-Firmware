@@ -8,8 +8,7 @@
 #define FLIGHT_LOG_END         0x1D000u
 #define FLIGHT_LOG_SECTORS     13u
 #define FLIGHT_LOG_SECTOR_SIZE 0x1000u
-#define FLIGHT_LOG_CMD_ADDR    0x1D000u
-#define FLIGHT_LOG_CMD_MAGIC   0x31474F4Cu   // "LOG1"
+
 #define FLIGHT_LOG_VERSION     1u
 #define FLIGHT_LOG_PAGE_HDR    32u
 #define FLIGHT_LOG_REC_SIZE    56u
@@ -39,7 +38,17 @@ typedef struct {
 } FlightLogSample;
 
 void FlightLog_Init(void);
-void FlightLog_PollCommand(unsigned char locked);
+#define FLIGHT_LOG_KEY_START 0x0004
+#define FLIGHT_LOG_IDLE 0
+#define FLIGHT_LOG_PREP 1
+#define FLIGHT_LOG_REC 2
+#define FLIGHT_LOG_ST_END 3
+#define FLIGHT_LOG_REJECT 4
+
+void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
+					 unsigned char can_start, unsigned char blocked);
+void FlightLog_BeginPrepare(void);
+unsigned char FlightLog_State(void);
 void FlightLog_OnSample(const FlightLogSample *sample);
 void FlightLog_Service(void);
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample);

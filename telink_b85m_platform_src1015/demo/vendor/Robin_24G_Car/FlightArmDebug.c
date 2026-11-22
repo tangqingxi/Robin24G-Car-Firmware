@@ -60,6 +60,8 @@ typedef struct {
 	unsigned int last_ctrl;
 	unsigned int max_ctrl_gap;
 	unsigned int ctrl_skips;
+	u8 log_state;
+	u8 log_state_valid;
 } ArmDebug;
 
 static ArmDebug d;
@@ -421,6 +423,25 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 		d.first_output_done = 0;
 		d.was_armed = 1;
 	}
+}
+
+void FlightArmDebug_OnLogState(unsigned char state)
+{
+	static const char *names[] = {"idle", "prep", "rec", "end", "reject"};
+	char buf[UART_DATA_LEN];
+	char *p = buf;
+
+	if (d.log_state_valid && d.log_state == state) {
+		return;
+	}
+	d.log_state_valid = 1;
+	d.log_state = state;
+	p = p_str(p, "ALG t=");
+	p = p_u32(p, now_ms());
+	p = p_str(p, " s=");
+	p = p_str(p, names[state <= 4 ? state : 4]);
+	*p++ = '\n';
+	q_line(buf, (unsigned char)(p - buf));
 }
 
 void FlightArmDebug_OnEstop(void)

@@ -26,6 +26,7 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 									unsigned char link_ok,
 									const int acc[3], const int gyro[3]);
 void FlightArmDebug_OnEstop(void);
+void FlightArmDebug_OnLogState(unsigned char state);
 void FlightArmDebug_OnRead(unsigned char ok);
 void FlightArmDebug_OnStillSample(const int acc[3], const int gyro[3],
 								  const int prev[3], unsigned char have_prev,
@@ -44,6 +45,7 @@ void FlightArmDebug_Process(void);
 #define FlightArmDebug_OnPacket(thr, rot, fb, lr, key) ((void)0)
 #define FlightArmDebug_OnUnlockAttempt(key, rt, cmd, pv, low, ctr, att, lk, a, g) ((void)0)
 #define FlightArmDebug_OnEstop() ((void)0)
+#define FlightArmDebug_OnLogState(state) ((void)0)
 #define FlightArmDebug_OnRead(ok) ((void)0)
 #define FlightArmDebug_OnStillSample(a, g, p, h, d, s) ((void)0)
 #define FlightArmDebug_OnGapBreak() ((void)0)

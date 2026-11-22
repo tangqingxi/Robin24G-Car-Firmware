@@ -245,6 +245,7 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 	// 初始化门槛之前也计数，IMU 未就绪时仍能看见 0002 是否收到
 	FlightArmDebug_OnPacket(thr, rot, fb, lr, key);
 	if (!s_fl.inited) {
+		FlightLog_OnKey(key, 0, 0, 1);   // 初始化前按住录制键，不能初始化后补触发
 		return;
 	}
 	ev = RcInput_OnPacket(&s_fl.rc, thr, rot, fb, lr, key, now);
@@ -266,8 +267,12 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 			// 急停优先：先写零 PWM，不再做同包目标换算
 			FlightSafety_Lock(&s_fl.safety, stop);
 			FlightArmDebug_OnEstop();
+			FlightLog_OnKey(ev.key, ev.packet_valid, 0, 1);
 			flight_log_event(1, FLIGHT_LOG_F_ESTOP | FLIGHT_LOG_F_LOCKED);
 		} else {
+			FlightLog_OnKey(ev.key, ev.packet_valid,
+							FlightLoop_CanEraseLog(),
+							(u8)((ev.key & 0x0003) ? 1 : 0));
 			FlightArmDebug_OnUnlockAttempt(ev.key, fb, ev.cmd,
 										   ev.packet_valid, thr_low, center,
 										   s_fl.att.ready, s_fl.rc.link,

@@ -21,7 +21,7 @@
 | `test_flight_arm_startup.c` | 诊断启动路径：ADB/ADI 真实发送，静置统计非零 |
 | `test_flight_compat.c` | b3cb56f 参考公式 vs 当前：四路 PWM、正负差动、限幅、故障重解锁 |
 | `test_flight_log.c` | FlightLog 空盘/写满/半页断电/CRC/地址/Q15+32768 回归 |
-| `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + BDT 命令 + Python 导出 |
+| `test_flight_log_integration.c` | 真实 FlightLoop 启动/采样/急停 + 遥控按键 + Python 导出 |
 | `test_flight_log_states.c` | 持续锁定采集、解锁→失联/超时、PWM 先归零、Dropped |
 | `test_flash_fw_check.c` | 真实 CRC 函数 + Flash 桩：0xB000/256 边界/坏 CRC/越界 |
 | `flight_log_export.py` | BDT 原始日志区转 CSV，校验页/记录 CRC 并计算欧拉角 |
@@ -251,8 +251,8 @@ TC32 反汇编核对：`Euler_IsStill` 收到 `s_fl+0xA8`/`s_fl+0xCC`，
 - 每条含原始 `q[w,x,y,z]`（s32 Q15，保留 +32768）、陀螺 Q10、估计器加速度 mg、
   偏航杆/目标/纠偏、推力、四路 PWM、标志；急停/失联另写事件。
 - 页头 32B，记录 56B，页头/记录 CRC16；掉电时未完成页不写入页头，导出跳过。
-- 外部启动/擦除命令：BDT 在 `0x1D000` 写 4 字节 `4C 4F 47 31`（"LOG1" 小端），
-  四路锁定、PWM 全零时应用会擦除日志区并开始一趟记录。
+- 遥控“演示”键 0x0004 上升沿启动；四路锁定、PWM 全零时主循环擦除日志区并开始一趟记录。
+- 不再使用 BDT `LOG1` 启录，避免上电遗留命令误擦除。
 - BDT 读回 `0x10000` 起 `0xD000` 字节，导出：
 
 ```powershell
@@ -262,10 +262,20 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 > 控制拍只把 56B 快照入 2 条队列；主循环 Service 每次最多写一条。Flash 驱动仍会关中断等待，写页阻塞时延尚未上板实测；控制/急停优先，
 > 不做飞行中 UART 导出。
 
+### 遥控“演示”键开始记录
+
+- 实体位置：遥控方向键上排第三个，丝印 **“演示”**，位于“右”和“K7”之间。
+- 遥控短按发送 `RfSendKey_StuntShow=0x0004`；车端只接受有效新包的上升沿。
+- 遥控 `KeyFuncHandler` 已改为识别出有效键值后才启动重复发送，未映射键不会重发上一次键值。
+- 单独遥控候选：`candidates/Robin_24G_Remote_logkey.bin`，19880 字节，
+  SHA256 `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09`，烧 `0x0`。
+- **不再使用 BDT `LOG1` 启录**；避免上电遗留命令误擦除。
+- 需要实物抓包确认“演示”键确实发 0x0004；原理图/键表映射见 `UserKeyboard.h`。
+
 ### 日志时序测量（调试候选）
 
-`candidates/Robin_24G_Car_flight_log_debug.bin`（32420 字节，
-SHA256 `C1C61909C56DE1415EB82B90D258F7193B235B1A0AC9938BD178728C13C291E2`）
+`candidates/Robin_24G_Car_flight_log_debug.bin`（32868 字节，
+SHA256 `4EE42BE9B947BF9B5CD6EEA9BAE6ACFF4858021F28092E7D8A62E3110A266860`）
 同时启用 FlightLog 和 `C_FLIGHT_ARM_DEBUG`。GUI 每秒额外收：
 
 ```text
@@ -364,8 +374,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：26484 字节，
-    SHA256 `BB3984569C9AC007EE83879CD99AEBE4EC4388D7C9593FAA4F94F4297D5FBAF8`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：26708 字节，
+    SHA256 `1716C4977B2C6556FBD7FD7D7CA17E5E9063581662EFC5C27AB18F8DB0F0E0CB`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

@@ -88,22 +88,20 @@ int main(void)
 {
 	FlightLogSample s;
 	unsigned int i;
-	unsigned int cmd = FLIGHT_LOG_CMD_MAGIC;
 	unsigned char hdr[16];
 	int pages = 0;
 
 	memset(flash_mem, 0xFF, sizeof(flash_mem));
 	FlightLog_Init();
-	FlightLog_PollCommand(1);              // 空盘无命令 -> 不启动
 	if (FlightLog_Active()) {
-		printf("FAIL empty command started log\n");
+		printf("FAIL empty log active\n");
 		return 1;
 	}
 
-	memcpy(&flash_mem[FLIGHT_LOG_CMD_ADDR], &cmd, 4);
-	FlightLog_PollCommand(1);              // 命令 + 四路锁定 -> 擦除并启动
+	FlightLog_OnKey(FLIGHT_LOG_KEY_START, 1, 1, 0);
+	FlightLog_BeginPrepare();
 	if (!FlightLog_Active()) {
-		printf("FAIL command did not start\n");
+		printf("FAIL key did not start\n");
 		return 1;
 	}
 

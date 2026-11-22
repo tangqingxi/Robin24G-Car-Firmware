@@ -44,12 +44,15 @@ static unsigned int g_now;
 u32 clock_time(void) { return g_now; }
 void FlightLoop_StartupTestPwm(unsigned short out[4]);
 unsigned char FlightLoop_StartupTestReady(void);
+unsigned char FlightLoop_StartupTestArmed(void);
 
 static void step(void)
 {
 	g_now += FLIGHT_PERIOD_TICKS;
 	FlightLoop_Process();
-	FlightLog_PollCommand(FlightLoop_CanEraseLog());
+	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
+		FlightLog_BeginPrepare();
+	}
 	FlightLog_Service();
 }
 
@@ -68,14 +71,12 @@ static void boot_ready(void)
 	}
 }
 
-static void start_cmd(void)
+static void start_key(void)
 {
-	unsigned int cmd = FLIGHT_LOG_CMD_MAGIC;
-
-	memcpy(&flash_mem[FLIGHT_LOG_CMD_ADDR], &cmd, 4);
+	FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
 	step();
 	if (!FlightLog_Active()) {
-		printf("FAIL LOG1 did not start\n");
+		printf("FAIL key 0x0004 did not start\n");
 		exit(1);
 	}
 }
@@ -100,8 +101,59 @@ int main(int argc, char **argv)
 
 	if (argc < 2) return 2;
 	boot_ready();
+	if (strcmp(argv[1], "nokey") == 0) {
+		for (i = 0; i < 100; i++) {
+			step();
+		}
+		if (FlightLog_Active() || FlightLog_State() != FLIGHT_LOG_IDLE) {
+			printf("FAIL log started without key\n");
+			return 1;
+		}
+		printf("PASS no key no log\n");
+		return 0;
+	}
+	if (strcmp(argv[1], "armed") == 0) {
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0002);
+		step();
+		if (!FlightLoop_StartupTestArmed()) {
+			printf("FAIL armed precondition\n");
+			return 1;
+		}
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
+		step();
+		if (FlightLog_Active()) {
+			printf("FAIL record key accepted while armed\n");
+			return 1;
+		}
+		printf("PASS record key ignored while armed\n");
+		return 0;
+	}
+	if (strcmp(argv[1], "estopkey") == 0) {
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000,
+							  FLIGHT_LOG_KEY_START | 0x0001);
+		step();
+		FlightLoop_StartupTestPwm(pwm);
+		if (FlightLog_Active() || (pwm[0] | pwm[1] | pwm[2] | pwm[3]) != 0) {
+			printf("FAIL estop+record packet started or PWM nonzero\n");
+			return 1;
+		}
+		printf("PASS estop priority blocks record key\n");
+		return 0;
+	}
+	if (strcmp(argv[1], "estopkey") == 0) {
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000,
+							  FLIGHT_LOG_KEY_START | 0x0001);
+		step();
+		FlightLoop_StartupTestPwm(pwm);
+		if (FlightLog_Active() || (pwm[0] | pwm[1] | pwm[2] | pwm[3]) != 0) {
+			printf("FAIL estop+record packet started or PWM nonzero\n");
+			return 1;
+		}
+		printf("PASS estop priority blocks record key\n");
+		return 0;
+	}
 	if (strcmp(argv[1], "locked") == 0) {
-		start_cmd();
+		start_key();
 		for (i = 0; i < 400; i++) {
 			step();                 // 不喂任何遥控包，持续锁定也应继续采集
 		}
@@ -109,7 +161,15 @@ int main(int argc, char **argv)
 			printf("FAIL locked persistent state stopped log\n");
 			return 1;
 		}
-		// 故意让 4 条队列积压，停机时这些样本应计入 Dropped。
+		// 录制中再次按键：直接忽略，不能覆盖已有数据。
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0000);
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
+		step();
+		if (!FlightLog_Active()) {
+			printf("FAIL second record key stopped active log\n");
+			return 1;
+		}
+		// 故意让队列积压，停机时这些样本应计入 Dropped。
 		for (i = 0; i < 80; i++) {
 			g_now += FLIGHT_PERIOD_TICKS;
 			FlightLoop_Process();
@@ -131,7 +191,7 @@ int main(int argc, char **argv)
 	}
 
 	if (strcmp(argv[1], "unlock") == 0) {
-		start_cmd();
+		start_key();
 		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0002);
 		step();
 		FlightLoop_StartupTestPwm(pwm);

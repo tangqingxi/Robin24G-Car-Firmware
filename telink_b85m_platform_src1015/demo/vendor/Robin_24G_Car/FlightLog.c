@@ -28,6 +28,10 @@ typedef struct {
 	u8 event_pending;
 	u16 event_code;
 	FlightLogSample event_sample;
+	u8 state;
+	u8 pending;
+	u8 last_result;
+	u16 key_prev;
 } FlightLogState;
 
 static FlightLogState s_log;
@@ -107,6 +111,7 @@ static void write_record(const u8 *rec)
 	if (s_log.record_seq >= FLIGHT_LOG_MAX_RECORDS) {
 		close_page();
 		s_log.active = 0;
+		s_log.state = FLIGHT_LOG_ST_END;
 		s_log.dropped++;
 		return;
 	}
@@ -115,6 +120,7 @@ static void write_record(const u8 *rec)
 		close_page();
 		if (s_log.page_seq + 1 >= FLIGHT_LOG_SECTORS) {
 			s_log.active = 0;
+			s_log.state = FLIGHT_LOG_ST_END;
 			s_log.dropped++;
 			return;
 		}
@@ -149,6 +155,9 @@ static void start_log(u16 session)
 	s_log.qcount = 0;
 	s_log.event_pending = 0;
 	s_log.active = 1;
+	s_log.state = FLIGHT_LOG_REC;
+	s_log.pending = 0;
+	s_log.last_result = FLIGHT_LOG_REC;
 	open_page(0);
 }
 
@@ -165,19 +174,49 @@ void FlightLog_Init(void)
 	s_log.qtail = 0;
 	s_log.qcount = 0;
 	s_log.event_pending = 0;
+	s_log.state = FLIGHT_LOG_IDLE;
+	s_log.pending = 0;
+	s_log.last_result = FLIGHT_LOG_IDLE;
+	s_log.key_prev = 0;
 }
 
-void FlightLog_PollCommand(unsigned char locked)
+// 遥控 0x0004 上升沿只提交请求；真正的擦除在 BeginPrepare。
+void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
+					 unsigned char can_start, unsigned char blocked)
 {
-	u32 cmd = 0;
+	u8 new_key = (key & FLIGHT_LOG_KEY_START)
+				 && !(s_log.key_prev & FLIGHT_LOG_KEY_START);
 
-	flash_read_page(FLIGHT_LOG_CMD_ADDR, 4, (u8 *)&cmd);
-	if (cmd != FLIGHT_LOG_CMD_MAGIC || !locked) {
+	s_log.key_prev = key;
+	if (!new_key) {
 		return;
 	}
-	// 外部命令只在四路锁定、PWM 已清零时执行擦除。
+	if (s_log.state == FLIGHT_LOG_PREP || s_log.state == FLIGHT_LOG_REC
+		|| s_log.active) {
+		s_log.last_result = FLIGHT_LOG_REJECT;  // 正在记录/准备：直接忽略，不排队
+		return;
+	}
+	if (!packet_valid || blocked || !can_start) {
+		s_log.state = FLIGHT_LOG_REJECT;
+		s_log.last_result = FLIGHT_LOG_REJECT;
+		return;
+	}
+	s_log.pending = 1;
+	s_log.state = FLIGHT_LOG_PREP;
+}
+
+void FlightLog_BeginPrepare(void)
+{
+	if (s_log.state != FLIGHT_LOG_PREP || !s_log.pending) {
+		return;
+	}
+	s_log.pending = 0;
 	start_log(1);
-	flash_erase_sector(FLIGHT_LOG_CMD_ADDR);
+}
+
+unsigned char FlightLog_State(void)
+{
+	return s_log.state;
 }
 
 static void serialize(const FlightLogSample *s, u8 *rec)
@@ -241,6 +280,7 @@ void FlightLog_Service(void)
 		s_log.event_pending = 0;
 		close_page();
 		s_log.active = 0;
+		s_log.state = FLIGHT_LOG_ST_END;
 		return;
 	}
 	if (!s_log.qcount) {
@@ -271,6 +311,7 @@ void FlightLog_Stop(void)
 		s_log.qcount = 0;
 		close_page();
 		s_log.active = 0;
+		s_log.state = FLIGHT_LOG_ST_END;
 	}
 }
 

@@ -48,7 +48,6 @@ u32 clock_time(void) { return g_now; }
 int main(void)
 {
 	unsigned int i;
-	unsigned int cmd = FLIGHT_LOG_CMD_MAGIC;
 	int ready = 0;
 
 	memset(flash_mem, 0xFF, sizeof(flash_mem));
@@ -56,7 +55,6 @@ int main(void)
 	for (i = 0; i < 140; i++) {
 		g_now += FLIGHT_PERIOD_TICKS;
 		FlightLoop_Process();
-		FlightLog_PollCommand(FlightLoop_CanEraseLog());
 		if (FlightLoop_StartupTestReady()) {
 			ready = 1;
 		}
@@ -66,18 +64,18 @@ int main(void)
 		return 1;
 	}
 
-	// 先给一包合法低油门，建立链路，避免预采样安全门把测试当成失联。
+	// 先给一包合法低油门，建立链路；再短按“演示”键 0x0004。
 	FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0000);
-
-	// 外部 BDT 命令邮箱；之后由真实主循环路径擦除并开始。
-	memcpy(&flash_mem[FLIGHT_LOG_CMD_ADDR], &cmd, 4);
+	FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
 	for (i = 0; i < 400; i++) {
 		g_now += FLIGHT_PERIOD_TICKS;
 		if ((i % 20) == 0) {
 			FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0000);
 		}
 		FlightLoop_Process();
-		FlightLog_PollCommand(FlightLoop_CanEraseLog());
+		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
+			FlightLog_BeginPrepare();
+		}
 		FlightLog_Service();
 	}
 	if (!FlightLog_Active()) {

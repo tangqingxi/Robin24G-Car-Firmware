@@ -2040,8 +2040,12 @@ void User_main_loop_process(void)
 	TimeBaseGenerate();
 	car_work();
 	FlightArmDebug_Process();       // 控制/收包之后非阻塞发送诊断
-	FlightLog_PollCommand(FlightLoop_CanEraseLog());
+	// 收包路径只提交请求；主循环复核锁定/PWM 全零后再擦除准备。
+	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
+		FlightLog_BeginPrepare();
+	}
 	FlightLog_Service();
+	FlightArmDebug_OnLogState(FlightLog_State());
 	return;
 #elif (C_RC_BRINGUP_EN)
 	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转
