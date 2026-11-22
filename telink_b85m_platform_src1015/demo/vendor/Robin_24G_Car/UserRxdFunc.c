@@ -2044,7 +2044,9 @@ void User_main_loop_process(void)
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
-	FlightLog_Service();
+	if (FlightLoop_CanWriteLog()) {
+		FlightLog_Service();             // 余量不足延期，队列满时由日志层计丢样
+	}
 	FlightArmDebug_OnLogState(FlightLog_State());
 	return;
 #elif (C_RC_BRINGUP_EN)

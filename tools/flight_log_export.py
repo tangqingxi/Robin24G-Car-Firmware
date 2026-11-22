@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """把 BDT 读出的 0x10000..0x1CFFF 原始日志转成 CSV。
 
-日志格式：13 个 4KiB 扇区，每扇区 32B 页头 + 72 条 56B 记录。
-只接受页头/记录 CRC 都正确的数据；半页断电时跳过该页。
+每扇区 4KiB：起始 256B 头，之后 15 个 256B 物理页，每物理页 4 条 56B 记录。
+页头/记录 CRC16；未封口尾页若有 CRC 正确的记录，标记为 recovered。
 """
 import argparse
 import csv
@@ -13,8 +13,11 @@ from pathlib import Path
 BASE = 0x10000
 SECTORS = 13
 SECTOR = 4096
-HDR = 32
+HDR = 256
 REC = 56
+REC_PER_PHYS = 4
+PHYS_PER_SEC = 15
+REC_PER_SEC = 60
 MAGIC = 0x4C4F4731
 
 
@@ -30,108 +33,171 @@ def crc16(data: bytes) -> int:
     return crc16_seed(0xFFFF, data)
 
 
-def s16(v: int) -> int:
-    return v - 0x10000 if v & 0x8000 else v
-
-
 def q_to_euler(q: list[int]) -> tuple[float, float, float]:
     w, x, y, z = [v / 32768.0 for v in q]
     roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    sinp = max(-1.0, min(1.0, 2 * (w * y - z * x)))
-    pitch = math.asin(sinp)
+    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
     yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
     return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
 
 
-def export(raw: bytes, out: Path) -> tuple[int, int]:
+def rec_offset(base: int, index: int) -> int:
+    return base + HDR + (index // REC_PER_PHYS) * 256 + (index % REC_PER_PHYS) * REC
+
+
+def parse_record(rec: bytes, page: int, recovered: bool) -> dict | None:
+    if len(rec) != REC:
+        return None
+    if struct.unpack("<H", rec[54:56])[0] != crc16(rec[:54]):
+        return None
+    t_ms, session, seq = struct.unpack("<IHH", rec[0:8])
+    flags = struct.unpack("<H", rec[52:54])[0]
+    rtype = (flags >> 12) & 0x0F
+    row = {
+        "page": page, "session": session, "record_seq": seq,
+        "record_type": "sample" if rtype == 0 else ("event" if rtype == 1 else "summary"),
+        "board_ms": t_ms, "flags": flags, "event": (flags >> 8) & 0x0F,
+        "recovered": int(recovered),
+    }
+    if rtype == 2:
+        start_ms, end_ms, max_us = struct.unpack("<III", rec[8:20])
+        late, skips = struct.unpack("<HH", rec[20:24])
+        flash_us, prep_ms = struct.unpack("<HH", rec[24:28])
+        records, drops = struct.unpack("<HH", rec[28:32])
+        row.update({
+            "start_ms": start_ms, "end_ms": end_ms,
+            "max_dt_us": max_us, "late": late, "skips": skips,
+            "flash_peak_us": flash_us, "prep_ms": prep_ms,
+            "data_records": records, "dropped": drops,
+            "end_reason": rec[32],
+        })
+        return row
+    q = struct.unpack("<iiii", rec[8:24])
+    gyro = struct.unpack("<hhh", rec[24:30])
+    acc = struct.unpack("<hhh", rec[30:36])
+    yaw_s, yaw_t, yaw_c, thrust = struct.unpack("<hhhh", rec[36:44])
+    pwm = struct.unpack("<HHHH", rec[44:52])
+    roll, pitch, yaw = q_to_euler(list(q))
+    row.update({
+        "q_w": q[0], "q_x": q[1], "q_y": q[2], "q_z": q[3],
+        "gyro_x": gyro[0], "gyro_y": gyro[1], "gyro_z": gyro[2],
+        "acc_x": acc[0], "acc_y": acc[1], "acc_z": acc[2],
+        "yaw_stick": yaw_s, "yaw_target": yaw_t, "yaw_corr": yaw_c,
+        "thrust": thrust,
+        "pwm_front": pwm[0], "pwm_rear": pwm[1],
+        "pwm_left": pwm[2], "pwm_right": pwm[3],
+        "imu_ok": flags & 1, "att_ready": (flags >> 1) & 1,
+        "att_updated": (flags >> 2) & 1, "armed": (flags >> 3) & 1,
+        "limited": (flags >> 4) & 1, "estop": (flags >> 5) & 1,
+        "link_loss": (flags >> 6) & 1, "locked": (flags >> 7) & 1,
+        "roll_deg": round(roll, 3), "pitch_deg": round(pitch, 3),
+        "yaw_deg": round(yaw, 3),
+    })
+    return row
+
+
+def export(raw: bytes, out: Path) -> dict:
     rows = []
-    page_seq = -1
-    yaw_unwrap = 0.0
-    yaw_prev = None
-    while len(raw) < SECTORS * SECTOR:
+    pages = []
+    complete = False
+    recovered = False
+    summary = None
+    raw = raw[:SECTORS * SECTOR]
+    if len(raw) < SECTORS * SECTOR:
         raw += b"\xFF" * (SECTORS * SECTOR - len(raw))
+
     for sec in range(SECTORS):
         base = sec * SECTOR
         hdr = raw[base:base + 16]
-        if len(hdr) < 16:
-            continue
         magic, ver, session, seq, count, pcrc, hcrc = struct.unpack("<IHHHHHH", hdr)
-        if magic != MAGIC or ver != 1:
-            continue
-        if crc16(hdr[:14]) != hcrc:
-            continue
-        calc_pcrc = 0xFFFF
+        valid_hdr = (magic == MAGIC and ver == 1 and crc16(hdr[:14]) == hcrc
+                     and count <= REC_PER_SEC)
+        records = []
+        if valid_hdr:
+            calc = 0xFFFF
+            ok = True
+            for i in range(count):
+                off = rec_offset(base, i)
+                rec = raw[off:off + REC]
+                if struct.unpack("<H", rec[54:56])[0] != crc16(rec[:54]):
+                    ok = False
+                    break
+                calc = crc16_seed(calc, rec)
+                records.append(rec)
+            if ok and calc == pcrc:
+                pages.append((seq, count, session))
+                for rec in records:
+                    row = parse_record(rec, seq, False)
+                    if row:
+                        rows.append(row)
+                continue
+        # 未封口尾页恢复：扫描固定物理页槽，只接受 CRC 正确且会话一致的记录。
         recs = []
-        valid = True
-        for i in range(min(count, (SECTOR - HDR) // REC)):
-            off = base + HDR + i * REC
+        for i in range(REC_PER_SEC):
+            off = rec_offset(base, i)
             rec = raw[off:off + REC]
-            if len(rec) != REC or crc16(rec[:54]) != struct.unpack("<H", rec[54:56])[0]:
-                valid = False
-                break
-            calc_pcrc = crc16_seed(calc_pcrc, rec)
-            recs.append(rec)
-        if not valid or calc_pcrc != pcrc:
-            continue
-        page_seq = seq
-        for rec in recs:
-            (t_ms, sess, rseq, qw, qx, qy, qz) = struct.unpack("<IHHiiii", rec[0:24])
-            gx, gy, gz = struct.unpack("<hhh", rec[24:30])
-            ax, ay, az = struct.unpack("<hhh", rec[30:36])
-            yaw_stick, yaw_target, yaw_corr, thrust = struct.unpack("<hhhh", rec[36:44])
-            pwm = struct.unpack("<HHHH", rec[44:52])
-            flags = struct.unpack("<H", rec[52:54])[0]
-            event = (flags >> 8) & 0x0F
-            roll, pitch, yaw = q_to_euler([qw, qx, qy, qz])
-            if yaw_prev is not None:
-                d = yaw - yaw_prev
-                if d > 180:
-                    yaw_unwrap -= 360
-                elif d < -180:
-                    yaw_unwrap += 360
-            yaw_prev = yaw
-            rows.append({
-                "page": seq, "board_ms": t_ms, "session": sess,
-                "record_seq": rseq,
-                "q_w": qw, "q_x": qx, "q_y": qy, "q_z": qz,
-                "gyro_x": gx, "gyro_y": gy, "gyro_z": gz,
-                "acc_x": ax, "acc_y": ay, "acc_z": az,
-                "yaw_stick": yaw_stick, "yaw_target": yaw_target,
-                "yaw_corr": yaw_corr, "thrust": thrust,
-                "pwm_front": pwm[0], "pwm_rear": pwm[1],
-                "pwm_left": pwm[2], "pwm_right": pwm[3],
-                "flags": flags, "event": event,
-                "imu_ok": (flags >> 0) & 1,
-                "att_ready": (flags >> 1) & 1,
-                "att_updated": (flags >> 2) & 1,
-                "armed": (flags >> 3) & 1,
-                "limited": (flags >> 4) & 1,
-                "estop": (flags >> 5) & 1,
-                "link_loss": (flags >> 6) & 1,
-                "locked": (flags >> 7) & 1,
-                "roll_deg": round(roll, 3),
-                "pitch_deg": round(pitch, 3),
-                "yaw_deg": round(yaw, 3),
-                "yaw_unwrapped_deg": round(yaw + yaw_unwrap, 3),
-            })
+            row = parse_record(rec, seq, True)
+            if row:
+                recs.append((i, rec, row))
+        if recs:
+            recovered = True
+            for _, _, row in recs:
+                rows.append(row)
+
+    summaries = [r for r in rows if r["record_type"] == "summary"]
+    if summaries:
+        summary = summaries[-1]
+        complete = (summary.get("end_reason", 0) != 0
+                    and summary.get("data_records", 0) ==
+                    len([r for r in rows if r["record_type"] != "summary"]))
+    session = rows[0]["session"] if rows else 0
+    # 序号缺口（忽略未封口/恢复尾部）
+    seqs = [r["record_seq"] for r in rows if r["record_type"] != "summary"]
+    gaps = sum(1 for a, b in zip(seqs, seqs[1:]) if (b - a) & 0xFFFF != 1)
+    for r in rows:
+        r["session_complete"] = int(complete)
+        r["session_gaps"] = gaps
+        r["summary_session"] = session
+    if summary:
+        summary["session_complete"] = int(complete)
+
+    fields = [
+        "page", "session", "record_seq", "record_type", "board_ms",
+        "start_ms", "end_ms", "max_dt_us", "late", "skips",
+        "flash_peak_us", "prep_ms", "data_records", "dropped", "end_reason",
+        "q_w", "q_x", "q_y", "q_z", "gyro_x", "gyro_y", "gyro_z",
+        "acc_x", "acc_y", "acc_z", "yaw_stick", "yaw_target", "yaw_corr",
+        "thrust", "pwm_front", "pwm_rear", "pwm_left", "pwm_right",
+        "flags", "event", "imu_ok", "att_ready", "att_updated", "armed",
+        "limited", "estop", "link_loss", "locked",
+        "roll_deg", "pitch_deg", "yaw_deg",
+        "recovered", "session_complete", "session_gaps", "summary_session",
+    ]
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8-sig") as f:
-        if rows:
-            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(rows)
-    return len(rows), page_seq + 1
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    return {"rows": len(rows), "pages": len(pages), "complete": complete,
+            "recovered": recovered, "summary": summary, "gaps": gaps}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="FlightLog 原始 Flash 转 CSV")
-    ap.add_argument("--bin", required=True, help="0x10000..0x1CFFF 的 BDT 原始 dump")
-    ap.add_argument("--out", required=True, help="输出 CSV")
+    ap.add_argument("--bin", required=True)
+    ap.add_argument("--out", required=True)
     args = ap.parse_args()
     raw = Path(args.bin).read_bytes()
-    n, pages = export(raw, Path(args.out))
-    print(f"rows={n} pages={pages} out={args.out}")
-    return 0 if n else 1
+    info = export(raw, Path(args.out))
+    print(f"rows={info['rows']} pages={info['pages']} complete={info['complete']} "
+          f"recovered={info['recovered']} gaps={info['gaps']} out={args.out}")
+    if info["summary"]:
+        s = info["summary"]
+        print(f"session={s['session']} records={s['data_records']} "
+              f"drops={s['dropped']} end={s['end_reason']} "
+              f"max_dt_us={s['max_dt_us']} late={s['late']} skips={s['skips']} "
+              f"flash_peak_us={s['flash_peak_us']} prep_ms={s['prep_ms']}")
+    return 0 if info["rows"] else 1
 
 
 if __name__ == "__main__":

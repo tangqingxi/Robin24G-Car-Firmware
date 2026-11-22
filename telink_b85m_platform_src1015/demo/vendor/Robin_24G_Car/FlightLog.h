@@ -10,7 +10,10 @@
 #define FLIGHT_LOG_SECTOR_SIZE 0x1000u
 
 #define FLIGHT_LOG_VERSION     1u
-#define FLIGHT_LOG_PAGE_HDR    32u
+#define FLIGHT_LOG_PAGE_HDR    256u
+#define FLIGHT_LOG_REC_PER_PHYS 4u
+#define FLIGHT_LOG_PHYS_PER_SEC 15u
+#define FLIGHT_LOG_REC_PER_SEC 60u
 #define FLIGHT_LOG_REC_SIZE    56u
 #define FLIGHT_LOG_MAX_RECORDS 750u          // 25Hz 约 30 秒
 
@@ -52,6 +55,11 @@ unsigned char FlightLog_State(void);
 void FlightLog_OnSample(const FlightLogSample *sample);
 void FlightLog_Service(void);
 void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample);
+void FlightLog_OnControlTick(void);
+void FlightLog_OnLinkDown(void);
+#define FLIGHT_LOG_TYPE_SHIFT 12u
+#define FLIGHT_LOG_TYPE_EVENT 1u
+#define FLIGHT_LOG_TYPE_SUMMARY 2u
 void FlightLog_Stop(void);
 unsigned char FlightLog_Active(void);
 unsigned int FlightLog_Dropped(void);

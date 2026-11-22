@@ -159,8 +159,8 @@
     },
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 26708,
-      "sha256": "1716C4977B2C6556FBD7FD7D7CA17E5E9063581662EFC5C27AB18F8DB0F0E0CB",
+      "bytes": 27684,
+      "sha256": "B2A74D6CAAB2614C8ABDCF02DAB83C67D2408C0C23A54C83FCF4E2B24B5DE57D",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -173,14 +173,19 @@
       "records_max": 750,
       "rate_hz": 25,
       "seconds_nominal": 30,
-      "command_addr": "0x1D000",
-      "command_magic": "0x31474F4C",
-      "export": "tools/flight_log_export.py"
+      "export": "tools/flight_log_export.py",
+      "page_header_bytes": 256,
+      "records_per_phys_page": 4,
+      "phys_pages_per_sector": 15,
+      "records_per_sector": 60,
+      "summary_record": true,
+      "complete_export": true,
+      "start": "K3/0x0004 rising edge"
     },
     "debug": {
       "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
-      "bytes": 32868,
-      "sha256": "4EE42BE9B947BF9B5CD6EEA9BAE6ACFF4858021F28092E7D8A62E3110A266860",
+      "bytes": 33844,
+      "sha256": "18EEA415533DF1A4DC1249B59CC01FB1024172D9185E6A101CB146E4DEA4C463",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
     },

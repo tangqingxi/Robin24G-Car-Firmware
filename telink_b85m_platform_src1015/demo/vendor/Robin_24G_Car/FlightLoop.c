@@ -179,6 +179,14 @@ void FlightLoop_Init(void)
 						  s_fl.att.ready, s_fl.safety.pwm_ready);
 }
 
+unsigned char FlightLoop_CanWriteLog(void)
+{
+	// 给单次 Flash 写入留出距下一控制拍的余量；余量不足延期到下一主循环。
+	s32 left = (s32)(s_fl.next_tick - clock_time());
+
+	return left > (s32)(FLIGHT_PERIOD_TICKS / 2);
+}
+
 unsigned char FlightLoop_CanEraseLog(void)
 {
 	unsigned short pwm[4];
@@ -291,6 +299,7 @@ void FlightLoop_PreSampleSafety(void)
 	u8 was_armed = s_fl.safety.armed;
 
 	if (!s_fl.rc.link) {
+		FlightLog_OnLinkDown();
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
 #if (!C_L400_KEY_CAPTURE)
@@ -337,6 +346,7 @@ void FlightLoop_Process(void)
 
 	planned = s_fl.next_tick;
 	s_fl.next_tick = planned + FLIGHT_PERIOD_TICKS;
+	FlightLog_OnControlTick();
 	if ((u32)(now - planned) >= FLIGHT_PERIOD_TICKS) {
 		// 已错过至少一拍：从当前时刻重新排下一拍，不追发补拍
 		s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;

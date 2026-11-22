@@ -272,10 +272,24 @@ python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 - **不再使用 BDT `LOG1` 启录**；避免上电遗留命令误擦除。
 - 需要实物抓包确认“演示”键确实发 0x0004；原理图/键表映射见 `UserKeyboard.h`。
 
+### Flash 阻塞与 XIP 核查
+
+- `flash_mspi_write_ram()` 在写/等待期间 `irq_disable()`，`flash_wait_done()` 忙等到
+  `flash_page_program()` 完成；跨 256B 页会拆成多次写，每次都会重新关中断。
+- 本版每扇区起始 256B 页头，随后 15 个 256B 物理页；每页固定 4 条 56B 记录，
+  记录起点只会是页内 0/56/112/168，单条写入不再跨物理页。
+- 写缓冲在 RAM 栈上，满足 XIP 下“写数据不能位于 Flash”的限制。
+- 服务路径仅在距下一控制拍大于半个周期（2.5ms）时提交一条写入；余量不足延期，
+  队列 2 条满则丢样计数。急停/失联清 PWM 不经过该预算。
+- 单次阻塞实测看日志 summary 的 `flash_peak_us`；最大关中断时间用 GPIO 在
+  `flash_write_page()` 前后翻转，示波器量高电平宽度，或直接看 `flash_peak_us`
+  （`clock_time()` 在驱动内也走定时器）。`summary` 另含 `prep_ms`、`max_dt_us`、
+  `late`、`skips`、`dropped`。没有上板数据前不能宣称 5ms 已满足。
+
 ### 日志时序测量（调试候选）
 
-`candidates/Robin_24G_Car_flight_log_debug.bin`（32868 字节，
-SHA256 `4EE42BE9B947BF9B5CD6EEA9BAE6ACFF4858021F28092E7D8A62E3110A266860`）
+`candidates/Robin_24G_Car_flight_log_debug.bin`（33844 字节，
+SHA256 `18EEA415533DF1A4DC1249B59CC01FB1024172D9185E6A101CB146E4DEA4C463`）
 同时启用 FlightLog 和 `C_FLIGHT_ARM_DEBUG`。GUI 每秒额外收：
 
 ```text
@@ -374,8 +388,8 @@ ADE t=... n=.. x=5 pwm=fff/fff/fff/fff
 - 任务二无 OTA + 日志候选：
   - `candidates/Robin_24G_Bootloader_no_ota.bin`：6844 字节，
     SHA256 `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096`，烧 0x0；
-  - `candidates/Robin_24G_Car_flight_control_log.bin`：26708 字节，
-    SHA256 `1716C4977B2C6556FBD7FD7D7CA17E5E9063581662EFC5C27AB18F8DB0F0E0CB`，烧 0x4000。
+  - `candidates/Robin_24G_Car_flight_control_log.bin`：27684 字节，
+    SHA256 `B2A74D6CAAB2614C8ABDCF02DAB83C67D2408C0C23A54C83FCF4E2B24B5DE57D`，烧 0x4000。
 - 同选项移除前后对比：
 
   ```text

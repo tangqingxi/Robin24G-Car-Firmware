@@ -9,6 +9,8 @@
 
 static unsigned char flash_mem[0x20000];
 static int bad_addr;
+static unsigned int fake_clock;
+u32 clock_time(void) { return fake_clock; }
 
 void flash_read_page(unsigned int addr, unsigned int len, unsigned char *buf)
 {
@@ -136,11 +138,13 @@ int main(void)
 			unsigned int r;
 
 			for (r = 0; r < cnt; r++) {
-				unsigned int a = base + 32 + r * FLIGHT_LOG_REC_SIZE;
+				unsigned int a = base + 256
+					+ (r / 4) * 256 + (r % 4) * FLIGHT_LOG_REC_SIZE;
 				unsigned char *rec = &flash_mem[a];
 
 				if (rd16(rec + 54) != crc16(rec, 54)) {
-					printf("FAIL record crc page %u r %u\n", i, r);
+					printf("FAIL record crc page %u r %u off=%u f=%02X%02X\n",
+						   i, r, a, rec[0], rec[1]);
 					return 1;
 				}
 				if (r == 0 && rd32(rec + 8) != 32768) {
@@ -163,9 +167,17 @@ int main(void)
 	}
 
 	// 半页断电：只破坏最后一页头，之前页仍应保留。
+	{
+		FILE *f = fopen("flight_log_clean.bin", "wb");
+		if (f) {
+			fwrite(&flash_mem[FLIGHT_LOG_BASE], 1,
+				   FLIGHT_LOG_END - FLIGHT_LOG_BASE, f);
+			fclose(f);
+		}
+	}
 	memset(&flash_mem[FLIGHT_LOG_BASE + 10 * 4096], 0x00, 16);
 	// CRC 损坏：破坏一条记录。
-	flash_mem[FLIGHT_LOG_BASE + 32 + 5] ^= 0x01;
+	flash_mem[FLIGHT_LOG_BASE + 256 + 5] ^= 0x01;
 
 	{
 		FILE *f = fopen("flight_log_dump.bin", "wb");

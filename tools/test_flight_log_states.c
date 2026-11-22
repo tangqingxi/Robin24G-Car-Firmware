@@ -152,6 +152,29 @@ int main(int argc, char **argv)
 		printf("PASS estop priority blocks record key\n");
 		return 0;
 	}
+	if (strcmp(argv[1], "reconnect") == 0) {
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0000);
+		step();
+		for (i = 0; i < 220; i++) {
+			step();                 // 先断开链路，建立“曾连接”状态
+		}
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
+		step();
+		if (FlightLog_Active()) {
+			printf("FAIL reconnect old key started log\n");
+			return 1;
+		}
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0000);
+		step();
+		FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, FLIGHT_LOG_KEY_START);
+		step();
+		if (!FlightLog_Active()) {
+			printf("FAIL key after release did not start\n");
+			return 1;
+		}
+		printf("PASS reconnect old key ignored until release\n");
+		return 0;
+	}
 	if (strcmp(argv[1], "locked") == 0) {
 		start_key();
 		for (i = 0; i < 400; i++) {
