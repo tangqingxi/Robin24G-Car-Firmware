@@ -165,12 +165,6 @@ extern volatile unsigned short	u16Throttle_Rxd;		//Remotor speed data value for 
 extern volatile unsigned short	u16Rotation_Rxd;		//Remotor rotation data value for send
 extern volatile unsigned short	u16FBmove_Rxd;		//Remotor FBmove data value for send
 extern volatile unsigned short	u16LRmove_Rxd;		//Remotor LRmove data value for send
-extern volatile int16_t s16_Throttle;
-extern volatile int16_t s16_ThrottleFine;	//±384 高分辨率油门（手动油门模式用）
-extern volatile int16_t s16_Rotation;
-extern volatile int16_t s16_FBmove;
-extern volatile int16_t s16_LRmove;
-
 //**********************************************************************************
 //**********************************************************************************
 #define	Light_SwsLed	ChangePA3ToGPIO_OutHigh()
@@ -223,7 +217,6 @@ void GetBatteryVoltage(void);	//运行一次用时280uS
 
 void InitalRam(void);
 
-void Rxdata_Handler(void);
 void car_work(void);
 
 extern unsigned short u16RfSpeedVal;
@@ -237,13 +230,7 @@ void CarDemoHandler(void);	//10mS loop
 
 void TimeBaseGenerate(void);
 void UserPowOnStart(void);
-void ClrCarRunPara(void);
 void User_main_loop_process(void);
-
-void StartPressureSample(void);
-void PressureSampleTick(void);
-
-void FlightCtrlSchedule(void);		//飞行姿态控制调度：FC_CTRL_DT_MS 节拍，在主循环中调用
 
 //*******************************************************************
 #endif	//Project_XH261009_Rxd

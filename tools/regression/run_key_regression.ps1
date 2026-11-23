@@ -36,11 +36,6 @@ try {
         (Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\common\common\flash_fw_check.c')
     ) @('-DFLASH_FW_CHECK_HOST_TEST=1')
 
-    Invoke-Case 'flight_log' @(
-        (Join-Path $Here 'test_flight_log.c'),
-        (Join-Path $Car 'FlightLog.c')
-    ) @('-DFLIGHT_LOG_HOST_TEST=1', '-DFLIGHT_LOG_LEGACY_WRITE_TEST=1', '-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000')
-
     Invoke-Case 'boot_validate' @(
         (Join-Path $Here 'test_boot_validate.c')
     ) @()
@@ -82,7 +77,7 @@ try {
 
 
     $env:PYTHONIOENCODING = 'utf-8'
-    foreach ($test in @('test_arm_debug_monitor.py', 'test_package_bin.py', 'test_l400_monitor.py')) {
+    foreach ($test in @('test_package_bin.py')) {
         python (Join-Path $Here $test)
         if ($LASTEXITCODE -ne 0) { throw ($test + ' failed') }
     }

@@ -7,11 +7,6 @@
 #endif
 #include "UserEuler.h"
 
-// 抓包镜像只记录原始按键，不初始化电机 PWM；正常镜像默认 0。
-#ifndef C_L400_KEY_CAPTURE
-#define C_L400_KEY_CAPTURE 0
-#endif
-
 // 200Hz 飞控公共常量。所有时间仍以 tick 计，毫秒超时只在边界换算。
 #define FLIGHT_LOOP_HZ             200
 #define FLIGHT_PERIOD_TICKS        (CLOCK_SYS_CLOCK_HZ / FLIGHT_LOOP_HZ)
@@ -29,7 +24,9 @@
 #define FLIGHT_MAX_TILT_DEG100     3000
 #define FLIGHT_YAW_RATE_MAX_Q10    3072
 
-// 外环 P 与限幅；内环沿用 P=64/256，I=D=0。
+// 外环 P 与限幅；角速度内环 P 分轴配置：
+//   横滚/俯仰用 FLIGHT_KP_Q8，偏航用 FLIGHT_YAW_KP_Q8；I=D=0。
+// 所有内环增益的精确数值只在本文件维护，其他源文件只引用宏名。
 #define FLIGHT_ATT_KP_Q8           1500
 #define FLIGHT_RATE_LIMIT_Q10      4096
 #define FLIGHT_KP_Q8               64      // 横滚/俯仰角速度内环 P=0.25

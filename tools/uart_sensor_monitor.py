@@ -14,7 +14,7 @@ Robin_24G_Car 六轴传感器串口监视器（配合固件 0x26 0x9A 波形帧�
   * CSV 由采集线程直接写，不经过界面，因此界面再忙也不会丢 100Hz 数据；
   * 队列有上限，界面消费不及时时丢弃的是"绘图用"的旧帧，不影响 CSV。
 
-帧格式（27 字节，多字节字段大端，详见固件 UserUart.c / FlightCtrl.h 7.12）：
+帧格式（27 字节，多字节字段大端，详见固件 UserUart.c 的 0x269A 帧说明）：
   偏移  长度  内容
    0     1    0x26 帧头1
    1     1    0x9A 帧头2
@@ -81,7 +81,7 @@ from uart_proto import (FRAME_HEAD, FRAME_LEN, PERF_HEAD, PERF_LEN,
 DEFAULT_ACC_LSB_PER_G = 2048.0
 DEFAULT_GYRO_LSB_PER_DPS = 16.4
 
-# flags 位定义（与 FlightCtrl.h 一致）
+# 六轴帧 flags（当前校准入口固定为 0）
 FLAG_FILTERED = 0x01
 FLAG_BIAS_APPLIED = 0x02
 FLAG_CALIBRATED = 0x04
@@ -2493,8 +2493,6 @@ def main():
                       help="按台架固件的文本协议采集（ATT/STA 行，画横滚/俯仰/相对偏航）")
     mode.add_argument("--flight-control", "--l400", dest="l400", action="store_true",
                       help="按 200Hz 飞控协议采集（FCQ/FCS；--l400 为兼容别名）")
-    mode.add_argument("--arm-debug", action="store_true",
-                      help="200Hz 飞控专用解锁诊断（默认 GUI；ADB/ADU/ADO/ADL/ADE）")
     mode.add_argument("--ground-diag", action="store_true",
                       help="地面 YAW 10Hz 诊断（四元数/偏航控制/PWM/振动四组曲线）")
     args = ap.parse_args()
@@ -2502,9 +2500,6 @@ def main():
     if args.list:
         list_ports()
         return
-    if args.arm_debug:
-        from arm_debug_monitor import run_arm_debug
-        return run_arm_debug(args)
     if args.ground_diag:
         from ground_diag_monitor import run_ground_diag
         return run_ground_diag(args, SerialSource, pick_port)

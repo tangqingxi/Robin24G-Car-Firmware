@@ -67,11 +67,12 @@ void RateControl_Init(RateControl *rc)
 #endif
 }
 
-// 内环：误差=目标角速度−实测角速度；P=64/256，I/D=0 时对应状态不编译。
+// 内环：误差=目标角速度−实测角速度；P 由 FlightConfig.h 的 Q8 宏决定，
+// 偏航用 FLIGHT_YAW_KP_Q8，横滚/俯仰用 FLIGHT_KP_Q8；I/D=0 时状态不编译。
 //
 // 每轴独立计算：
 //   1) err = target - gyro；
-//   2) P 项 = err × 轴增益 >> 8；偏航用 FLIGHT_YAW_KP_Q8=512，其余=64；
+//   2) P 项 = err × 轴增益 >> 8；偏航引用 FLIGHT_YAW_KP_Q8，其余引用 FLIGHT_KP_Q8；
 //   3) 若启用 I：integ += err，先限幅再乘 Ki；
 //   4) 若启用 D：d_err = err - prev_err，乘 Kd；
 //   5) corr 限幅后交给混控。
@@ -86,7 +87,8 @@ void RateControl_Update(RateControl *rc, const int target[3],
 
 	for (i = 0; i < 3; i++) {
 		int err = target[i] - gyro[i];
-		// 偏航独立 P=0.5（Q8=128）；横滚/俯仰仍为 P=0.25（Q8=64）。
+		// 偏航独立使用 FLIGHT_YAW_KP_Q8；横滚/俯仰使用 FLIGHT_KP_Q8。
+		// 增益数值只在 FlightConfig.h 维护，避免注释与参数出现两套说法。
 		int corr = (i == 2)
 				   ? rate_yaw_shift(err * FLIGHT_YAW_KP_Q8, 8)
 				   : ((err * FLIGHT_KP_Q8) >> 8);

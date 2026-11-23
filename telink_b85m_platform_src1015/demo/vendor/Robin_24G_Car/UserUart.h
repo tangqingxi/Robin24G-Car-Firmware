@@ -78,15 +78,12 @@ typedef struct{
 
 uart_data_t T_txdata_user;
 
-//---- ★v25 flash 黑匣子读出专用（阻塞式发送，复用 T_txdata_user）----
-void UartBBSend(unsigned char *dat, unsigned char len);			// 小包（起始/结束帧）
-void UartBBSendFlash(unsigned long addr, unsigned char len);	// flash 块直读直发
 
-//---- 六轴波形帧（0x26 0x9A，固定 27 字节，协议见 FlightCtrl.h 7.12）----
+//---- 六轴波形帧（0x26 0x9A，固定 27 字节，协议见本文件下方帧说明）----
 #define UART_SENSOR_FRAME_LEN		27
 // acc/gyr：本拍控制环使用的 6 轴原值（已中值滤波、未扣零偏）
 // bias   ：陀螺零偏（原始 LSB），由上位机自行扣除
-// flags  ：位定义见 FlightCtrl.h（FC_SENSOR_FLAG_*）
+// flags  ：六轴校准固定为 0
 void UartSensorFrameSend(const s16 acc[3], const s16 gyr[3], const s16 bias[3], u8 flags);
 
 //---- 通用"尝试发送"：TX 空闲才写缓冲并启动 DMA，忙则返回 0（不等待）----

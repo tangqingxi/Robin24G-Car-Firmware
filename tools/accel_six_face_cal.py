@@ -89,7 +89,8 @@ CONFIG = {
     "span_max_lsb": 4800.0,
 }
 
-# flags 位定义（固件 FlightCtrl.h 7.12）：bit3 = 已解锁
+# flags 位定义（历史 0x269A 协议）：bit3 = 已解锁；
+# 当前六轴校准固件固定发 0，解析器保留该位兼容旧记录。
 FLAG_ARMED = 0x08
 
 # 校准文件的格式标识（单面补测加载时校验）

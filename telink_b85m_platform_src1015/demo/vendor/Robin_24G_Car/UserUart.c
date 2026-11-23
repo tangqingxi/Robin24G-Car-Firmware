@@ -154,12 +154,12 @@ void UartPrintData(u32 PrintDat)
 }
 
 //********************************************************************
-// 高速调试报文发送（2026/11/07 新增，配合 FlightCtrl.h 7.9 使用）：
+// 高速调试报文发送（历史调试接口，当前飞控由 FlightLoop/GroundDiag 使用 UART）：
 //	本 UART 的 TX 是"单缓冲 + DMA"机制：必须等上一次发送完成后才能
 //	覆盖缓冲，否则 DMA 还在发送的帧会被新数据从中间截断。
 //	这里带超时保护：等不到空闲就放弃本帧，绝不阻塞控制节拍。
 //	注意：usart1_report_EulerDat() 与本函数共用同一缓冲/ DMA，录
-//	FlightCtrl 调试报文期间请勿同时打开 Euler 报文（会互相丢帧）。
+//	调试报文期间请勿同时打开 Euler 报文（会互相丢帧）。
 //********************************************************************
 void UartDbgSend(unsigned char *dat, unsigned char len)
 {
@@ -196,38 +196,6 @@ u8 UartTrySend(unsigned char *dat, unsigned char len)
 }
 
 //********************************************************************
-// flash 黑匣子读出专用发送（★v25 精简版回归）：
-//	与 UartDbgSend 的区别：发送后阻塞等发完（读出流不能丢帧/乱序）。
-//	缓冲复用 T_txdata_user；读出期间 FlightCtrl 暂停调试帧发送。
-//********************************************************************
-void UartBBSend(unsigned char *dat, unsigned char len)	// 小包（起始/结束帧）
-{
-	unsigned int tmo = 200000;
-	unsigned char i;
-
-	while((!uart_send_end) && (--tmo));
-	if(tmo == 0) return;
-	for(i = 0; i < len; i++) T_txdata_user.data[i] = dat[i];
-	T_txdata_user.len = len;
-	uart_send_end = 0;
-	uart_send_dma(UART0, (unsigned char *)&T_txdata_user);
-	while((!uart_send_end) && (--tmo));		// 阻塞等发完
-}
-
-void UartBBSendFlash(unsigned long addr, unsigned char len)	// flash 块直读直发
-{
-	unsigned int tmo = 200000;
-
-	while((!uart_send_end) && (--tmo));
-	if(tmo == 0) return;
-	flash_read_page(addr, len, T_txdata_user.data);
-	T_txdata_user.len = len;
-	uart_send_end = 0;
-	uart_send_dma(UART0, (unsigned char *)&T_txdata_user);
-	while((!uart_send_end) && (--tmo));		// 阻塞等发完
-}
-
-//********************************************************************
 // 六轴波形帧（0x26 0x9A，固定 27 字节）
 //	帧结构（多字节字段一律大端）：
 //	  偏移  长度  内容
@@ -238,7 +206,7 @@ void UartBBSendFlash(unsigned long addr, unsigned char len)	// flash 块直读�
 //	   7     6    ax ay az  s16，16g 量程 → 2048 LSB/g
 //	  13     6    gx gy gz  s16，2000dps 量程 → 16.4 LSB/dps
 //	  19     6    bx by bz  s16，陀螺零偏（原始 LSB，未从 gx/gy/gz 扣除）
-//	  25     1    flags     FC_SENSOR_FLAG_*（见 FlightCtrl.h 7.12）
+//	  25     1    flags     六轴校准入口固定为 0，保留字段兼容旧波形工具
 //	  26     1    chk       校验和 = sum(byte[2..25]) 低 8 位
 //	发送走 UartDbgSend：与 0x2699 高速调试帧共用 TX 缓冲，两者不可同时开。
 //	时间戳用"余数累加"而不是 64 位除法：TC32 工程的链接命令不带 libgcc，

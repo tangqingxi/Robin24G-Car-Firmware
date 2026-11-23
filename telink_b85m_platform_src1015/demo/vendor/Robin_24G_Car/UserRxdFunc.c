@@ -7,7 +7,6 @@
  */
 //*******************************************************************
 //*******************************************************************
-#include <UserFilter.h>
 #include	"UserRxdFunc.h"
 #include "app_public_config.h"
 #include "app_toy/driver_layer/hw_gpio.h"
@@ -16,20 +15,15 @@
 #include "UserSpeechFunc.h"
 #include "UserPwm.h"
 #include <UserUart.h>
-#include "UserFilter.h"
 #include "UserEuler.h"
 #if (C_FLIGHT_CONTROL_EN)
 #include "FlightLoop.h"
 #include "FlightConfig.h"
-#include "FlightNoLog.h"
 #include "GroundDiag.h"
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
 #include "UserAdc.h"
-#include "PressSen_Lpc2623.h"
-#include "FlightCtrl.h"
-#include "PerfMeas.h"
 
 //*************************************************************************
 #if Project_XH261009_Rxd
@@ -142,17 +136,8 @@ void User_hw_init(void)
 	gpio_intput_pullup_10k(IIC_SCL_Pin);
 	iic_pin_init();
 	sleep_ms(10);
-#if (C_ATT_BENCH_EN)
-	// 台架姿态估计：传感器由 BenchAtt 自己初始化（含陀螺片内低通），
-	// 这里跳过旧陀螺初始化与气压计初始化，避免重复复位和占用 I2C
-#else
-	t3488_gyro_init();
-#if C_FILTER_5_EN
-	t3488_data_filter_init();		// 中值滤波初始化以及处理
-#endif
-	//压力传感器
-	Lpc2623_Init_Seting();
-#endif
+	// 飞控/台架传感器由 FlightLoop 或 BenchAtt/Maint 各自初始化，
+	// 这里不再启动旧陀螺滤波和气压高度链路。
 
 	ChangePA3ToSWS();		//SWS, 车体前灯,Low active
 	//SetTestingPin();
@@ -481,18 +466,6 @@ volatile unsigned short	u16Rotation_Rxd;		//Remotor rotation data value for send
 volatile unsigned short	u16FBmove_Rxd;		//Remotor FBmove data value for send
 volatile unsigned short	u16LRmove_Rxd;		//Remotor LRmove data value for send
 
-unsigned short u16KeyPressed_Flag=0;	//RfSend_Keyval_def
-unsigned short u16KeyAction_Flag=0;		//RfSend_Keyval_def
-
-volatile int16_t s16_Throttle;		//目标相对升降速度	±12cm/S（满杆 1/8）, unit 1cm/S
-//★ 2026/11/07 新增：高分辨率油门杆值 ±384（原始 ±3072/8）。
-//	手动油门模式下直接用它的分辨率做推力映射（1 级 ≈ 0.36PWM），
-//	s16_Throttle 只有 ±12 级，做手动推力映射太粗（1 级 = 11PWM）。
-volatile int16_t s16_ThrottleFine;	//油门杆位置	±384（满行程）, unit 1/32 杆量
-volatile int16_t s16_Rotation;		//目标对应偏航角速度 ±30°/S	=> ±300, unit 0.1°/S
-volatile int16_t s16_FBmove;			//目标俯仰角 ±30°	=>	±300, unit 0.1°
-volatile int16_t s16_LRmove;			//目标滚转角 ±30°	=>	±300, unit 0.1°
-
 //RfSendKey_Xspeed=0x01,		//速度转换（高速/低速）
 //RfSendKey_OneKRun=0x02,		//一键起降
 //RfSendKey_StuntShow=0x04,	//特技表演
@@ -503,116 +476,6 @@ volatile int16_t s16_LRmove;			//目标滚转角 ±30°	=>	±300, unit 0.1°
 //1、处理遥控器上按键功能
 //2、处理遥控器上4个电位器控制数据
 //*******************************************************************
-void Rxdata_Handler(void)
-{
-	if(VddVolFlag & LowBatOffFlag)
-	{
-		u16KeyAction_Flag=0;		//RfSend_Keyval_def
-		u16KeyPressed_Flag=0;	//RfSend_Keyval_def
-		FunCtrlFlag &= ~CarDemoFlag;
-	}
-
-	//目标相对升降速度	±12cm/S（2026/11/04 满杆由 96cm/S 降为 12cm/S = 原 1/8，
-	//					真机起飞脉冲爬升疑似与目标升降速度过快有关，先降速观察）
-	s16_Throttle = RxdDataConvert(u16Throttle_Rxd, 1, 256);	//±3072/256 => ±12
-
-	//★ 高分辨率油门（手动油门模式用）：±3072/8 => ±384
-	s16_ThrottleFine = RxdDataConvert(u16Throttle_Rxd, 1, 8);
-
-	//目标对应偏航角速度 ±30°/S	=> ±300, unit 0.1°/S
-	s16_Rotation = RxdDataConvert(u16Rotation_Rxd, 1, 10);	//±3072/10 => ±307
-
-	//目标俯仰角 ±30°	=>	±300, unit 0.1°
-	s16_FBmove = RxdDataConvert(u16FBmove_Rxd, 1, 10);	//±3072/10 => ±307
-
-	//目标滚转角 ±30°	=>	±300, unit 0.1°
-	s16_LRmove = RxdDataConvert(u16LRmove_Rxd, 1, 10);	//±3072/10 => ±307
-
-	//Handle remotor keys, u16RemotorKeyVal
-
-	if(u16RemotorKeyVal & RfSendKey_Xspeed)
-	{	//低速/高速 调节按键
-		if((u16KeyPressed_Flag & RfSendKey_Xspeed)==0)
-		{
-			u16KeyPressed_Flag |= RfSendKey_Xspeed;
-			//切换车体低速/高速://: FunCtrlFlag.2; speed low=0; speed high=1;
-			if(FunCtrlFlag & CarSpeedFlag)
-			{
-				FunCtrlFlag &= ~CarSpeedFlag;
-			}
-			else {
-				FunCtrlFlag |= CarSpeedFlag;
-			}
-		}
-	}
-	else if(u16RemotorKeyVal & RfSendKey_OneKRun)
-	{	//一键起降
-		if((u16KeyPressed_Flag & RfSendKey_OneKRun)==0)
-		{
-			u16KeyPressed_Flag |= RfSendKey_OneKRun;
-			//切换灯状态：
-			if(FunCtrlFlag & CarOneKRun)
-			{
-				FunCtrlFlag &= ~CarOneKRun;
-			}
-			else {
-				FunCtrlFlag |= CarOneKRun;
-			}
-		}
-	}
-	else if(u16RemotorKeyVal & RfSendKey_StuntShow)
-	{	//特技表演
-		if((u16KeyPressed_Flag & RfSendKey_StuntShow)==0)
-		{
-			u16KeyPressed_Flag |= RfSendKey_StuntShow;
-			//★v25：特技键改触发 flash 黑匣子读出（落地停机后按一下，
-			//	从 UART 发出 0x10000 起的录制数据）。
-			//	黑匣子属于旧控制固件（FlightCtrl.c），台架/维护/联调镜像都不编译，
-			//	这里一并排除，否则联调镜像链接时会找不到符号。
-#if (!C_ATT_BENCH_EN)
-			{
-				extern void BlackBox_DumpStart(void);
-				BlackBox_DumpStart();
-			}
-#endif
-		}
-	}
-	else if(u16RemotorKeyVal & RfSendKey_MicroAdj)
-	{	//微调模式
-		if((u16KeyPressed_Flag & RfSendKey_MicroAdj)==0)
-		{
-			u16KeyPressed_Flag |= RfSendKey_MicroAdj;
-			//切换灯状态：
-			if(FunCtrlFlag & CarMicroAdj)
-			{
-				FunCtrlFlag &= ~CarMicroAdj;
-			}
-			else {
-				FunCtrlFlag |= CarMicroAdj;
-			}
-		}
-	}
-	else if(u16RemotorKeyVal & RfSendKey_Headless)
-	{	//无头模式
-		if((u16KeyPressed_Flag & RfSendKey_Headless)==0)
-		{
-			u16KeyPressed_Flag |= RfSendKey_Headless;
-			//切换灯状态：
-			if(FunCtrlFlag & CarHeadless)
-			{
-				FunCtrlFlag &= ~CarHeadless;
-			}
-			else {
-				FunCtrlFlag |= CarHeadless;
-			}
-		}
-	}
-	else {
-		u16KeyPressed_Flag = 0;
-	}
-
-}
-
 //*************************************************************************
 extern unsigned char UserRfRcvBuffer[20];		//RF收到的新数据
 extern unsigned char RxdNewFlag;	//RF收到新数据的标志
@@ -646,16 +509,8 @@ void car_work(void)
 		if(link_ok_flag == 0)
 		{
 			link_ok_flag=1;
-#if (!C_ATT_BENCH_EN)
-			get_GyroSensor_offset();		//获取Gyro传感器零偏（旧控制链，台架模式不调用）
-#endif
-			// ★v22: 黑匣子自动擦除已取消（v20/v21 擦除阻塞丢 RF 包致无法解锁），
-			//   录制区改由用户烧录后用 BDT 手动擦除。
-#if (!C_FLIGHT_CONTROL_EN)
-			return;
-#endif
-			// L400 不在这里丢弃重连后的第一包：0001/0002 可能正好是这一包，
-			// 必须继续映射/校验并交给按键事件状态机。
+			// 当前飞控路径不在这里丢弃重连后的第一包：0001/0002 可能正好是这一包，
+			// 必须继续映射/校验并交给 FlightSafety 按键事件状态机。
 		}
 		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
 		rf_received_type=UserRfRcvBuffer[9];
@@ -668,11 +523,8 @@ void car_work(void)
 		u16LRmove_Rxd = (UserRfRcvBuffer[18]<<8) + UserRfRcvBuffer[19];
 
 #if (C_FLIGHT_CONTROL_EN)
-		// L400 新路径只保留有效整包解码后的映射、按键与时间戳；
-		// 旧按键业务和重复摇杆换算不再进入这条路径。
+		// 当前飞控路径只保留有效整包解码后的映射、按键与时间戳。
 		RcLoop_OnPacket();
-#else
-		Rxdata_Handler();
 #endif
 	}
 	else
@@ -854,14 +706,8 @@ void UserPowOnStart(void)
 	InitalRam();		//初始化用户变量
 //	GetUsb5VinStatus();
 	GetBatteryVoltage();	//测出电源电压
-#if (C_ATT_BENCH_EN)
-	// 台架姿态估计：不初始化旧控制器/混控/气压采样，电机保持停转
-	// （电机引脚在 UserPwmPinInital 里已经设为低电平输出）
-#else
-	User_pwm_init_func();
-	StartPressureSample();
-	FlightCtrl_Init();		//飞行姿态控制初始化（含高度零点）
-#endif
+	// 电机 PWM 由 FlightLoop 初始化时通过 FlightSafety_InitPwm 建立；
+	// 台架/六轴校准入口不启动电机。
 }
 
 //*****************************************************
@@ -908,160 +754,9 @@ void TimeBaseGenerate(void)
 	}
 }
 
-void ClrCarRunPara(void)
-{
-	FunCtrlFlag &= ~(CarDemoFlag | CarOneKRun | CarMicroAdj);
-	FlightCtrl_Reset();		//飞行控制：上锁停转
-	LFmotDuty=0;
-	RBmotDuty=0;
-	LBmotDuty=0;
-	RFmotDuty=0;
-	//DemoProcess=0;
-	//SubProcess=0;
-	//DemoRunCnt=0;
-}
-
-//*******************************************************************
-u32	u32_SampleTick;
-//*******************************************************************
-void PressureSampleTick(void)
-{
-	if(clock_time_exceed(u32_SampleTick, 15625))	//15625uS
-	{
-		//u32_SampleTick = clock_time();
-		u32_SampleTick += 375000;		//15625*24=375,000
-		//gpio_write(Testing_Pin, 1);
-		Get_LPC2623_Value();
-//		gpio_write(Testing_Pin, 0);
-		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
-
-//		UartPrintData(s32PresValue);
-
-	}
-}
-
-void StartPressureSample(void)
-{
-	u32_SampleTick = clock_time();
-	Get_LPC2623_Value();
-}
-
-//*****************************************************
-//飞行姿态控制调度
-//	每 FC_CTRL_DT_MS (mS) 执行一次 FlightCtrl_Tick()：
-//	读陀螺仪 → 姿态解算 → 姿态/偏航/高度控制 → 混控 → 更新4路马达PWM
-//	（原 10mS 的姿态解算已改为此节拍，飞控需要更快的控制周期）
-//*****************************************************
-u32	u32_FlightCtrlTick;
-//*****************************************************
-void FlightCtrlSchedule(void)
-{
-	if(clock_time_exceed(u32_FlightCtrlTick, ((u32)FC_CTRL_DT_MS)*1000))	//FC_CTRL_DT_MS mS
-	{
-		u32_FlightCtrlTick += ((u32)FC_CTRL_DT_MS) * 1000 * CLOCK_SYS_CLOCK_1US;
-		//gpio_write(Testing_Pin, 1);
-#if (PERF_MEAS_EN)
-		// 计时：planned = 本轮计划启动 tick；实际启动/返回在 PerfMeas 内部取
-		{
-			static perf_tick_t s_perf_tick;
-			PerfMeas_TaskBegin(&s_perf_tick, u32_FlightCtrlTick);
-			FlightCtrl_Tick();
-			PerfMeas_TaskEnd(&s_perf_tick);
-		}
-#else
-		FlightCtrl_Tick();
-#endif
-		//gpio_write(Testing_Pin, 0);
-	}
-}
-
-//*****************************************************
-//for function control
-//*****************************************************
-//unsigned short u16KeyTxBuffer;	//待发送键值
-unsigned char RxdStatus;
-unsigned char u8T500mSCnt;
-unsigned char u8StopStaCnt=0;
-//unsigned char u8VoiceStChkDelayCnt=0;
-
-//extern void PrepareQureyCmd(void);
-//extern void PrepareRemotorCmd(void);
-//*****************************************************
-void RxdFunction_loop(void)
-{
-	if(T10mSflag)		//10mS
-	{
-		T10mSflag=0;
-		//gpio_write(Testing_Pin, 1);
-
-#if(UseTm0SoundCmd)
-		if(u16VoiceSentCnt < 0xffff)
-		{
-			u16VoiceSentCnt++;
-		}
-		SendVoiceDelay();
-#endif	//#if(UseTm0SoundCmd)
-
-//		if(u8VoiceStChkDelayCnt)
-//		{
-//			u8VoiceStChkDelayCnt--;
-//		}
-		//gpio_toggle(Testing_Pin);	//Test_Pin 翻转
-		//gpio_toggle(GPIO_PA5);	//Test_Pin 翻转
-
-		//CarDemoHandler();	//10mS loop
-		if(FunCtrlFlag & WorkingStatus)
-		{
-			//PairingDisplay();		//配对显示：配对中闪烁，匹配完成常亮
-			//注：陀螺仪采集 + 姿态解算 + 姿态/高度控制已全部移入 FlightCtrl_Tick()，
-			//    由下面的 FlightCtrlSchedule() 以 FC_CTRL_DT_MS(5mS) 节拍调用
-		}
-
-		//OverCurrentHandler();	//10mS loop
-
-
-		if(VddVolFlag & LowBatOffFlag)
-		{
-			ClrCarRunPara();
-			Update4MotPwmDuty();
-
-		}
-
-		//NoActionCounter();
-		//gpio_write(Testing_Pin, 0);
-	}
-
-	if(T100mSflag)
-	{
-		T100mSflag=0;
-		RxdStatus++;
-
-	}
-
-	if(T500mSflag)
-	{
-		T500mSflag=0;
-		u8T500mSCnt++;
-		GetBatteryVoltage();	//测出电源电压
-//		if ((u8T500mSCnt%2)==0)
-//		{
-//			SendLedCtrlCmd();
-//		}
-
-		//MotorFlag = (u32_Sys500mScnt%256);
-		//Uart_Send_Ctrl_Data();	//10mS loop
-	}
-
-	FlightCtrlSchedule();		//飞行姿态控制：FC_CTRL_DT_MS 节拍
-
-	if((VddVolFlag & LowBatOffFlag)==0)
-	{
-		car_work();			//正常工作时RF接收处理程序
-	}
-}
-
-// 台架姿态估计整块只在姿态镜像里编译；维护镜像用 -DC_MAINT_269A_EN=1 构建，
-// 这块整体不参与，省 Flash 也避免"定义了没人用"的告警。
+// 台架姿态估计整块源码保留；当前飞控构建 C_FLIGHT_CONTROL_EN=1 不调用它。
+// 维护镜像用 -DC_MAINT_269A_EN=1 构建，这块整体不参与；
+// 仅 C_FLIGHT_CONTROL_EN=0 的台架入口会进入 BenchAtt_Process。
 #if (!C_MAINT_269A_EN) && (!C_RC_BRINGUP_EN)
 //**************************************************************
 // 台架姿态估计（原独立模块已合入本文件）
@@ -1390,7 +1085,8 @@ static void BenchAtt_Startup(att_i32 acc_mg[3], att_i32 gyr_q10[3], u32 dt_ticks
 	s_bench_prev_ok = 1;
 }
 
-// 台架主处理：主循环每圈调用一次，内部按 200Hz 采样
+// 台架主处理：主循环每圈调用一次，内部按 C_ATT_SAMPLE_HZ 采样
+// （台架配置为 400Hz；飞控构建不进入本函数）
 static void BenchAtt_Process(void)
 {
 	u32 now;
@@ -1791,7 +1487,7 @@ static void Maint_Process(void)
 #if (C_RC_BRINGUP_EN)
 // =====================================================================================
 // 遥控输入联调：只做 2.4G 收包 → 通道解码 → 映射 → 低频串口观察，电机保持停转
-//   无线报文与配对沿用现有流程（d24_rx_main_loop / car_work / Rxdata_Handler），
+//   无线报文与配对沿用现有流程（d24_rx_main_loop / car_work / RcLoop_OnPacket），
 //   只在接收端把原始通道重新映射成四个控制指令：
 //     右杆上下 FBmove   → 油门（推上 = 指令增大）
 //     右杆左右 LRmove   → 偏航（推右 = 机头右转）
@@ -1810,7 +1506,8 @@ static void Maint_Process(void)
 #define RC_SIGN_PITCH          (+1)
 #define RC_SIGN_ROLL           (-1)
 
-// 映射后的四轴指令（±307 量级，供后续 400Hz 控制环使用）
+// 映射后的四轴指令（±307 量级，供 200Hz 飞控路径使用；
+// 400Hz 仅属历史联调入口，不是当前控制周期）
 static volatile s16 s_rc_cmd_throttle;
 static volatile s16 s_rc_cmd_yaw;
 static volatile s16 s_rc_cmd_pitch;
@@ -1935,90 +1632,9 @@ static void RcBringup_Report(void)
 #if (C_FLIGHT_CONTROL_EN)
 // 板级入口只做轻量转接：收包路径更新 RcInput/FlightSafety，
 // 5ms 调度由 FlightLoop 负责；抓包模式仍保留原始按键文本。
-#if C_L400_KEY_CAPTURE
-static unsigned short s_cap_last_key;
-static unsigned char s_cap_last_rk;
-static unsigned char s_cap_last_b8, s_cap_last_b9, s_cap_last_b10, s_cap_last_b11;
-static unsigned int s_cap_last_tick;
-static unsigned char s_cap_have;
-
-static char *cap_put_str(char *p, const char *s)
-{
-	while (*s) *p++ = *s++;
-	return p;
-}
-
-static char *cap_put_hex(char *p, unsigned int v, unsigned char digits)
-{
-	static const char hex[] = "0123456789ABCDEF";
-	int i;
-
-	for (i = digits - 1; i >= 0; i--) {
-		*p++ = hex[(v >> (i * 4)) & 0x0F];
-	}
-	return p;
-}
-
-static char *cap_put_u32(char *p, unsigned int v)
-{
-	char tmp[10];
-	unsigned char n = 0;
-
-	if (!v) { *p++ = '0'; return p; }
-	while (v) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
-	while (n) *p++ = tmp[--n];
-	return p;
-}
-
-// 抓包镜像专用阻塞输出；正常飞控不编译这段。
-static void L400_KeyCapture(unsigned short key, unsigned int now)
-{
-	unsigned char b8 = UserRfRcvBuffer[8];
-	unsigned char b9 = UserRfRcvBuffer[9];
-	unsigned char b10 = UserRfRcvBuffer[10];
-	unsigned char b11 = UserRfRcvBuffer[11];
-	unsigned char changed = !s_cap_have || key != s_cap_last_key
-		|| rf_received_key != s_cap_last_rk
-		|| b8 != s_cap_last_b8 || b9 != s_cap_last_b9
-		|| b10 != s_cap_last_b10 || b11 != s_cap_last_b11;
-
-	if (!changed) return;
-	{
-		char buf[96];
-		char *q = buf;
-
-		q = cap_put_str(q, "L400K key=");
-		q = cap_put_hex(q, key, 4);
-		q = cap_put_str(q, " rk=");
-		q = cap_put_hex(q, rf_received_key, 2);
-		q = cap_put_str(q, " b=");
-		q = cap_put_hex(q, b8, 2); *q++ = '/';
-		q = cap_put_hex(q, b9, 2); *q++ = '/';
-		q = cap_put_hex(q, b10, 2); *q++ = '/';
-		q = cap_put_hex(q, b11, 2);
-		q = cap_put_str(q, " dt=");
-		q = cap_put_u32(q, s_cap_have ? (now - s_cap_last_tick)
-									  / (CLOCK_SYS_CLOCK_HZ / 1000) : 0);
-		*q++ = '\n';
-		UartDbgSend((unsigned char *)buf, (unsigned char)(q - buf));
-	}
-	s_cap_last_key = key;
-	s_cap_last_rk = rf_received_key;
-	s_cap_last_b8 = b8; s_cap_last_b9 = b9;
-	s_cap_last_b10 = b10; s_cap_last_b11 = b11;
-	s_cap_last_tick = now;
-	s_cap_have = 1;
-}
-#endif
-
-// 旧板级入口保留原名，内部转给 FlightLoop；包内 Estop 仍立即执行。
+// 板级收包入口：只做字段转交，包内急停由 FlightLoop/FlightSafety 立即处理。
 void RcLoop_OnPacket(void)
 {
-#if C_L400_KEY_CAPTURE
-	unsigned int now = clock_time();
-
-	L400_KeyCapture(u16RemotorKeyVal, now);
-#endif
 	FlightLoop_OnRcPacket(u16Throttle_Rxd, u16Rotation_Rxd,
 						  u16FBmove_Rxd, u16LRmove_Rxd,
 						  u16RemotorKeyVal);
@@ -2031,13 +1647,11 @@ void User_main_loop_process(void)
 {
 	wd_32k_feed();
 
-#if (C_ATT_BENCH_EN)
 #if (C_FLIGHT_CONTROL_EN)
 	// 200Hz 到点先采样/控制，射频中断在后台收包。
 	FlightLoop_Process();
-	// 日志服务紧跟在控制拍之后：此时距下一拍最远，余量最大。
-	// 若放到 car_work/调试发送之后，主循环稍长就会持续错过 2.5ms 余量，
-	// 记录队列很快满，表现为样本稀疏、录不满。
+	// 正常飞行基线没有板载日志；仅在 C_GROUND_UART_DIAG=1 的诊断构建中，
+	// 紧跟控制拍调用 10Hz 非阻塞地面 UART 输出，忙时允许丢诊断帧。
 #if C_GROUND_UART_DIAG
 	GroundDiag_Process();
 #endif
@@ -2062,27 +1676,6 @@ void User_main_loop_process(void)
 	BenchAtt_Process();
 #endif
 	return;
-#endif
-
-	d24_rx_main_loop();
-
-#if (BATT_CHECK_ENABLE)
-	user_batt_check_proc();//batt check proc
-#endif
-
-#if (APP_TEST_ENABLE)
-	// main loop code
-	app_test_loop();
-#endif
-
-	TimeBaseGenerate();
-	RxdFunction_loop();
-	PressureSampleTick();
-
-#if (PERF_MEAS_EN)
-	// 性能统计帧：约 1S 一帧，尝试发送（TX 忙则丢弃计数），不等待、不 printf
-	PerfMeas_Poll();
-#endif
 }
 
 //*******************************************************************

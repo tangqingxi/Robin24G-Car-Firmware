@@ -10,7 +10,6 @@
 #include "app_public_config.h"
 #include "app_toy/driver_layer/hw_gpio.h"
 #include <UserUart.h>
-#include "UserFilter.h"
 #include "User_IIC.h"
 #include "PressSen_Lpc2623.h"
 

@@ -5,30 +5,20 @@
 
 ## 当前命令
 
-从仓库根目录运行：
+从仓库根目录核验交付镜像：
 
 ```powershell
-# 实时串口/姿态/解锁诊断（正常日志应用本身静默）
-python tools\uart_sensor_monitor.py --port COM12
-
-# 解锁诊断 GUI（需要诊断固件）
-python tools\uart_sensor_monitor.py --port COM12 --arm-debug
-
-# BDT 日志区转 CSV
-python tools\flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
-
-# 交付镜像核验
 python firmware_delivery\verify_hashes.py
 ```
 
-从 `tools` 目录运行同样可用：
+地面 UART 采集需刷地面诊断固件。归档里的两份 UART 固件用于复现偏航 P=0.25 的旧实验；当前飞行基线的偏航 P 为 2.0。
+烧录后断开 BDT，再接 UART，在仓库根目录运行：
 
 ```powershell
-python uart_sensor_monitor.py --port COM12
-python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
+python tools\uart_sensor_monitor.py --port COM12 --ground-diag --csv "data\logs\ground_yaw_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
 ```
 
-日志应用没有 UART 输出；日志用 BDT 读 `0x10000` 起 `0xD000`。
+历史 BDT 数据的导出方法见 [历史说明](README_DETAIL.md)。
 
 ## 校准命令
 
@@ -48,7 +38,7 @@ python tools\gyro_bias_cal.py --port COM12 --axis-map data\imu_axis_map_frd.json
 powershell -ExecutionPolicy Bypass -File tools\regression\run_key_regression.ps1
 ```
 
-覆盖 CRC、日志完整/恢复、真实 FlightLoop 状态、boot 校验和 Python 工具。
+覆盖 CRC、真实 FlightLoop 启动/解锁/急停/失联、地面 UART 诊断、偏航对称、boot 校验和打包尺寸。
 
 历史 v1 导出夹具：
 

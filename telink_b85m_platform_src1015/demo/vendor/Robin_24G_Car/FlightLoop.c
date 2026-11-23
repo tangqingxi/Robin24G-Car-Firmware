@@ -5,11 +5,14 @@
 #include "RateControl.h"
 #include "FlightSafety.h"
 #include "MotorMixer.h"
-#include "FlightNoLog.h"
 #include "GroundDiag.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
 
+// 当前实飞基线：200 Hz / 5 ms 调度 FlightLoop_Process。
+// 每拍顺序：RcInput 超时 → PreSampleSafety 先清四路 PWM
+// → IMU 读取 → 姿态 → 外环/内环 → 故障判定 → 混控 → FlightSafety 输出。
+// 正常镜像无板载日志；GroundDiag 仅由 C_GROUND_UART_DIAG=1 的构建启用。
 // 与台架固件一致的校准常数；迁移控制链时保持数值不变。
 static const s32 s_fc_acc_off_lsb[3] = { -3, -8, -29 };
 static const s32 s_fc_acc_scale_q14[3] = { 16436, 16429, 16357 };
@@ -41,53 +44,9 @@ typedef struct __attribute__((aligned(4))) {
 	u8 have_ts;
 	u8 still_prev_ok;
 	u8 inited;
-	u8 test_bypass;
-	u16 bench_key_prev;
 } FlightLoopState;
 
 static FlightLoopState s_fl;
-
-// 序列化前只读取标量，所有值按小端显式写字节，避免把打包结构地址直接交给整型指针。
-static void flight_log_fill(FlightLogSample *ls, u8 imu_ok, u8 att_updated,
-							u8 limited)
-{
-	unsigned short pwm[4];
-	int i;
-
-	for (i = 0; i < 4; i++) {
-		ls->q[i] = s_fl.att.q[i];
-	}
-	for (i = 0; i < 3; i++) {
-		ls->gyro[i] = (s16)s_fl.rate[i];
-		ls->acc[i] = (s16)s_fl.lpf[i];
-	}
-	ls->t_ms = clock_time() / FLIGHT_TICKS_PER_MS;
-	ls->yaw_stick = (s16)s_fl.rc.cmd[1];
-	ls->yaw_target = (s16)s_fl.attc.tgt_rate[2];
-	ls->yaw_corr = (s16)s_fl.ratec.corr[2];
-	ls->thrust = (unsigned short)MotorMixer_Thrust(s_fl.rc.cmd[0]);
-	FlightSafety_GetPwm(&s_fl.safety, pwm);
-	for (i = 0; i < 4; i++) {
-		ls->pwm[i] = pwm[i];
-	}
-	ls->flags = 0;
-	if (imu_ok) ls->flags |= FLIGHT_LOG_F_IMU_OK;
-	if (s_fl.att.ready) ls->flags |= FLIGHT_LOG_F_ATT_READY;
-	if (att_updated) ls->flags |= FLIGHT_LOG_F_ATT_UPD;
-	if (s_fl.safety.armed) ls->flags |= FLIGHT_LOG_F_ARMED;
-	if (limited) ls->flags |= FLIGHT_LOG_F_LIMITED;
-	if (!s_fl.safety.armed) ls->flags |= FLIGHT_LOG_F_LOCKED;
-}
-
-// 停机事件必须先由 FlightSafety_Lock 清四路 PWM，再写事件并收尾日志。
-static void flight_log_event(u8 event, u16 extra_flags)
-{
-	FlightLogSample ls;
-
-	flight_log_fill(&ls, 1, 0, 0);
-	ls.flags |= extra_flags;
-	FlightLog_OnEvent(event, &ls);   // 事件入队，服务路径写完后再收尾
-}
 
 // 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。
 #define FLIGHT_ALIGN4(expr) ((expr) & 3u)
@@ -151,7 +110,6 @@ void FlightLoop_Init(void)
 	u8 rb = 0;
 	u8 st;
 
-	FlightArmDebug_Init();
 	if (s_fl.inited) {
 		return;
 	}
@@ -162,66 +120,16 @@ void FlightLoop_Init(void)
 
 	st = t3488_bench_init(C_GYRO_LPF_SEL, &rb);
 	if (st) {
-		// 初始化失败也把真实返回码/lpf 回读交给主循环发送
-		FlightArmDebug_OnInit(st, rb,
-							  s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
-							  s_fl.att.ready, s_fl.safety.pwm_ready);
+		(void)rb;
 		return;
 	}
 
 	flight_state_reset();
-#if (!C_L400_KEY_CAPTURE)
 	FlightSafety_InitPwm(&s_fl.safety);
-#endif
 
 	now = clock_time();
 	s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	s_fl.inited = 1;
-#if C_FLIGHT_ARM_DEBUG
-	s_fl.test_bypass = 6;
-#endif
-	FlightArmDebug_OnInit(0, rb, s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
-						  s_fl.att.ready, s_fl.safety.pwm_ready);
-}
-
-signed int FlightLoop_LogBudgetLeftUs(void)
-{
-	signed int left = (signed int)(s_fl.next_tick - clock_time());
-
-	return left / (signed int)(CLOCK_SYS_CLOCK_HZ / 1000000u);
-}
-
-unsigned char FlightLoop_CanWriteLog(void)
-{
-	// 给单次 Flash 写入留出距下一控制拍的余量；余量不足延期到下一主循环。
-	s32 left = (s32)(s_fl.next_tick - clock_time());
-
-#if C_FLIGHT_ARM_DEBUG
-	// 临时诊断：锁定、四路 PWM 为零时放少量普通记录绕过旧门槛，
-	// 只用于测量完整服务耗时；正常镜像不编译此分支。
-	if (s_fl.test_bypass && FlightLog_State() == FLIGHT_LOG_REC
-		&& !s_fl.safety.armed && FlightLog_QueueCount() > 0) {
-		unsigned short pwm[4];
-
-		FlightSafety_GetPwm(&s_fl.safety, pwm);
-		if ((pwm[0] | pwm[1] | pwm[2] | pwm[3]) == 0) {
-			s_fl.test_bypass--;
-			return 1;
-		}
-	}
-#endif
-	return left > (s32)(FLIGHT_PERIOD_TICKS / 2);
-}
-
-unsigned char FlightLoop_CanEraseLog(void)
-{
-	unsigned short pwm[4];
-
-	if (!s_fl.inited || s_fl.safety.armed) {
-		return 0;
-	}
-	FlightSafety_GetPwm(&s_fl.safety, pwm);
-	return (pwm[0] | pwm[1] | pwm[2] | pwm[3]) == 0;
 }
 
 // 启动阶段：连续静止 500ms 后取平均加速度定姿；移动/间断就重开窗口。
@@ -231,9 +139,6 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 	u8 still = Euler_IsStill(acc_mg, gyr_q10, s_fl.prev_acc, s_fl.still_prev_ok);
 	int i;
 
-	// 本拍输入和“上一拍”prev_acc 一起送诊断；prev_acc 在函数末尾才更新。
-	FlightArmDebug_OnStillSample(acc_mg, gyr_q10, s_fl.prev_acc,
-								 s_fl.still_prev_ok, dt_ticks, still);
 	if (!still) {
 		flight_still_reset();
 	} else {
@@ -246,19 +151,13 @@ static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
 		if (s_fl.still_ticks >= FLIGHT_INIT_STILL_TICKS && s_fl.still_n > 0) {
 			s32 avg[3];
 
-			// 静置和必须有符号；先把样本计数转 s32 再除，避免负数被当无符号
+			// 静置和必须有符号；先把样本计数转 s32 再除，避免负数被当无符号。
 			avg[0] = s_fl.still_sum[0] / (s32)s_fl.still_n;
 			avg[1] = s_fl.still_sum[1] / (s32)s_fl.still_n;
 			avg[2] = s_fl.still_sum[2] / (s32)s_fl.still_n;
-			{
-				u8 init_ok = Euler_InitFromAccel(&s_fl.att, avg,
-											 ts / FLIGHT_TICKS_PER_MS);
-
-				// 使用真实的初始化返回值；失败时才重开静置窗口。
-				FlightArmDebug_OnStartupResult(init_ok);
-				if (!init_ok) {
-					flight_still_reset();
-				}
+			if (!Euler_InitFromAccel(&s_fl.att, avg,
+									 ts / FLIGHT_TICKS_PER_MS)) {
+				flight_still_reset();
 			}
 		}
 	}
@@ -275,90 +174,44 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 {
 	RcInputEvent ev;
 	u32 now = clock_time();
+	u8 thr_low, center, stop;
 
-	// 初始化门槛之前也计数，IMU 未就绪时仍能看见 0002 是否收到
-	FlightArmDebug_OnPacket(thr, rot, fb, lr, key);
 	if (!s_fl.inited) {
-		FlightLog_OnKey(key, 0, 0, 1);   // 初始化前按住录制键，不能初始化后补触发
 		return;
 	}
 	ev = RcInput_OnPacket(&s_fl.rc, thr, rot, fb, lr, key, now);
 
-#if C_FLIGHT_ARM_DEBUG
-	{
-		u8 k3_edge = (u8)((ev.key & FLIGHT_LOG_KEY_START)
-						  && !(s_fl.bench_key_prev & FLIGHT_LOG_KEY_START));
-
-		s_fl.bench_key_prev = ev.key;
-		// 临时诊断：锁定、PWM 全零时短按 K3 直接跑 A/B 两组 Flash 对比。
-		if (k3_edge && !s_fl.safety.armed && FlightLoop_CanEraseLog()
-			&& FlightLog_State() == FLIGHT_LOG_IDLE) {
-			FlightLog_BenchStart();
-			return;
-		}
+	thr_low = (ev.cmd[0] <= MOTOR_ARM_THR_MAX) ? 1 : 0;
+	center = (ev.cmd[1] >= -MOTOR_ARM_STICK_MAX
+			  && ev.cmd[1] <= MOTOR_ARM_STICK_MAX
+			  && ev.cmd[2] >= -MOTOR_ARM_STICK_MAX
+			  && ev.cmd[2] <= MOTOR_ARM_STICK_MAX
+			  && ev.cmd[3] >= -MOTOR_ARM_STICK_MAX
+			  && ev.cmd[3] <= MOTOR_ARM_STICK_MAX) ? 1 : 0;
+	stop = FlightSafety_OnKey(&s_fl.safety, ev.key, ev.packet_valid,
+							  thr_low, center, s_fl.att.ready,
+							  s_fl.rc.link);
+	if (stop) {
+		// 急停优先：先锁存并写四路 0 PWM，不再做同包目标换算。
+		FlightSafety_Lock(&s_fl.safety, stop);
+		return;
 	}
-#endif
-
-#if (!C_L400_KEY_CAPTURE)
-	{
-		u8 thr_low = (ev.cmd[0] <= MOTOR_ARM_THR_MAX) ? 1 : 0;
-		u8 center = (ev.cmd[1] >= -MOTOR_ARM_STICK_MAX
-					 && ev.cmd[1] <= MOTOR_ARM_STICK_MAX
-					 && ev.cmd[2] >= -MOTOR_ARM_STICK_MAX
-					 && ev.cmd[2] <= MOTOR_ARM_STICK_MAX
-					 && ev.cmd[3] >= -MOTOR_ARM_STICK_MAX
-					 && ev.cmd[3] <= MOTOR_ARM_STICK_MAX) ? 1 : 0;
-		u8 stop = FlightSafety_OnKey(&s_fl.safety, ev.key, ev.packet_valid,
-									 thr_low, center, s_fl.att.ready,
-									 s_fl.rc.link);
-
-		if (stop) {
-			// 急停优先：先写零 PWM，不再做同包目标换算
-			FlightSafety_Lock(&s_fl.safety, stop);
-			FlightArmDebug_OnEstop();
-			FlightLog_OnKey(ev.key, ev.packet_valid, 0, 1);
-			flight_log_event(1, FLIGHT_LOG_F_ESTOP | FLIGHT_LOG_F_LOCKED);
-		} else {
-			FlightLog_OnKey(ev.key, ev.packet_valid,
-							FlightLoop_CanEraseLog(),
-							(u8)((ev.key & 0x0003) ? 1 : 0));
-			FlightArmDebug_OnUnlockAttempt(ev.key, fb, ev.cmd,
-										   ev.packet_valid, thr_low, center,
-										   s_fl.att.ready, s_fl.rc.link,
-										   s_fl.lpf, s_fl.rate);
-			if (ev.packet_valid) {
-				AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
-			}
-		}
+	if (ev.packet_valid) {
+		AttitudeControl_OnStick(&s_fl.attc, ev.cmd);
 	}
-#endif
 }
 
 // 采样前安全门：失联/指令超时先把四路写 0，之后才允许读 IMU。
 void FlightLoop_PreSampleSafety(void)
 {
-	u8 was_armed = s_fl.safety.armed;
-
 	if (!s_fl.rc.link) {
-		FlightLog_OnLinkDown();
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
-#if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_LINK);
-#endif
-		// 持续失联只保持锁定；只有“已解锁→锁定”这一沿才结束会话。
-		if (was_armed) {
-			flight_log_event(2, FLIGHT_LOG_F_LINKLOSS | FLIGHT_LOG_F_LOCKED);
-		}
 	} else if (!s_fl.rc.cmd_ok) {
 		AttitudeControl_Inhibit(&s_fl.attc);
 		RateControl_ClearOutputs(&s_fl.ratec);
-#if (!C_L400_KEY_CAPTURE)
 		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_CMD);
-#endif
-		if (was_armed) {
-			flight_log_event(3, FLIGHT_LOG_F_LOCKED);
-		}
 	}
 }
 
@@ -387,105 +240,99 @@ void FlightLoop_Process(void)
 
 	planned = s_fl.next_tick;
 	s_fl.next_tick = planned + FLIGHT_PERIOD_TICKS;
-	FlightLog_OnControlTick();
 	if ((u32)(now - planned) >= FLIGHT_PERIOD_TICKS) {
-		// 已错过至少一拍：从当前时刻重新排下一拍，不追发补拍
+		// 已错过至少一拍：从当前时刻重新排下一拍，不追发补拍。
 		s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	}
 
 	RcInput_UpdateTimeouts(&s_fl.rc, now);
-	// 必须在下面的 t3488_read_6axis/Euler 之前完成四路清零
+	// 必须在下面的 t3488_read_6axis/Euler 之前完成四路清零。
 	FlightLoop_PreSampleSafety();
 
 	{
 		u8 read_fail = t3488_read_6axis(raw_a, raw_g);
 
-		FlightArmDebug_OnRead(read_fail);
 		if (read_fail) {
 			imu_ok = 0;
-		AttitudeControl_ClearOutputs(&s_fl.attc);
-		RateControl_ClearOutputs(&s_fl.ratec);
-#if (!C_L400_KEY_CAPTURE)
-		FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_ATT);
-#endif
-	} else {
-		u32 t_read1;
-
-		t_read1 = clock_time();
-		acc_frd[0] = raw_a[0];
-		acc_frd[1] = -raw_a[1];
-		acc_frd[2] = -raw_a[2];
-		gyr_q10[0] = Euler_GyroToQ10(raw_g[0], s_fc_gyro_bias_q6[0],
-									 &s_fl.gyro_rem[0]);
-		gyr_q10[1] = Euler_GyroToQ10(-raw_g[1], s_fc_gyro_bias_q6[1],
-									 &s_fl.gyro_rem[1]);
-		gyr_q10[2] = Euler_GyroToQ10(-raw_g[2], s_fc_gyro_bias_q6[2],
-									 &s_fl.gyro_rem[2]);
-		for (i = 0; i < 3; i++) {
-			s32 lsb = (acc_frd[i] - s_fc_acc_off_lsb[i])
-					  * s_fc_acc_scale_q14[i] >> 14;
-
-			acc_mg[i] = (lsb * 125) >> 8;
-			s_fl.rate[i] = gyr_q10[i];
-		}
-
-		if (!s_fl.have_ts) {
-			s_fl.last_ts = t_read1;
-			s_fl.have_ts = 1;
-			dt_ticks = 0;
+			AttitudeControl_ClearOutputs(&s_fl.attc);
+			RateControl_ClearOutputs(&s_fl.ratec);
+			FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_ATT);
 		} else {
-			dt_ticks = t_read1 - s_fl.last_ts;
-			s_fl.last_ts = t_read1;
-		}
-		if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * FLIGHT_TICKS_PER_100US) {
-			FlightArmDebug_OnGapBreak();
-			s_fl.dt_rem = 0;
-			s_fl.att.have_prev = 0;
-			flight_still_reset();
-			dt_ticks = 0;
-		}
-		if (dt_ticks) {
-			s_fl.dt_rem += dt_ticks;
-			dt_100us = (s32)(s_fl.dt_rem / FLIGHT_TICKS_PER_100US);
-			s_fl.dt_rem -= (u32)dt_100us * FLIGHT_TICKS_PER_100US;
-		}
+			u32 t_read1 = clock_time();
 
-		if (!s_fl.lpf_ok) {
-			s_fl.lpf[0] = acc_mg[0];
-			s_fl.lpf[1] = acc_mg[1];
-			s_fl.lpf[2] = acc_mg[2];
-			s_fl.lpf_ok = 1;
-		} else if (C_ACC_LPF_EN && dt_ticks > 0) {
-			u32 dt_us = (dt_ticks + FLIGHT_TICKS_PER_US / 2)
-						/ FLIGHT_TICKS_PER_US;
-			s32 alpha;
-
-			if (dt_us + 50 < s_fl.lpf_alpha_dt_us
-				|| dt_us > s_fl.lpf_alpha_dt_us + 50) {
-				s_fl.lpf_alpha = (u32)((dt_us * 32768u)
-									   / (C_ACC_LPF_TAU_US + dt_us));
-				s_fl.lpf_alpha_dt_us = dt_us;
-			}
-			alpha = (s32)s_fl.lpf_alpha;
+			acc_frd[0] = raw_a[0];
+			acc_frd[1] = -raw_a[1];
+			acc_frd[2] = -raw_a[2];
+			gyr_q10[0] = Euler_GyroToQ10(raw_g[0], s_fc_gyro_bias_q6[0],
+										 &s_fl.gyro_rem[0]);
+			gyr_q10[1] = Euler_GyroToQ10(-raw_g[1], s_fc_gyro_bias_q6[1],
+										 &s_fl.gyro_rem[1]);
+			gyr_q10[2] = Euler_GyroToQ10(-raw_g[2], s_fc_gyro_bias_q6[2],
+										 &s_fl.gyro_rem[2]);
 			for (i = 0; i < 3; i++) {
-				s_fl.lpf[i] += (alpha * (acc_mg[i] - s_fl.lpf[i])) >> 15;
-			}
-		} else if (!C_ACC_LPF_EN) {
-			s_fl.lpf[0] = acc_mg[0];
-			s_fl.lpf[1] = acc_mg[1];
-			s_fl.lpf[2] = acc_mg[2];
-		}
+				s32 lsb = (acc_frd[i] - s_fc_acc_off_lsb[i])
+						  * s_fc_acc_scale_q14[i] >> 14;
 
-		if (!s_fl.att.ready) {
-			flight_startup(s_fl.lpf, gyr_q10, dt_ticks, t_read1);
-		} else if (dt_100us > 0) {
-			if (Euler_Update(&s_fl.att, s_fl.lpf, gyr_q10, dt_100us,
-							 t_read1 / FLIGHT_TICKS_PER_MS)) {
-				FlightSafety_NoteAttitude(&s_fl.safety);
-				att_updated = 1;
+				acc_mg[i] = (lsb * 125) >> 8;
+				s_fl.rate[i] = gyr_q10[i];
+			}
+
+			if (!s_fl.have_ts) {
+				s_fl.last_ts = t_read1;
+				s_fl.have_ts = 1;
+				dt_ticks = 0;
+			} else {
+				dt_ticks = t_read1 - s_fl.last_ts;
+				s_fl.last_ts = t_read1;
+			}
+			if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * FLIGHT_TICKS_PER_100US) {
+				s_fl.dt_rem = 0;
+				s_fl.att.have_prev = 0;
+				flight_still_reset();
+				dt_ticks = 0;
+			}
+			if (dt_ticks) {
+				s_fl.dt_rem += dt_ticks;
+				dt_100us = (s32)(s_fl.dt_rem / FLIGHT_TICKS_PER_100US);
+				s_fl.dt_rem -= (u32)dt_100us * FLIGHT_TICKS_PER_100US;
+			}
+
+			if (!s_fl.lpf_ok) {
+				s_fl.lpf[0] = acc_mg[0];
+				s_fl.lpf[1] = acc_mg[1];
+				s_fl.lpf[2] = acc_mg[2];
+				s_fl.lpf_ok = 1;
+			} else if (C_ACC_LPF_EN && dt_ticks > 0) {
+				u32 dt_us = (dt_ticks + FLIGHT_TICKS_PER_US / 2)
+							/ FLIGHT_TICKS_PER_US;
+				s32 alpha;
+
+				if (dt_us + 50 < s_fl.lpf_alpha_dt_us
+					|| dt_us > s_fl.lpf_alpha_dt_us + 50) {
+					s_fl.lpf_alpha = (u32)((dt_us * 32768u)
+										   / (C_ACC_LPF_TAU_US + dt_us));
+					s_fl.lpf_alpha_dt_us = dt_us;
+				}
+				alpha = (s32)s_fl.lpf_alpha;
+				for (i = 0; i < 3; i++) {
+					s_fl.lpf[i] += (alpha * (acc_mg[i] - s_fl.lpf[i])) >> 15;
+				}
+			} else if (!C_ACC_LPF_EN) {
+				s_fl.lpf[0] = acc_mg[0];
+				s_fl.lpf[1] = acc_mg[1];
+				s_fl.lpf[2] = acc_mg[2];
+			}
+
+			if (!s_fl.att.ready) {
+				flight_startup(s_fl.lpf, gyr_q10, dt_ticks, t_read1);
+			} else if (dt_100us > 0) {
+				if (Euler_Update(&s_fl.att, s_fl.lpf, gyr_q10, dt_100us,
+								 t_read1 / FLIGHT_TICKS_PER_MS)) {
+					FlightSafety_NoteAttitude(&s_fl.safety);
+					att_updated = 1;
+				}
 			}
 		}
-	}
 	}
 
 	if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {
@@ -497,7 +344,6 @@ void FlightLoop_Process(void)
 		RateControl_ClearOutputs(&s_fl.ratec);
 	}
 
-#if (!C_L400_KEY_CAPTURE)
 	FlightSafety_UpdateFaults(&s_fl.safety, s_fl.rc.link, s_fl.rc.cmd_ok,
 							  att_updated, ctrl_ok);
 	{
@@ -509,38 +355,19 @@ void FlightLoop_Process(void)
 		mixer_limited = mix.limited;
 		FlightSafety_Apply(&s_fl.safety, &mix);
 	}
-#endif
 
-#if C_FLIGHT_ARM_DEBUG
-	{
-		unsigned short pwm[4];
-
-		FlightSafety_GetPwm(&s_fl.safety, pwm);
-		FlightArmDebug_OnStatus(s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
-								s_fl.att.ready, s_fl.safety.pwm_ready);
-		FlightArmDebug_OnControl(att_updated, ctrl_ok, s_fl.safety.armed,
-								 s_fl.safety.reason, pwm);
-	}
-#endif
-	{
-		FlightLogSample ls;
-
-		// 本拍 Euler_Update 之后、PWM 已落定，记录同一拍原始状态。
-		flight_log_fill(&ls, imu_ok, att_updated, mixer_limited);
-		FlightLog_OnSample(&ls);
 #if C_GROUND_UART_DIAG
-		{
-			unsigned short dpwm[4];
+	{
+		unsigned short dpwm[4];
 
-			FlightSafety_GetPwm(&s_fl.safety, dpwm);
-			GroundDiag_OnControl(s_fl.rc.cmd[0], s_fl.rc.cmd[1],
-								 s_fl.attc.tgt_rate,
-								 s_fl.rate, s_fl.ratec.corr, dpwm,
-								 raw_a, s_fl.att.q, imu_ok,
-								 s_fl.safety.armed, mixer_limited);
-		}
-#endif
+		FlightSafety_GetPwm(&s_fl.safety, dpwm);
+		GroundDiag_OnControl(s_fl.rc.cmd[0], s_fl.rc.cmd[1],
+							 s_fl.attc.tgt_rate,
+							 s_fl.rate, s_fl.ratec.corr, dpwm,
+							 raw_a, s_fl.att.q, imu_ok,
+							 s_fl.safety.armed, mixer_limited);
 	}
+#endif
 }
 
 #ifdef FLIGHT_STARTUP_TEST

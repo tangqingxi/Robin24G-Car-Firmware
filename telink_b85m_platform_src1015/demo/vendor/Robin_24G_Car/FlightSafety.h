@@ -7,6 +7,12 @@
 #define FLIGHT_EVENT_ESTOP        0x0001
 #define FLIGHT_EVENT_UNLOCK       0x0002
 
+// 当前基线的解锁条件（FlightSafety_OnKey）：
+//   收到有效包、按键为 0002 上升沿、无 0001 急停、油门低、
+//   俯仰/横滚/偏航杆回中、姿态已就绪且遥控链路有效。
+// 安全顺序：急停或失联先由 FlightSafety_Lock 清 armed 并立即写四路 0 PWM，
+// 再进入后续控制/混控；上锁状态 Apply 也强制四路 0。
+
 // 锁定原因（历史遥测帧的 x 字段曾使用；本版仅作内部状态）
 #define FLIGHT_LOCK_NONE          0
 #define FLIGHT_LOCK_BOOT          1
