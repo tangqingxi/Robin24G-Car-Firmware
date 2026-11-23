@@ -136,7 +136,7 @@
   },
   "candidates": {
     "status": "awaiting_no_prop_acceptance",
-    "build_commit": "b54d27d",
+    "build_commit": "054ba56",
     "behavior_baseline": "b3cb56f",
     "normal": {
       "role": "current_normal",
@@ -170,11 +170,20 @@
       "sha256": "A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
+    },
+    "yaw_p050": {
+      "role": "candidate_yaw_p050",
+      "file": "candidates/Robin_24G_Car_flight_control_yaw_p050.bin",
+      "bytes": 24948,
+      "sha256": "78E459E2D5ACB010BB5387983026A32E9FA8E14593810A403D662AC63D0ED169",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "build_commit": "054ba56"
     }
   },
   "task2": {
     "status": "awaiting_no_prop_acceptance",
-    "build_commit": "b54d27d",
+    "build_commit": "054ba56",
     "behavior_baseline": "b3cb56f",
     "bootloader": {
       "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
