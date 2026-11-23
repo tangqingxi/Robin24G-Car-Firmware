@@ -27,6 +27,16 @@
  */
 #include "MotorMixer.h"
 
+// 有符号向零截断：只给偏航差动及其限幅缩放使用。
+// 正数结果与原来的算术右移完全一致，负数不再多进一档。
+static int motor_yaw_shift(int v, int shift)
+{
+	int a = (v < 0) ? -v : v;
+
+	a >>= shift;
+	return (v < 0) ? -a : a;
+}
+
 // 对称限幅，避免中间量越界。
 static int motor_clamp(int v, int lim)
 {
@@ -80,11 +90,9 @@ void MotorMixer_Mix(int thrust, int corr_roll, int corr_pitch,
 					int corr_yaw, MotorMixerOutput *out)
 {
 	// Q10 纠偏 × Q16 增益 → Q16 中间量，右移 16 得 PWM 差动。
-	// 横滚/俯仰共用 2880，偏航用 1920；后者较小，是因为偏航力臂和
-	// 反扭矩效率更高，过大的 dy 会让偏航一打就掉高。
-	int dr = (corr_roll * MOTOR_DIFF_GAIN_Q16) >> 16;
-	int dp = (corr_pitch * MOTOR_DIFF_GAIN_Q16) >> 16;
-	int dy = (corr_yaw * MOTOR_YAW_DIFF_GAIN_Q16) >> 16;
+	int dr = (corr_roll * MOTOR_ROLL_DIFF_GAIN_Q16) >> 16;
+	int dp = (corr_pitch * MOTOR_PITCH_DIFF_GAIN_Q16) >> 16;
+	int dy = motor_yaw_shift(corr_yaw * MOTOR_YAW_DIFF_GAIN_Q16, 16);
 	int mf, mr, ml, mm, lo, hi, scale, room;
 
 	// 先限制单项差动，避免某一轴纠偏瞬间过大把总推力彻底吃掉。
@@ -129,7 +137,7 @@ void MotorMixer_Mix(int thrust, int corr_roll, int corr_pitch,
 		// 缩放后重新计算四路；使用同一 scale，保持三轴差动比例。
 		dr = (dr * scale) >> 8;
 		dp = (dp * scale) >> 8;
-		dy = (dy * scale) >> 8;
+		dy = motor_yaw_shift(dy * scale, 8);
 		mf = thrust + dp - dy;
 		mr = thrust - dp - dy;
 		ml = thrust + dr + dy;

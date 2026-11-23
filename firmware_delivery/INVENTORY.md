@@ -37,6 +37,8 @@
 | `firmware_delivery/candidates/Robin_24G_Car_ground_uart_diag.bin` | 地面 UART 10Hz 诊断版 | 26164 | `4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2` | 0x4000 | 交付/诊断 |
 | `firmware_delivery/candidates/Robin_24G_Car_flight_control_normal.bin` | 正常飞行版（无板载日志） | 24820 | `C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917` | 0x4000 | 交付/当前 |
 
+| `firmware_delivery/candidates/Robin_24G_Car_flight_control_yaw_sym.bin` | 偏航向零截断候选正常版 | 24948 | `0015E5D76F7D78410FD50023D4547EC87BDFD62DDCD1556A8E6D8059237F263F` | 0x4000 | 交付/候选 |
+| `firmware_delivery/candidates/Robin_24G_Car_ground_uart_yaw_sym.bin` | 偏航向零截断候选地面诊断版 | 26292 | `A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F` | 0x4000 | 交付/候选 |
 ## 清理与重复核对
 
 - 删除 `Robin_24G_Car_Flash.bin` 通用构建副本：与当前日志具名副本 SHA256 完全一致。

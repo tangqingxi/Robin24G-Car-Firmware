@@ -154,6 +154,22 @@
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
       "flash_address": "0x4000",
       "app_remaining_bytes": 14604
+    },
+    "yaw_sym_normal": {
+      "role": "candidate_yaw_sym_normal",
+      "file": "candidates/Robin_24G_Car_flight_control_yaw_sym.bin",
+      "bytes": 24948,
+      "sha256": "0015E5D76F7D78410FD50023D4547EC87BDFD62DDCD1556A8E6D8059237F263F",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
+    },
+    "yaw_sym_ground": {
+      "role": "candidate_yaw_sym_ground",
+      "file": "candidates/Robin_24G_Car_ground_uart_yaw_sym.bin",
+      "bytes": 26292,
+      "sha256": "A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
     }
   },
   "task2": {

@@ -59,6 +59,12 @@ try {
         (Join-Path $Car 'GroundDiag.c')
     ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'yaw_symmetry' @(
+        (Join-Path $Here 'test_yaw_symmetry.c'),
+        (Join-Path $Car 'RateControl.c'),
+        (Join-Path $Car 'MotorMixer.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
     Invoke-Case 'flight_startup_ground' @(
         (Join-Path $Here 'test_flight_startup.c'),
         (Join-Path $Car 'FlightLoop.c'),

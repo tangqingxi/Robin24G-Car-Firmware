@@ -25,6 +25,16 @@
  */
 #include "RateControl.h"
 
+// 有符号向零截断：先取绝对值右移，再恢复符号。
+// 只用于偏航 P，保证 +e 和 -e 得到等幅结果；其他轴保持原换算。
+static int rate_yaw_shift(int v, int shift)
+{
+	int a = (v < 0) ? -v : v;
+
+	a >>= shift;
+	return (v < 0) ? -a : a;
+}
+
 // 对称限幅：积分器、纠偏输出共用，避免异常输入把后级推到饱和。
 static int rate_clamp(int v, int lim)
 {
@@ -76,7 +86,9 @@ void RateControl_Update(RateControl *rc, const int target[3],
 
 	for (i = 0; i < 3; i++) {
 		int err = target[i] - gyro[i];
-		int corr = (err * FLIGHT_KP_Q8) >> 8;
+		int corr = (i == 2)
+				   ? rate_yaw_shift(err * FLIGHT_KP_Q8, 8)
+				   : ((err * FLIGHT_KP_Q8) >> 8);
 
 #if (FLIGHT_KI_Q16 != 0)
 		rc->integ[i] += err;
