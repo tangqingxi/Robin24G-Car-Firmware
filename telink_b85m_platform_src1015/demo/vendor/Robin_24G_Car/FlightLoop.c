@@ -534,7 +534,8 @@ void FlightLoop_Process(void)
 			unsigned short dpwm[4];
 
 			FlightSafety_GetPwm(&s_fl.safety, dpwm);
-			GroundDiag_OnControl(s_fl.rc.cmd[1], s_fl.attc.tgt_rate,
+			GroundDiag_OnControl(s_fl.rc.cmd[0], s_fl.rc.cmd[1],
+								 s_fl.attc.tgt_rate,
 								 s_fl.rate, s_fl.ratec.corr, dpwm,
 								 raw_a, s_fl.att.q,
 								 s_fl.safety.armed, mixer_limited);

@@ -7,7 +7,7 @@
 
 | 用途 | 文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
-| **地面 UART 诊断版** | [`candidates/Robin_24G_Car_ground_uart_diag.bin`](candidates/Robin_24G_Car_ground_uart_diag.bin) | 25732 | `133EE06A4D0178C982FC6D27A27D1C576342E69245D6B4FE6CDF08DA1CDB8BE8` | `0x4000` |
+| **地面 UART 诊断版** | [`candidates/Robin_24G_Car_ground_uart_diag.bin`](candidates/Robin_24G_Car_ground_uart_diag.bin) | 25812 | `88A66D6FA0AC22B44A70ABA517060E01044654DEC8D959E5E7AF5D08528C8DE1` | `0x4000` |
 | **正常飞行版（无板载日志）** | [`candidates/Robin_24G_Car_flight_control_normal.bin`](candidates/Robin_24G_Car_flight_control_normal.bin) | 24820 | `C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917` | `0x4000` |
 | **无 OTA bootloader** | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | `0x0` |
 | **六轴校准维护件** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | `0x4000` |

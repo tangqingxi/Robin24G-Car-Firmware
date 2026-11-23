@@ -34,7 +34,7 @@
 
 | `data/archive/flight_log_real_20261123_second_read.bin` | 实板第二趟 BDT 原始读取（同样停在第226条） | 53248 | `3425DE69F6C2D9277711B0A030E8C7993AF8819DF51AE75751D222986CB0FF71` | N/A | 原始数据归档 |
 
-| `firmware_delivery/candidates/Robin_24G_Car_ground_uart_diag.bin` | 地面 UART 10Hz 诊断版 | 25732 | `133EE06A4D0178C982FC6D27A27D1C576342E69245D6B4FE6CDF08DA1CDB8BE8` | 0x4000 | 交付/诊断 |
+| `firmware_delivery/candidates/Robin_24G_Car_ground_uart_diag.bin` | 地面 UART 10Hz 诊断版 | 25812 | `88A66D6FA0AC22B44A70ABA517060E01044654DEC8D959E5E7AF5D08528C8DE1` | 0x4000 | 交付/诊断 |
 | `firmware_delivery/candidates/Robin_24G_Car_flight_control_normal.bin` | 正常飞行版（无板载日志） | 24820 | `C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917` | 0x4000 | 交付/当前 |
 
 ## 清理与重复核对

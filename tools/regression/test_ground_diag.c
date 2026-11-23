@@ -27,16 +27,19 @@ int main(void)
 
 	now = 0;
 	GroundDiag_Init();
-	GroundDiag_OnControl(77, tgt, gyro, corr, pwm, acc, q, 1, 1);
+	GroundDiag_OnControl(190, 77, tgt, gyro, corr, pwm, acc, q, 1, 1);
 	busy = 1;
 	now = 2400000;
 	GroundDiag_Process();          // 忙时只丢帧，不阻塞
 	busy = 0;
 	now = 4800000;
 	GroundDiag_Process();
-	if (!strstr(line, "YAW y=77") || !strstr(line, "tr=10,-20,30")
+	if (!strstr(line, "YAW t=") || !strstr(line, " th=190")
+		|| !strstr(line, " y=77") || !strstr(line, "tr=10,-20,30")
 		|| !strstr(line, "gy=-1,2,-3") || !strstr(line, "co=4,-5,6")
-		|| !strstr(line, "p=100,101,102,103") || !strstr(line, "a=1")
+		|| !strstr(line, "p=100,101,102,103")
+		|| !strstr(line, "q=30000,100,-200,50")
+		|| !strstr(line, "j=0,0,0") || !strstr(line, "a=1")
 		|| !strstr(line, "l=1")) {
 		printf("FAIL ground diag line: %s\n", line);
 		return 1;

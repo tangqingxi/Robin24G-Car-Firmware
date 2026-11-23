@@ -10,6 +10,7 @@
 static char s_line[UART_DATA_LEN];
 static unsigned char s_have;
 static unsigned int s_last_ms;
+static int s_throttle;
 static int s_stick;
 static int s_tgt[3];
 static int s_gyro[3];
@@ -58,13 +59,15 @@ void GroundDiag_Init(void)
 	s_last_ms = 0;
 }
 
-void GroundDiag_OnControl(int yaw_stick, const int tgt[3], const int gyro[3],
-						  const int corr[3], const unsigned short pwm[4],
+void GroundDiag_OnControl(int throttle, int yaw_stick, const int tgt[3],
+						  const int gyro[3], const int corr[3],
+						  const unsigned short pwm[4],
 						  const short raw_acc[3], const int q[4],
 						  unsigned char armed, unsigned char limited)
 {
 	int i;
 
+	s_throttle = throttle;
 	s_stick = yaw_stick;
 	memcpy(s_tgt, tgt, sizeof(s_tgt));
 	memcpy(s_gyro, gyro, sizeof(s_gyro));
@@ -97,7 +100,11 @@ void GroundDiag_Process(void)
 	}
 	s_last_ms = now;
 	p = s_line;
-	p = d_put_tag(p, "YAW y=");
+	p = d_put_tag(p, "YAW t=");
+	p = d_put_s32(p, (int)now);
+	p = d_put_tag(p, " th=");
+	p = d_put_s32(p, s_throttle);
+	p = d_put_tag(p, " y=");
 	p = d_put_s32(p, s_stick);
 	p = d_put_tag(p, " tr=");
 	for (i = 0; i < 3; i++) {
