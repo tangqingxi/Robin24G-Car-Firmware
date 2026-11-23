@@ -37,6 +37,8 @@
 
 | `firmware_delivery/candidates/Robin_24G_Car_flight_log_trace.bin` | 第227条路径诊断版（FLQ/FLD/FLS/FLW/FLX） | 34180 | `404956D5C367FB65718F9CB288939A96F77042F2AA89F94C8BFD2759B015877E` | 0x4000 | 诊断/临时 |
 
+| `data/archive/flight_log_real_20261123_second_read.bin` | 实板第二趟 BDT 原始读取（同样停在第226条） | 53248 | `3425DE69F6C2D9277711B0A030E8C7993AF8819DF51AE75751D222986CB0FF71` | N/A | 原始数据归档 |
+
 ## 清理与重复核对
 
 - 删除 `Robin_24G_Car_Flash.bin` 通用构建副本：与当前日志具名副本 SHA256 完全一致。
