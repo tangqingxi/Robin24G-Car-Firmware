@@ -5,6 +5,7 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Resolve-Path (Join-Path $Here '..\..')
 $Car = Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car'
 $Common = Join-Path $Root 'telink_b85m_platform_src1015\common'
+$Drv = Join-Path $Root 'telink_b85m_platform_src1015\chip\tc122x\drivers'
 $FwCommon = Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\common\common'
 $Boot = Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\Robin_24G_Bootloader'
 $Tmp = Join-Path $env:TEMP ('robin_regression_' + [guid]::NewGuid().ToString('N'))
@@ -22,7 +23,7 @@ if (-not (Test-Path $Gcc)) {
 function Invoke-Case([string]$Name, [string[]]$Sources, [string[]]$Definitions, [string[]]$RunArgs = @()) {
     $exe = Join-Path $Tmp ($Name + '.exe')
     $gccArgs = @('-std=c99', '-O2', '-fno-builtin') + $Definitions +
-        @("-I$Common", "-I$FwCommon", "-I$Car", "-I$Boot") + $Sources + @('-o', $exe)
+        @("-I$Common", "-I$FwCommon", "-I$Car", "-I$Boot", "-I$Drv") + $Sources + @('-o', $exe)
     & $Gcc @gccArgs
     if ($LASTEXITCODE -ne 0) { throw ($Name + ' compile failed') }
     & $exe @RunArgs
@@ -57,6 +58,12 @@ try {
     Invoke-Case 'boot_validate' @(
         (Join-Path $Here 'test_boot_validate.c')
     ) @()
+
+    Invoke-Case 'flash_ab' @(
+        (Join-Path $Here 'test_flash_ab.c'),
+        (Join-Path $Car 'FlightLog.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
+        '-DC_FLIGHT_ARM_DEBUG=1', '-fpack-struct')
 
     Invoke-Case 'arm_debug_gate' @(
         (Join-Path $Here 'test_flight_arm_debug.c'),

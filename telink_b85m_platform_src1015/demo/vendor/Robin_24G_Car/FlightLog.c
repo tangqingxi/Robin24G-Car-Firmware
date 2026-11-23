@@ -656,72 +656,159 @@ static void bench_line(const char *tag, u32 records, u32 writes,
 	UartDbgSend((unsigned char *)buf, (unsigned char)(p - buf));
 }
 
-// K3 诊断入口：A 组 24 次单条写；B 组 6 次四条合写。
-// 两组使用日志区独立扇区，按原 56 字节记录格式写，BDT 可直接核对。
-void FlightLog_BenchRun(u32 next_tick)
+// K3 只启动实验；之后每个控制拍最多推进一次物理操作。
+// 阶段顺序：擦 A、擦 B、A 组24条、A页头、B组6次、B页头。
+enum {
+	BENCH_IDLE = 0,
+	BENCH_ERASE_A,
+	BENCH_ERASE_B,
+	BENCH_A,
+	BENCH_A_HDR,
+	BENCH_B,
+	BENCH_B_HDR
+};
+
+typedef struct {
+	u8 active;
+	u8 phase;
+	u8 idx;
+	u16 page_crc;
+	u32 base_a;
+	u32 base_b;
+	u32 sum;
+	u32 max;
+	u32 over;
+	u32 writes;
+	u32 records;
+	u32 erase_a_us;
+	u32 erase_b_us;
+} BenchState;
+
+static BenchState b;
+
+void FlightLog_BenchStart(void)
+{
+	memset(&b, 0, sizeof(b));
+	b.active = 1;
+	b.phase = BENCH_ERASE_A;
+	b.base_a = FLIGHT_LOG_BASE + 10u * FLIGHT_LOG_SECTOR_SIZE;
+	b.base_b = FLIGHT_LOG_BASE + 11u * FLIGHT_LOG_SECTOR_SIZE;
+	b.page_crc = 0xFFFF;
+}
+
+u8 FlightLog_BenchStep(u32 next_tick)
 {
 	u8 rec[FLIGHT_LOG_REC_SIZE];
 	u8 page[FLIGHT_LOG_REC_SIZE * 4];
-	u16 page_crc;
-	u32 base_a = FLIGHT_LOG_BASE + 10u * FLIGHT_LOG_SECTOR_SIZE;
-	u32 base_b = FLIGHT_LOG_BASE + 11u * FLIGHT_LOG_SECTOR_SIZE;
-	u32 t0, dt, sum, max, over;
-	u32 i, j;
+	u32 t0, t_end, dt, addr;
 	u16 seq;
 
-	flash_erase_sector(base_a);
-	flash_erase_sector(base_b);
-
-	// A 组：24 条，每条 56 字节，一次物理编程。
-	sum = 0;
-	max = 0;
-	over = 0;
-	page_crc = 0xFFFF;
-	for (i = 0; i < 24; i++) {
-		u32 addr = base_a + FLIGHT_LOG_PAGE_HDR
-				   + (i / 4u) * 256u + (i % 4u) * FLIGHT_LOG_REC_SIZE;
-
-		bench_make_record(rec, 0xBA00u, (u16)(i + 1u), i * 40u);
-		page_crc = crc16_update(page_crc, rec, FLIGHT_LOG_REC_SIZE);
-		t0 = clock_time();
-		flash_write_page(addr, FLIGHT_LOG_REC_SIZE, rec);
-		dt = (u32)(clock_time() - t0);
-		sum += dt;
-		if (dt > max) max = dt;
-		if ((s32)(clock_time() - next_tick) > 0) over++;
+	if (!b.active) {
+		return 0;
 	}
-	bench_line("FBA", 24, 24, sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
-			   max / (CLOCK_SYS_CLOCK_HZ / 1000000u), over);
-	bench_write_header(base_a, 10, 0xBA00u, 24, page_crc);
 
-	// B 组：每页页首一次写 4 条（224 字节），共 6 次。
-	sum = 0;
-	max = 0;
-	over = 0;
-	page_crc = 0xFFFF;
-	for (j = 0; j < 6; j++) {
-		u32 addr = base_b + FLIGHT_LOG_PAGE_HDR + j * 256u;
+	switch (b.phase) {
+	case BENCH_ERASE_A:
+		t0 = clock_time();
+		flash_erase_sector(b.base_a);
+		b.erase_a_us = (u32)(clock_time() - t0)
+					   / (CLOCK_SYS_CLOCK_HZ / 1000000u);
+		b.phase = BENCH_ERASE_B;
+		break;
 
-		for (i = 0; i < 4; i++) {
-			seq = (u16)(j * 4u + i + 1u);
-			bench_make_record(&page[i * FLIGHT_LOG_REC_SIZE],
-							  0xBB00u, seq, seq * 40u);
-			page_crc = crc16_update(page_crc,
-									&page[i * FLIGHT_LOG_REC_SIZE],
-									FLIGHT_LOG_REC_SIZE);
+	case BENCH_ERASE_B:
+		t0 = clock_time();
+		flash_erase_sector(b.base_b);
+		b.erase_b_us = (u32)(clock_time() - t0)
+					   / (CLOCK_SYS_CLOCK_HZ / 1000000u);
+		{
+			char ebuf[48];
+			char *ep = ebuf;
+
+			*ep++ = 'F'; *ep++ = 'B'; *ep++ = 'E';
+			*ep++ = ' '; *ep++ = 'e'; *ep++ = 'a'; *ep++ = '=';
+			ep = bench_u32(ep, b.erase_a_us);
+			*ep++ = ' '; *ep++ = 'e'; *ep++ = 'b'; *ep++ = '=';
+			ep = bench_u32(ep, b.erase_b_us);
+			*ep++ = '\n';
+			UartDbgSend((unsigned char *)ebuf, (unsigned char)(ep - ebuf));
 		}
+		b.phase = BENCH_A;
+		break;
+
+	case BENCH_A:
 		t0 = clock_time();
+		addr = b.base_a + FLIGHT_LOG_PAGE_HDR
+			   + (b.idx / 4u) * 256u + (b.idx % 4u) * FLIGHT_LOG_REC_SIZE;
+		bench_make_record(rec, 0xBA00u, (u16)(b.idx + 1u), b.idx * 40u);
+		b.page_crc = crc16_update(b.page_crc, rec, FLIGHT_LOG_REC_SIZE);
+		flash_write_page(addr, FLIGHT_LOG_REC_SIZE, rec);
+		t_end = clock_time();
+		dt = (u32)(t_end - t0);
+		b.sum += dt;
+		if (dt > b.max) b.max = dt;
+		if ((s32)(t_end - next_tick) > 0) b.over++;
+		b.writes++;
+		b.records++;
+		b.idx++;
+		if (b.idx == 24) {
+			bench_line("FBA", b.records, b.writes,
+					   b.sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+					   b.max / (CLOCK_SYS_CLOCK_HZ / 1000000u), b.over);
+			b.phase = BENCH_A_HDR;
+		}
+		break;
+
+	case BENCH_A_HDR:
+		bench_write_header(b.base_a, 10, 0xBA00u, 24, b.page_crc);
+		b.sum = 0;
+		b.max = 0;
+		b.over = 0;
+		b.writes = 0;
+		b.records = 0;
+		b.idx = 0;
+		b.page_crc = 0xFFFF;
+		b.phase = BENCH_B;
+		break;
+
+	case BENCH_B:
+		t0 = clock_time();
+		for (seq = 0; seq < 4; seq++) {
+			u16 n = (u16)(b.idx * 4u + seq + 1u);
+			bench_make_record(&page[seq * FLIGHT_LOG_REC_SIZE],
+							  0xBB00u, n, n * 40u);
+			b.page_crc = crc16_update(b.page_crc,
+									  &page[seq * FLIGHT_LOG_REC_SIZE],
+									  FLIGHT_LOG_REC_SIZE);
+		}
+		addr = b.base_b + FLIGHT_LOG_PAGE_HDR + b.idx * 256u;
 		flash_write_page(addr, FLIGHT_LOG_REC_SIZE * 4u, page);
-		dt = (u32)(clock_time() - t0);
-		sum += dt;
-		if (dt > max) max = dt;
-		if ((s32)(clock_time() - next_tick) > 0) over++;
+		t_end = clock_time();
+		dt = (u32)(t_end - t0);
+		b.sum += dt;
+		if (dt > b.max) b.max = dt;
+		if ((s32)(t_end - next_tick) > 0) b.over++;
+		b.writes++;
+		b.records += 4;
+		b.idx++;
+		if (b.idx == 6) {
+			bench_line("FBB", b.records, b.writes,
+					   b.sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+					   b.max / (CLOCK_SYS_CLOCK_HZ / 1000000u), b.over);
+			b.phase = BENCH_B_HDR;
+		}
+		break;
+
+	case BENCH_B_HDR:
+		bench_write_header(b.base_b, 11, 0xBB00u, 24, b.page_crc);
+		b.active = 0;
+		b.phase = BENCH_IDLE;
+		break;
 	}
-	bench_line("FBB", 24, 6, sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
-			   max / (CLOCK_SYS_CLOCK_HZ / 1000000u), over);
-	bench_write_header(base_b, 11, 0xBB00u, 24, page_crc);
+	return 1;
 }
 #endif
+
 void FlightLog_Stop(void)
 {
 	if (s_log.active) {

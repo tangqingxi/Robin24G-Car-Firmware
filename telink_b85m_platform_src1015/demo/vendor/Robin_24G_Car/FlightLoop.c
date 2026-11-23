@@ -293,7 +293,7 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 		// 临时诊断：锁定、PWM 全零时短按 K3 直接跑 A/B 两组 Flash 对比。
 		if (k3_edge && !s_fl.safety.armed && FlightLoop_CanEraseLog()
 			&& FlightLog_State() == FLIGHT_LOG_IDLE) {
-			FlightLog_BenchRun(s_fl.next_tick);
+			FlightLog_BenchStart();
 			return;
 		}
 	}
@@ -531,6 +531,8 @@ void FlightLoop_Process(void)
 #if C_FLIGHT_ARM_DEBUG
 		// 控制拍全部计算结束时，距下一拍还剩多少微秒。
 		FlightArmDebug_OnControlTiming(FlightLoop_LogBudgetLeftUs());
+		// Flash A/B 诊断：每个控制拍最多推进一次物理操作。
+		FlightLog_BenchStep(s_fl.next_tick);
 #endif
 	}
 }
