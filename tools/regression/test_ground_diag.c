@@ -22,6 +22,8 @@ int main(void)
 	int gyro[3] = {-1, 2, -3};
 	int corr[3] = {4, -5, 6};
 	unsigned short pwm[4] = {100, 101, 102, 103};
+	short acc[3] = {10, 20, 30};
+	int q[4] = {30000, 100, -200, 50};
 
 	now = 0;
 	GroundDiag_Init();

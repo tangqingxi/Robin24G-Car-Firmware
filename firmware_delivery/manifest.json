@@ -136,7 +136,7 @@
   },
   "candidates": {
     "status": "awaiting_no_prop_acceptance",
-    "build_commit": "412d6b5",
+    "build_commit": "59fddea",
     "behavior_baseline": "b3cb56f",
     "normal": {
       "role": "current_normal",
@@ -158,7 +158,7 @@
   },
   "task2": {
     "status": "awaiting_no_prop_acceptance",
-    "build_commit": "b37a539",
+    "build_commit": "59fddea",
     "behavior_baseline": "b3cb56f",
     "bootloader": {
       "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
