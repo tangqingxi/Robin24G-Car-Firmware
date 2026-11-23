@@ -2,7 +2,7 @@
  * b3cb56f 旧版 L400Motor.h 参考逻辑 vs 当前拆分模块的主机对照。
  *
  * 只比较纯行为：油门换算、四路混控、正负差动、限幅、事件沿和故障后重新解锁。
- * 旧版公式逐行取自 b3cb56f:.../L400Motor.h，不链接旧固件。
+ * 参考公式取自 b3cb56f:.../L400Motor.h，俯仰系数按本机实测力臂补偿。
  */
 #include <stdio.h>
 #include <string.h>
@@ -26,12 +26,12 @@ static void check_eq(int a, int b, const char *what)
 {
 	checks++;
 	if (a != b) {
-		printf("FAIL %s: current=%d old=%d\n", what, a, b);
+		printf("FAIL %s: current=%d expected=%d\n", what, a, b);
 		failures++;
 	}
 }
 
-// ---- b3cb56f 旧版参考实现（常量/公式保持一致）----
+// 以 b3cb56f 为参考，俯仰使用独立的预期系数。
 #define OLD_STICK_MAX          307
 #define OLD_THR_MID            190
 #define OLD_THR_SPAN           140
@@ -41,8 +41,9 @@ static void check_eq(int a, int b, const char *what)
 #define OLD_PWM_MAX            400
 #define OLD_ARM_THR_MAX        (-250)
 #define OLD_ARM_STICK_MAX      45
-#define OLD_DIFF_GAIN_Q16      2880
+#define OLD_ROLL_GAIN_Q16      2880
 #define OLD_YAW_DIFF_GAIN_Q16  1920
+#define EXPECTED_PITCH_GAIN_Q16 2400
 #define OLD_DIFF_LIMIT         160
 #define OLD_EVENT_ESTOP        0x0001
 #define OLD_EVENT_UNLOCK       0x0002
@@ -77,11 +78,19 @@ static int old_thrust(int fb)
 	return t;
 }
 
-static void old_mix(int thrust, int roll, int pitch, int yaw, OldMix *out)
+static int reference_yaw_shift(int v, int shift)
 {
-	int dr = (roll * OLD_DIFF_GAIN_Q16) >> 16;
-	int dp = (pitch * OLD_DIFF_GAIN_Q16) >> 16;
-	int dy = (yaw * OLD_YAW_DIFF_GAIN_Q16) >> 16;
+	int a = (v < 0) ? -v : v;
+
+	a >>= shift;
+	return (v < 0) ? -a : a;
+}
+
+static void reference_mix(int thrust, int roll, int pitch, int yaw, OldMix *out)
+{
+	int dr = (roll * OLD_ROLL_GAIN_Q16) >> 16;
+	int dp = (pitch * EXPECTED_PITCH_GAIN_Q16) >> 16;
+	int dy = reference_yaw_shift(yaw * OLD_YAW_DIFF_GAIN_Q16, 16);
 	int mf, mr, ml, mm, lo, hi, scale, room;
 
 	dr = old_clamp(dr, OLD_DIFF_LIMIT);
@@ -115,7 +124,7 @@ static void old_mix(int thrust, int roll, int pitch, int yaw, OldMix *out)
 	if (scale < 256) {
 		dr = (dr * scale) >> 8;
 		dp = (dp * scale) >> 8;
-		dy = (dy * scale) >> 8;
+		dy = reference_yaw_shift(dy * scale, 8);
 		mf = thrust + dp - dy;
 		mr = thrust - dp - dy;
 		ml = thrust + dr + dy;
@@ -166,7 +175,7 @@ static void compare_one(int thrust, int roll, int pitch, int yaw,
 	OldMix old;
 
 	MotorMixer_Mix(thrust, roll, pitch, yaw, &cur);
-	old_mix(thrust, roll, pitch, yaw, &old);
+	reference_mix(thrust, roll, pitch, yaw, &old);
 	check_eq(cur.front, old.front, tag);
 	check_eq(cur.rear, old.rear, tag);
 	check_eq(cur.left, old.left, tag);
@@ -194,6 +203,19 @@ static void test_mixer(void)
 	}
 	compare_one(60, 8000, -8000, 8000, "low-throttle-limit");
 	compare_one(340, -8000, 8000, -8000, "high-throttle-limit");
+
+	// 向零截断后，等幅正负偏航的 PWM 差动应等幅反号。
+	for (i = 1; i <= 80; i++) {
+		int p = (int)i * 37;
+		MotorMixerOutput a, b;
+		int da, db;
+
+		MotorMixer_Mix(190, 0, 0, p, &a);
+		MotorMixer_Mix(190, 0, 0, -p, &b);
+		da = (int)a.left + a.right - a.front - a.rear;
+		db = (int)b.left + b.right - b.front - b.rear;
+		check_eq(da, -db, "yaw symmetric diff");
+	}
 }
 
 static void compare_event(FlightSafety *fs, OldArm *old,
@@ -279,7 +301,7 @@ int main(void)
 		printf("RESULT FAIL\n");
 		return 1;
 	}
-	printf("PASS b3cb56f vs current: thrust/mixer/limits/events/rc mapping identical\n");
+	printf("PASS thrust/mixer/limits/events/rc mapping, including pitch arm compensation\n");
 	printf("RESULT OK\n");
 	return 0;
 }

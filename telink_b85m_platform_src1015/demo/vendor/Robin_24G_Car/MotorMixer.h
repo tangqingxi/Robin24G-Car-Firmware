@@ -16,15 +16,12 @@
 #define MOTOR_ARM_THR_MAX        (-250)
 #define MOTOR_ARM_STICK_MAX      45
 
-// 纠偏 Q10(±4096) → PWM 差动；横滚/俯仰满量程约 180，限 160；
-// 偏航满量程约 120。系数已包含十字 + 型相对 X 型的 1.414 补偿。
-//
-// MOTOR_DIFF_GAIN_Q16=2880：Q10 纠偏 4096 时约得到 180 PWM 差动；
-// MOTOR_YAW_DIFF_GAIN_Q16=1920：偏航 4096 时约 120 PWM 差动；
-// MOTOR_DIFF_LIMIT=160：单轴差动先限制，防止某一轴瞬间吃光总推力。
-#define MOTOR_DIFF_GAIN_Q16      2880
-#define MOTOR_YAW_DIFF_GAIN_Q16  1920
-#define MOTOR_DIFF_LIMIT         160
+// Q10 纠偏为 4096 时，横滚、俯仰、偏航限幅前的差动分别为 180、150、120。
+// 手测力臂前后约 48 毫米、左右约 40 毫米，俯仰系数按 2880 × 40 ÷ 48 补偿。
+#define MOTOR_ROLL_DIFF_GAIN_Q16   2880
+#define MOTOR_PITCH_DIFF_GAIN_Q16  2400
+#define MOTOR_YAW_DIFF_GAIN_Q16    1920
+#define MOTOR_DIFF_LIMIT           160
 
 typedef struct __attribute__((aligned(2))) {
 	unsigned short front;
