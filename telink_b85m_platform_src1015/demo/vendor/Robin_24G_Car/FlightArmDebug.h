@@ -27,6 +27,7 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 									const int acc[3], const int gyro[3]);
 void FlightArmDebug_OnEstop(void);
 void FlightArmDebug_OnLogState(unsigned char state);
+void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount);
 void FlightArmDebug_OnRead(unsigned char ok);
 void FlightArmDebug_OnStillSample(const int acc[3], const int gyro[3],
 								  const int prev[3], unsigned char have_prev,

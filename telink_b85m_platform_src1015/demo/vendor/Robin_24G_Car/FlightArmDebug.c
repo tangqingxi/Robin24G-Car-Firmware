@@ -64,6 +64,10 @@ typedef struct {
 	unsigned int ctrl_skips;
 	u8 log_state;
 	u8 log_state_valid;
+	u32 gate_tick;
+	u32 budget_skips;
+	u32 budget_run;
+	u32 budget_max;
 } ArmDebug;
 
 static ArmDebug d;
@@ -427,6 +431,31 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 	}
 }
 
+// 每个控制拍最多统计一次：同一拍内主循环可能多次查询服务余量，不能重复计数。
+// can_write=0 表示这一拍因剩余时间不足没有发起写；只有队列有待写样本时才算预算跳过。
+void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount)
+{
+	u32 tick = clock_time() / FLIGHT_PERIOD_TICKS;
+
+	if (tick == d.gate_tick) {
+		return;
+	}
+	d.gate_tick = tick;
+	if (!qcount) {
+		d.budget_run = 0;
+		return;
+	}
+	if (!can_write) {
+		d.budget_skips++;
+		d.budget_run++;
+		if (d.budget_run > d.budget_max) {
+			d.budget_max = d.budget_run;
+		}
+	} else {
+		d.budget_run = 0;
+	}
+}
+
 void FlightArmDebug_OnLogState(unsigned char state)
 {
 	static const char *names[] = {"idle", "prep", "rec", "end", "reject", "closing"};
@@ -588,6 +617,18 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, d.ctrl_skips);
 		p = p_str(p, " ld=");
 		p = p_u32(p, FlightLog_Dropped());
+		p = p_str(p, " q=");
+		p = p_u32(p, FlightLog_QueueCount());
+		p = p_str(p, " bs=");
+		p = p_u32(p, d.budget_skips);
+		p = p_str(p, " br=");
+		p = p_u32(p, d.budget_max);
+		p = p_str(p, " wr=");
+		p = p_u32(p, FlightLog_Written());
+		p = p_str(p, " fw=");
+		p = p_u32(p, FlightLog_FlashPeakUs() / 1000);
+		p = p_str(p, " qd=");
+		p = p_u32(p, FlightLog_QueueDrops());
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
 
