@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-22T16:40:42+08:00",
+  "generated_at": "2026-11-23",
   "flash_address_car_app": "0x4000",
   "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的通用 .bin 与命名副本已清理，重新编译才生成，不能按文件名判断用途。",
   "daily": [
@@ -139,12 +139,15 @@
     "build_commit": "fb28cc3",
     "behavior_baseline": "b3cb56f",
     "normal": {
-      "role": "current_normal",
-      "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
-      "bytes": 24820,
-      "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+      "role": "current_baseline",
+      "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
+      "bytes": 24948,
+      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
       "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "build_commit": "fb28cc3",
+      "yaw_kp_q8": 512,
+      "yaw_p": 2.0
     },
     "arm_debug": {
       "role": "candidate_arm_debug",
@@ -155,14 +158,6 @@
       "flash_address": "0x4000",
       "app_remaining_bytes": 14604
     },
-    "yaw_sym_normal": {
-      "role": "candidate_yaw_sym_normal",
-      "file": "candidates/Robin_24G_Car_flight_control_yaw_sym.bin",
-      "bytes": 24948,
-      "sha256": "0015E5D76F7D78410FD50023D4547EC87BDFD62DDCD1556A8E6D8059237F263F",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
-    },
     "yaw_sym_ground": {
       "role": "candidate_yaw_sym_ground",
       "file": "candidates/Robin_24G_Car_ground_uart_yaw_sym.bin",
@@ -170,24 +165,6 @@
       "sha256": "A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
-    },
-    "yaw_p050": {
-      "role": "candidate_yaw_p050",
-      "file": "candidates/Robin_24G_Car_flight_control_yaw_p050.bin",
-      "bytes": 24948,
-      "sha256": "78E459E2D5ACB010BB5387983026A32E9FA8E14593810A403D662AC63D0ED169",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-      "build_commit": "054ba56"
-    },
-    "yaw_p200": {
-      "role": "candidate_yaw_p200",
-      "file": "candidates/Robin_24G_Car_flight_control_yaw_p200.bin",
-      "bytes": 24948,
-      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-      "build_commit": "fb28cc3"
     }
   },
   "task2": {
@@ -207,12 +184,15 @@
       ]
     },
     "app": {
-      "role": "current_normal",
-      "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
-      "bytes": 24820,
-      "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+      "role": "current_baseline",
+      "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
+      "bytes": 24948,
+      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
       "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "build_commit": "fb28cc3",
+      "yaw_kp_q8": 512,
+      "yaw_p": 2.0
     },
     "log": {
       "base": "0x10000",
@@ -275,10 +255,10 @@
         "flash_address": "0x4000"
       },
       {
-        "role": "current_normal",
-        "file": "Robin_24G_Car_flight_control_normal.bin",
-        "bytes": 24820,
-        "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+        "role": "current_baseline",
+        "file": "Robin_24G_Car_flight_control_baseline.bin",
+        "bytes": 24948,
+        "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
         "flash_address": "0x4000"
       },
       {
@@ -291,11 +271,14 @@
     ]
   },
   "app": {
-    "role": "current_normal",
-    "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
-    "bytes": 24820,
-    "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+    "role": "current_baseline",
+    "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
+    "bytes": 24948,
+    "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
     "flash_address": "0x4000",
-    "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
+    "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+    "build_commit": "fb28cc3",
+    "yaw_kp_q8": 512,
+    "yaw_p": 2.0
   }
 }

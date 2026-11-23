@@ -8,10 +8,7 @@
 | 用途 | 文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
 | **地面 UART 诊断版** | [`candidates/Robin_24G_Car_ground_uart_diag.bin`](candidates/Robin_24G_Car_ground_uart_diag.bin) | 26164 | `4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2` | `0x4000` |
-| **正常飞行版（无板载日志）** | [`candidates/Robin_24G_Car_flight_control_normal.bin`](candidates/Robin_24G_Car_flight_control_normal.bin) | 24820 | `C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917` | `0x4000` |
-| **偏航对称候选正常版** | [`candidates/Robin_24G_Car_flight_control_yaw_sym.bin`](candidates/Robin_24G_Car_flight_control_yaw_sym.bin) | 24948 | `0015E5D76F7D78410FD50023D4547EC87BDFD62DDCD1556A8E6D8059237F263F` | `0x4000` |
-| **偏航 P=0.5 实飞候选** | [`candidates/Robin_24G_Car_flight_control_yaw_p050.bin`](candidates/Robin_24G_Car_flight_control_yaw_p050.bin) | 24948 | `78E459E2D5ACB010BB5387983026A32E9FA8E14593810A403D662AC63D0ED169` | `0x4000` |
-| **偏航 P=2.0 试飞候选** | [`candidates/Robin_24G_Car_flight_control_yaw_p200.bin`](candidates/Robin_24G_Car_flight_control_yaw_p200.bin) | 24948 | `B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C` | `0x4000` |
+| **当前飞行基线（偏航 P=2.0，Q8=512）** | [`candidates/Robin_24G_Car_flight_control_baseline.bin`](candidates/Robin_24G_Car_flight_control_baseline.bin) | 24948 | `B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C` | `0x4000` |
 | **偏航对称候选地面诊断版** | [`candidates/Robin_24G_Car_ground_uart_yaw_sym.bin`](candidates/Robin_24G_Car_ground_uart_yaw_sym.bin) | 26292 | `A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F` | `0x4000` |
 | **无 OTA bootloader** | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | `0x0` |
 | **六轴校准维护件** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | `0x4000` |
@@ -19,7 +16,7 @@
 | K3 录制键遥控 | [`candidates/Robin_24G_Remote_logkey.bin`](candidates/Robin_24G_Remote_logkey.bin) | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | `0x0` |
 | 日常 200 Hz 正式件 | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | `0x4000` |
 
-正常飞行版和地面诊断版都不做板载 Flash 记录；诊断版只走 UART 10 Hz。
+当前烧录入口为 `candidates/Robin_24G_Car_flight_control_baseline.bin`，偏航 P=2.0（Q8=512），烧录地址 `0x4000`，源码提交 `fb28cc3`。正常飞行版和地面诊断版都不做板载 Flash 记录；诊断版只走 UART 10 Hz。
 
 ## 常用烧录目录
 
@@ -27,7 +24,7 @@
 
 ```text
 telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
-    Robin_24G_Car_flight_control_normal.bin
+    Robin_24G_Car_flight_control_baseline.bin
     Robin_24G_Car_ground_uart_diag.bin
     Robin_24G_Bootloader_no_ota.bin
     Robin_24G_Car_flight_control_alignfix.bin

@@ -80,6 +80,22 @@ def main() -> int:
         ok &= check(f"{burn['dir']}/{item['file']}",
                     int(item["bytes"]), item["sha256"], item["role"])
 
+    # 当前飞行基线必须与常用烧录目录里的同名副本逐字节一致。
+    base = manifest["candidates"]["normal"]
+    print(f"== 当前飞行基线：{base['file']} "
+          f"P={base.get('yaw_p', '?')} Q8={base.get('yaw_kp_q8', '?')} "
+          f"地址 {base['flash_address']} 提交 {base.get('build_commit', '?')} ==")
+    burn_copy = next((f for f in burn["files"] if f["role"] == "current_baseline"), None)
+    if burn_copy is None:
+        print("[缺失] 常用烧录目录没有 current_baseline")
+        ok = False
+    else:
+        same = (burn_copy["file"] == Path(base["file"]).name
+                and burn_copy["bytes"] == base["bytes"]
+                and burn_copy["sha256"].upper() == base["sha256"].upper())
+        print(("[OK]   " if same else "[FAIL] ") + "当前基线与烧录副本一致")
+        ok &= same
+
     if MISSING:
         print(f"\n缺失 {len(MISSING)} 个受管文件。")
     print("\n交付镜像全部通过" if ok else "\n交付镜像存在不一致，请先核对再烧录。")
