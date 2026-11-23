@@ -40,6 +40,7 @@
 | `firmware_delivery/candidates/Robin_24G_Car_flight_control_yaw_sym.bin` | 偏航向零截断候选正常版 | 24948 | `0015E5D76F7D78410FD50023D4547EC87BDFD62DDCD1556A8E6D8059237F263F` | 0x4000 | 交付/候选 |
 | `firmware_delivery/candidates/Robin_24G_Car_ground_uart_yaw_sym.bin` | 偏航向零截断候选地面诊断版 | 26292 | `A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F` | 0x4000 | 交付/候选 |
 | `firmware_delivery/candidates/Robin_24G_Car_flight_control_yaw_p050.bin` | 偏航P=0.5实飞候选正常版 | 24948 | `78E459E2D5ACB010BB5387983026A32E9FA8E14593810A403D662AC63D0ED169` | 0x4000 | 交付/候选 |
+| `firmware_delivery/candidates/Robin_24G_Car_flight_control_yaw_p200.bin` | 偏航P=2.0试飞候选正常版 | 24948 | `B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C` | 0x4000 | 交付/候选 |
 ## 清理与重复核对
 
 - 删除 `Robin_24G_Car_Flash.bin` 通用构建副本：与当前日志具名副本 SHA256 完全一致。
