@@ -28,6 +28,9 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 void FlightArmDebug_OnEstop(void);
 void FlightArmDebug_OnLogState(unsigned char state);
 void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount, unsigned char wrote);
+void FlightArmDebug_OnControlTiming(signed int left_us);
+void FlightArmDebug_OnBudgetTiming(signed int left_us);
+void FlightArmDebug_OnLogServiceUs(unsigned int us);
 unsigned int FlightArmDebug_LogBudgetSkips(void);
 unsigned int FlightArmDebug_LogBudgetMaxRun(void);
 void FlightArmDebug_OnRead(unsigned char ok);

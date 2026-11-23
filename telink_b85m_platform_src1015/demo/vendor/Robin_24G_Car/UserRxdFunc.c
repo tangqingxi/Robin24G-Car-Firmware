@@ -2038,22 +2038,34 @@ void User_main_loop_process(void)
 	// 日志服务紧跟在控制拍之后：此时距下一拍最远，余量最大。
 	// 若放到 car_work/调试发送之后，主循环稍长就会持续错过 2.5ms 余量，
 	// 记录队列很快满，表现为样本稀疏、录不满。
+#if C_FLIGHT_ARM_DEBUG
+	{
+		unsigned int log_t0 = clock_time();
+		unsigned char can_log;
+
+		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
+			FlightLog_BeginPrepare();
+		}
+		can_log = FlightLoop_CanWriteLog();
+		{
+			unsigned int wr_before = FlightLog_Written();
+
+			FlightArmDebug_OnBudgetTiming(FlightLoop_LogBudgetLeftUs());
+			if (can_log) {
+				FlightLog_Service(1);
+			}
+			if (FlightLog_State() != FLIGHT_LOG_IDLE) {
+				unsigned int dt = (unsigned int)(clock_time() - log_t0);
+				FlightArmDebug_OnLogServiceUs(dt / (CLOCK_SYS_CLOCK_HZ / 1000000u));
+			}
+			FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(),
+									 (unsigned char)(FlightLog_Written() != wr_before));
+		}
+	}
+#else
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
-#if C_FLIGHT_ARM_DEBUG
-	{
-		unsigned char can_log = FlightLoop_CanWriteLog();
-		unsigned int wr_before = FlightLog_Written();
-
-		if (can_log) {
-			FlightLog_Service(1);
-		}
-		// 同一控制拍内可能多次检查；用实际写入增量判断这拍到底写没写。
-		FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(),
-								 (unsigned char)(FlightLog_Written() != wr_before));
-	}
-#else
 	if (FlightLoop_CanWriteLog()) {
 		FlightLog_Service(1);             // 每轮最多一次编程，余量不足延期
 	}

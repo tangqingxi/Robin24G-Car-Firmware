@@ -72,6 +72,11 @@ typedef struct {
 	u8 gate_pending;
 	u8 gate_wrote;
 	u8 gate_blocked;
+	u32 ctrl_min_us;
+	u32 ctrl_below_us;
+	u32 budget_min_us;
+	u32 budget_below_us;
+	u32 service_max_us;
 } ArmDebug;
 
 static ArmDebug d;
@@ -472,6 +477,36 @@ void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount,
 		d.gate_wrote = 1;
 	}
 }
+void FlightArmDebug_OnControlTiming(signed int left_us)
+{
+	u32 v = left_us > 0 ? (u32)left_us : 0;
+
+	if (v < d.ctrl_min_us) {
+		d.ctrl_min_us = v;
+	}
+	if (v < 2500u) {
+		d.ctrl_below_us++;
+	}
+}
+
+void FlightArmDebug_OnBudgetTiming(signed int left_us)
+{
+	u32 v = left_us > 0 ? (u32)left_us : 0;
+
+	if (v < d.budget_min_us) {
+		d.budget_min_us = v;
+	}
+	if (v < 2500u) {
+		d.budget_below_us++;
+	}
+}
+
+void FlightArmDebug_OnLogServiceUs(unsigned int us)
+{
+	if (us > d.service_max_us) {
+		d.service_max_us = us;
+	}
+}
 unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }
 unsigned int FlightArmDebug_LogBudgetMaxRun(void) { return d.budget_max; }
 
@@ -648,11 +683,26 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, FlightLog_FlashPeakUs());
 		p = p_str(p, " qd=");
 		p = p_u32(p, FlightLog_QueueDrops());
+		p = p_str(p, " cm=");
+		p = p_u32(p, d.ctrl_min_us);
+		p = p_str(p, " c2=");
+		p = p_u32(p, d.ctrl_below_us);
+		p = p_str(p, " bm=");
+		p = p_u32(p, d.budget_min_us);
+		p = p_str(p, " b2=");
+		p = p_u32(p, d.budget_below_us);
+		p = p_str(p, " sm=");
+		p = p_u32(p, d.service_max_us);
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
 
 		d.max_ctrl_gap = 0;
 		d.ctrl_skips = 0;
+		d.ctrl_min_us = 0xFFFFFFFFu;
+		d.ctrl_below_us = 0;
+		d.budget_min_us = 0xFFFFFFFFu;
+		d.budget_below_us = 0;
+		d.service_max_us = 0;
 		d.read_ok = 0;
 		d.read_fail = 0;
 		d.still_max_ticks = 0;

@@ -179,6 +179,13 @@ void FlightLoop_Init(void)
 						  s_fl.att.ready, s_fl.safety.pwm_ready);
 }
 
+signed int FlightLoop_LogBudgetLeftUs(void)
+{
+	signed int left = (signed int)(s_fl.next_tick - clock_time());
+
+	return left / (signed int)(CLOCK_SYS_CLOCK_HZ / 1000000u);
+}
+
 unsigned char FlightLoop_CanWriteLog(void)
 {
 	// 给单次 Flash 写入留出距下一控制拍的余量；余量不足延期到下一主循环。
@@ -487,6 +494,10 @@ void FlightLoop_Process(void)
 		// 本拍 Euler_Update 之后、PWM 已落定，记录同一拍原始状态。
 		flight_log_fill(&ls, imu_ok, att_updated, mixer_limited);
 		FlightLog_OnSample(&ls);
+#if C_FLIGHT_ARM_DEBUG
+		// 控制拍全部计算结束时，距下一拍还剩多少微秒。
+		FlightArmDebug_OnControlTiming(FlightLoop_LogBudgetLeftUs());
+#endif
 	}
 }
 
