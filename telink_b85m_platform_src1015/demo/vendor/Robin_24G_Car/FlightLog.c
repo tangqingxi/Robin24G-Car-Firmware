@@ -40,6 +40,10 @@ typedef struct {
 	u8 tail_pending;
 	u8 close_pending;
 	u8 baseline_written;
+	u8 frozen;
+	u8 need_erase;
+	u8 erase_index;
+	u8 ram_started;
 	u16 key_prev;
 	u32 tick;
 	u32 dropped;
@@ -180,6 +184,26 @@ static void erase_log(void)
 	}
 }
 
+// 飞行阶段只写 RAM：10 Hz、定长、循环覆盖；落地锁定后再批量落盘。
+#define FLIGHT_RAM_HZ          10u
+#define FLIGHT_RAM_SECONDS     3u
+#define FLIGHT_RAM_N           (FLIGHT_RAM_HZ * FLIGHT_RAM_SECONDS + 4u)
+#define FLIGHT_RAM_DIV         (FLIGHT_LOOP_HZ / FLIGHT_RAM_HZ)
+
+typedef struct {
+	u16 t10;
+	s16 yaw_stick;
+	s16 yaw_target;
+	s16 gyro_z;
+	s16 yaw_corr;
+	u16 thrust;
+	u16 pwm[4];
+	u8 flags;
+} FlightRamRec;
+
+static FlightRamRec s_ram[FLIGHT_RAM_N];
+static u16 s_ram_head;
+static u16 s_ram_count;
 static u8 write_blob(const u8 *rec, u8 is_data)
 {
 	u32 phys, slot, addr;
@@ -397,6 +421,57 @@ void FlightLog_Init(void)
 	s_log.last_result = FLIGHT_LOG_IDLE;
 }
 
+// 手动开始：只登记会话并清空 RAM，不碰 Flash；旧趟数据继续保持。
+static void ram_log_start(void)
+{
+	s_log.session_serial++;
+	if (!s_log.session_serial) {
+		s_log.session_serial = 1;
+	}
+	s_log.session = s_log.session_serial;
+	s_log.active = 1;
+	s_log.closing = 0;
+	s_log.frozen = 0;
+	s_log.need_erase = 0;
+	s_log.erase_index = 0;
+	s_log.ram_started = 1;
+	s_log.state = FLIGHT_LOG_REC;
+	s_log.record_seq = 0;
+	s_log.data_records = 0;
+	s_log.dropped = 0;
+	s_log.session_us = 0;
+	s_log.last_ctrl_tick = clock_time();
+	s_log.tick = 0;
+	s_log.max_gap_ticks = 0;
+	s_log.late_count = 0;
+	s_log.skip_count = 0;
+	s_log.flash_peak_ticks = 0;
+	s_log.event_pending = 0;
+	s_log.summary_pending = 0;
+	s_log.tail_pending = 0;
+	s_log.close_pending = 0;
+	s_log.page_open = 0;
+	s_ram_head = 0;
+	s_ram_count = 0;
+}
+
+// 第二次 K3/急停/失联：冻结采样；真正擦写必须等落地且 PWM 为零。
+static void ram_log_freeze(void)
+{
+	if (!s_log.active && !s_log.ram_started) {
+		return;
+	}
+	s_log.active = 0;
+	s_log.ram_started = 0;
+	s_log.frozen = 1;
+	s_log.closing = 1;
+	s_log.need_erase = 1;
+	s_log.erase_index = 0;
+	s_log.summary_pending = 0;
+	s_log.end_reason = 7;              // 手动第二次 K3 冻结
+	s_log.end_ms = s_log.session_us / 1000u;
+	s_log.state = FLIGHT_LOG_ST_CLOSING;
+}
 void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
 					 unsigned char can_start, unsigned char blocked)
 {
@@ -404,6 +479,25 @@ void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
 				 && !(s_log.key_prev & FLIGHT_LOG_KEY_START);
 
 	s_log.key_prev = key;
+#ifndef FLIGHT_LOG_LEGACY_WRITE_TEST
+	if (!new_key || !packet_valid) {
+		return;
+	}
+	if (s_log.state == FLIGHT_LOG_ST_CLOSING) {
+		s_log.last_result = FLIGHT_LOG_REJECT;
+		return;
+	}
+	if (s_log.active) {
+		ram_log_freeze();              // 第二次短按：只冻结，不擦写
+		return;
+	}
+	if (s_log.state == FLIGHT_LOG_IDLE || s_log.state == FLIGHT_LOG_ST_END) {
+		ram_log_start();               // 第一次短按：只开始采集
+		return;
+	}
+	s_log.last_result = FLIGHT_LOG_REJECT;
+	return;
+#else
 	if (packet_valid) {
 		s_log.link_seen = 1;
 		if (!(key & FLIGHT_LOG_KEY_START)) {
@@ -429,6 +523,7 @@ void FlightLog_OnKey(unsigned short key, unsigned char packet_valid,
 	}
 	s_log.pending = 1;
 	s_log.state = FLIGHT_LOG_PREP;
+#endif
 }
 
 void FlightLog_OnLinkDown(void)
@@ -492,6 +587,7 @@ void FlightLog_OnControlTick(void)
 
 void FlightLog_OnSample(const FlightLogSample *sample)
 {
+#ifdef FLIGHT_LOG_LEGACY_WRITE_TEST
 	FlightLogSample s;
 
 	if (!s_log.active || !sample || s_log.event_pending) {
@@ -503,18 +599,82 @@ void FlightLog_OnSample(const FlightLogSample *sample)
 	}
 	if (s_log.qcount >= 2) {
 		s_log.dropped++;
-#if C_FLIGHT_ARM_DEBUG
-		s_log.queue_drops++;
-#endif
 		return;
 	}
 	s = *sample;
-	s.t_ms = s_log.session_us / 1000u;  // 会话相对时间，跨 u32 tick 回绕仍单调
+	s.t_ms = s_log.session_us / 1000u;
 	s_log.q[s_log.qtail] = s;
 	s_log.qtail = (u8)((s_log.qtail + 1) & 1);
 	s_log.qcount++;
-}
+#else
+	FlightRamRec *r;
+	u16 tail;
 
+	if (!s_log.active || !sample || s_log.event_pending) {
+		return;
+	}
+	// 只有真正解锁后才采样；K3 准备阶段和落地锁定阶段不产生样本。
+	if (!(sample->flags & FLIGHT_LOG_F_ARMED)) {
+		return;
+	}
+	s_log.tick++;
+	if ((s_log.tick % FLIGHT_RAM_DIV) != 0u) {
+		return;
+	}
+	if (s_ram_count >= FLIGHT_RAM_N) {
+		s_ram_head = (u16)((s_ram_head + 1u) % FLIGHT_RAM_N);
+		s_ram_count--;
+		s_log.dropped++;
+	}
+	tail = (u16)((s_ram_head + s_ram_count) % FLIGHT_RAM_N);
+	r = &s_ram[tail];
+	r->t10 = (u16)(s_log.session_us / 10000u);
+	r->yaw_stick = sample->yaw_stick;
+	r->yaw_target = sample->yaw_target;
+	r->gyro_z = sample->gyro[2];
+	r->yaw_corr = sample->yaw_corr;
+	r->thrust = sample->thrust;
+	r->pwm[0] = sample->pwm[0];
+	r->pwm[1] = sample->pwm[1];
+	r->pwm[2] = sample->pwm[2];
+	r->pwm[3] = sample->pwm[3];
+	r->flags = (u8)((sample->flags & FLIGHT_LOG_F_LIMITED) ? 1u : 0u);
+	s_ram_count++;
+#endif
+}
+static u8 flush_ram_one(void)
+{
+	u8 rec[FLIGHT_LOG_REC_SIZE];
+	FlightLogSample s;
+	const FlightRamRec *r;
+
+	if (!s_ram_count) {
+		return 0;
+	}
+	r = &s_ram[s_ram_head];
+	memset(&s, 0, sizeof(s));
+	s.t_ms = (u32)r->t10 * 10u;
+	s.yaw_stick = r->yaw_stick;
+	s.yaw_target = r->yaw_target;
+	s.gyro[2] = r->gyro_z;
+	s.yaw_corr = r->yaw_corr;
+	s.thrust = r->thrust;
+	s.pwm[0] = r->pwm[0];
+	s.pwm[1] = r->pwm[1];
+	s.pwm[2] = r->pwm[2];
+	s.pwm[3] = r->pwm[3];
+	if (r->flags & 1u) {
+		s.flags |= FLIGHT_LOG_F_LIMITED;
+	}
+	s.flags |= FLIGHT_LOG_F_LOCKED;
+	serialize(&s, rec, 0);
+	if (!write_blob(rec, 1)) {
+		return 0;
+	}
+	s_ram_head = (u16)((s_ram_head + 1u) % FLIGHT_RAM_N);
+	s_ram_count--;
+	return 1;
+}
 void FlightLog_Service(unsigned char budget_ok)
 {
 	u8 rec[FLIGHT_LOG_REC_SIZE];
@@ -525,6 +685,37 @@ void FlightLog_Service(unsigned char budget_ok)
 	if (!budget_ok) {
 		return;                        // 距下一控制拍余量不足，本轮不发起编程
 	}
+
+#ifndef FLIGHT_LOG_LEGACY_WRITE_TEST
+	// 冻结后先在主循环里逐扇区擦除，再写 baseline；每轮最多一次物理操作。
+	if (s_log.need_erase == 1) {
+		flash_erase_sector(FLIGHT_LOG_BASE + (u32)s_log.erase_index * FLIGHT_LOG_SECTOR_SIZE);
+		s_log.erase_index++;
+		if (s_log.erase_index >= FLIGHT_LOG_SECTORS) {
+			s_log.need_erase = 2;
+		}
+		return;
+	}
+	if (s_log.need_erase == 2) {
+		open_page(0);
+		write_baseline();
+		s_log.need_erase = 0;
+		return;
+	}
+	// 飞行阶段只写 RAM；只有冻结/停机后才批量落盘。
+	if (s_ram_count && s_log.frozen) {
+		flush_ram_one();
+		return;
+	}
+	if (s_log.active && !s_log.event_pending && !s_log.closing) {
+		return;
+	}
+	if (s_log.frozen && !s_log.event_pending && !s_log.summary_pending
+		&& !s_log.tail_pending && !s_log.close_pending) {
+		s_log.summary_pending = 1;     // 手动第二次 K3：无停机事件也正常收尾
+		return;
+	}
+#endif
 	if (s_log.summary_pending) {
 		if (write_meta(FLIGHT_LOG_TYPE_SUMMARY)) {
 			s_log.summary_pending = 0;
@@ -578,6 +769,10 @@ void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 	s_log.event_pending = 1;
 	s_log.dropped += s_log.qcount;
 	s_log.qcount = 0;
+#ifndef FLIGHT_LOG_LEGACY_WRITE_TEST
+	ram_log_freeze();                  // 急停/失联自动冻结，落地后分批落盘
+	s_log.event_pending = 1;
+#endif
 }
 
 #if C_FLIGHT_ARM_DEBUG

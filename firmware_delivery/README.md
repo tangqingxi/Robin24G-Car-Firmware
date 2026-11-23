@@ -7,7 +7,7 @@
 
 | 用途 | 文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
-| **K3 启录日志应用（当前）** | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 27636 | `5557BF95888010960A600D4FBE697596C9F24401D02AB232204ADA324CF11AEA` | `0x4000` |
+| **K3 启录日志应用（当前）** | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 28948 | `051353F3775848A8E936E86E89698683F306FCF209F1C337F92CF1CB16FB1F5C` | `0x4000` |
 | **无 OTA bootloader** | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | `0x0` |
 | **六轴校准维护件** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | `0x4000` |
 | **已验收回退件 412d6b5** | [`candidates/Robin_24G_Car_flight_control_alignfix.bin`](candidates/Robin_24G_Car_flight_control_alignfix.bin) | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | `0x4000` |

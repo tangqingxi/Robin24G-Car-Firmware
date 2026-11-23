@@ -2054,7 +2054,8 @@ void User_main_loop_process(void)
 				/ (CLOCK_SYS_CLOCK_HZ / 1000000u));
 			did_prep = 1;
 		}
-		can_log = FlightLoop_CanWriteLog();
+		can_log = (unsigned char)(FlightLoop_CanWriteLog()
+								  || FlightLoop_CanEraseLog());
 		state_before = FlightLog_State();
 		{
 			unsigned int wr_before = FlightLog_Written();
@@ -2088,8 +2089,8 @@ void User_main_loop_process(void)
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
-	if (FlightLoop_CanWriteLog()) {
-		FlightLog_Service(1);             // 每轮最多一次编程，余量不足延期
+	if (FlightLoop_CanWriteLog() || FlightLoop_CanEraseLog()) {
+		FlightLog_Service(1);             // 空中按余量门；落地锁定后每轮最多一次补写
 	}
 #endif
 	d24_rx_main_loop();
