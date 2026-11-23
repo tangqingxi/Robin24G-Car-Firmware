@@ -1,6 +1,56 @@
 #include <string.h>
 #include "FlightLog.h"
 #include "FlightConfig.h"
+#include "FlightArmDebug.h"
+#if C_FLIGHT_ARM_DEBUG
+#include "printf.h"
+#include "UserUart.h"
+
+// 诊断版专用观测：把日志路径直接输出为短文本。
+// Q=样本入队，D=队列满丢样，S=服务取到样本，W=进入Flash写，X=Flash写返回。
+// 正常版不编译，不影响 UART 静默和日志行为。
+static char *trace_u32(char *p, unsigned int v)
+{
+	char tmp[10];
+	int n = 0;
+
+	do {
+		tmp[n++] = (char)('0' + v % 10);
+		v /= 10;
+	} while (v && n < 10);
+	while (n) {
+		*p++ = tmp[--n];
+	}
+	return p;
+}
+
+static char *trace_hex6(char *p, unsigned int v)
+{
+	int i;
+
+	for (i = 20; i >= 0; i -= 4) {
+		unsigned int d = (v >> i) & 0x0F;
+		*p++ = (char)(d < 10 ? ('0' + d) : ('A' + d - 10));
+	}
+	return p;
+}
+
+static void flight_trace(unsigned char kind, unsigned short seq, unsigned int value)
+{
+	char buf[40];
+	char *p = buf;
+
+	*p++ = 'F';
+	*p++ = 'L';
+	*p++ = (char)kind;
+	*p++ = ' ';
+	p = trace_u32(p, seq);
+	*p++ = ' ';
+	p = trace_hex6(p, value);
+	*p++ = '\n';
+	UartDbgSend((unsigned char *)buf, (unsigned char)(p - buf));
+}
+#endif
 #ifdef FLIGHT_LOG_HOST_TEST
 void flash_read_page(unsigned int addr, unsigned int len, unsigned char *buf);
 void flash_write_page(unsigned int addr, unsigned int len, unsigned char *buf);
@@ -154,7 +204,13 @@ static u8 write_blob(const u8 *rec, u8 is_data)
 	addr = s_log.page_base + FLIGHT_LOG_PAGE_HDR
 		   + phys * 256u + slot * FLIGHT_LOG_REC_SIZE;
 	t0 = clock_time();
+#if C_FLIGHT_ARM_DEBUG
+	flight_trace('W', s_log.record_seq, addr);
+#endif
 	flash_write_page(addr, FLIGHT_LOG_REC_SIZE, (u8 *)rec);
+#if C_FLIGHT_ARM_DEBUG
+	flight_trace('X', s_log.record_seq, addr);
+#endif
 	dt = (u32)(clock_time() - t0);
 	if (dt > s_log.flash_peak_ticks) {
 		s_log.flash_peak_ticks = dt;
@@ -421,6 +477,9 @@ void FlightLog_OnSample(const FlightLogSample *sample)
 	}
 	if (s_log.qcount >= 2) {
 		s_log.dropped++;
+#if C_FLIGHT_ARM_DEBUG
+		flight_trace('D', (unsigned short)s_log.dropped, s_log.qcount);
+#endif
 		return;
 	}
 	s = *sample;
@@ -428,6 +487,9 @@ void FlightLog_OnSample(const FlightLogSample *sample)
 	s_log.q[s_log.qtail] = s;
 	s_log.qtail = (u8)((s_log.qtail + 1) & 1);
 	s_log.qcount++;
+#if C_FLIGHT_ARM_DEBUG
+	flight_trace('Q', s_log.record_seq, s.t_ms);
+#endif
 }
 
 void FlightLog_Service(unsigned char budget_ok)
@@ -472,6 +534,9 @@ void FlightLog_Service(unsigned char budget_ok)
 	if (!s_log.qcount) {
 		return;
 	}
+#if C_FLIGHT_ARM_DEBUG
+	flight_trace('S', s_log.record_seq, s_log.qcount);
+#endif
 	serialize(&s_log.q[s_log.qhead], rec, 0);
 	if (write_record(rec, 1)) {
 		s_log.qhead = (u8)((s_log.qhead + 1) & 1);
