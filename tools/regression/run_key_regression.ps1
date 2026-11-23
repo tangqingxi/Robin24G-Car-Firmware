@@ -59,6 +59,19 @@ try {
         (Join-Path $Car 'GroundDiag.c')
     ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'flight_startup_ground' @(
+        (Join-Path $Here 'test_flight_startup.c'),
+        (Join-Path $Car 'FlightLoop.c'),
+        (Join-Path $Car 'RcInput.c'),
+        (Join-Path $Car 'FlightSafety.c'),
+        (Join-Path $Car 'MotorMixer.c'),
+        (Join-Path $Car 'AttitudeControl.c'),
+        (Join-Path $Car 'RateControl.c'),
+        (Join-Path $Car 'UserEuler.c'),
+        (Join-Path $Car 'GroundDiag.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
+        '-DC_GROUND_UART_DIAG=1', '-DFLIGHT_STARTUP_TEST=1', '-fpack-struct')
+
 
 
 

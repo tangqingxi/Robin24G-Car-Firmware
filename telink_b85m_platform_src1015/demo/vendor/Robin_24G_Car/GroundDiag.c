@@ -7,7 +7,7 @@
 #include "FlightConfig.h"
 #include "UserUart.h"
 
-static char s_line[UART_DATA_LEN];
+static char s_line[UART_DATA_LEN * 2];
 static unsigned char s_have;
 static unsigned int s_last_ms;
 static int s_throttle;
@@ -63,6 +63,7 @@ void GroundDiag_OnControl(int throttle, int yaw_stick, const int tgt[3],
 						  const int gyro[3], const int corr[3],
 						  const unsigned short pwm[4],
 						  const short raw_acc[3], const int q[4],
+						  unsigned char imu_ok,
 						  unsigned char armed, unsigned char limited)
 {
 	int i;
@@ -74,7 +75,7 @@ void GroundDiag_OnControl(int throttle, int yaw_stick, const int tgt[3],
 	memcpy(s_corr, corr, sizeof(s_corr));
 	memcpy(s_pwm, pwm, sizeof(s_pwm));
 	memcpy(s_q, q, sizeof(s_q));
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 3 && imu_ok; i++) {
 		if (!s_acc_seen) {
 			s_acc_min[i] = raw_acc[i];
 			s_acc_max[i] = raw_acc[i];
@@ -141,6 +142,15 @@ void GroundDiag_Process(void)
 	p = d_put_tag(p, " l=");
 	*p++ = (char)('0' + (s_limited ? 1 : 0));
 	*p++ = '\n';
-	(void)UartTrySend((unsigned char *)s_line, (unsigned char)(p - s_line));
+	{
+		unsigned int len = (unsigned int)(p - s_line);
+
+		// 字段值再宽，发送帧也硬限制在 UART_DATA_LEN 内。
+		if (len > UART_DATA_LEN - 1u) {
+			len = UART_DATA_LEN - 1u;
+			s_line[len - 1u] = '\n';
+		}
+		(void)UartTrySend((unsigned char *)s_line, (unsigned char)len);
+	}
 	s_acc_seen = 0;                    // 下一个 100 ms 重新统计原始加速度峰峰值
 }

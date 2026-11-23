@@ -208,8 +208,8 @@
     "debug": {
       "role": "ground_uart_diag",
       "file": "candidates/Robin_24G_Car_ground_uart_diag.bin",
-      "bytes": 25812,
-      "sha256": "88A66D6FA0AC22B44A70ABA517060E01044654DEC8D959E5E7AF5D08528C8DE1",
+      "bytes": 26164,
+      "sha256": "4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
     },
@@ -250,8 +250,8 @@
       {
         "role": "ground_uart_diag",
         "file": "Robin_24G_Car_ground_uart_diag.bin",
-        "bytes": 25812,
-        "sha256": "88A66D6FA0AC22B44A70ABA517060E01044654DEC8D959E5E7AF5D08528C8DE1",
+        "bytes": 26164,
+        "sha256": "4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2",
         "flash_address": "0x4000"
       }
     ]

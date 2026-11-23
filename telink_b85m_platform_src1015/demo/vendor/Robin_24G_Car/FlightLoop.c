@@ -528,7 +528,6 @@ void FlightLoop_Process(void)
 		// 本拍 Euler_Update 之后、PWM 已落定，记录同一拍原始状态。
 		flight_log_fill(&ls, imu_ok, att_updated, mixer_limited);
 		FlightLog_OnSample(&ls);
-#if C_FLIGHT_ARM_DEBUG
 #if C_GROUND_UART_DIAG
 		{
 			unsigned short dpwm[4];
@@ -537,10 +536,9 @@ void FlightLoop_Process(void)
 			GroundDiag_OnControl(s_fl.rc.cmd[0], s_fl.rc.cmd[1],
 								 s_fl.attc.tgt_rate,
 								 s_fl.rate, s_fl.ratec.corr, dpwm,
-								 raw_a, s_fl.att.q,
+								 raw_a, s_fl.att.q, imu_ok,
 								 s_fl.safety.armed, mixer_limited);
 		}
-#endif
 #endif
 	}
 }

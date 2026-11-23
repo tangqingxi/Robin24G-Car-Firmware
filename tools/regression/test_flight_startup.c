@@ -9,16 +9,26 @@
  * Euler_InitFromAccel 失败、永远不就绪。
  */
 #include <stdio.h>
+#include <string.h>
 
 #include "FlightLoop.h"
 #include "FlightConfig.h"
 #include "UserEuler.h"
+#include "GroundDiag.h"
 
 // PWM 桩
 unsigned short LFmotDuty;
 unsigned short LBmotDuty;
 unsigned short RBmotDuty;
 unsigned short RFmotDuty;
+static char diag_line[160];
+u8 UartTrySend(u8 *d, u8 n)
+{
+	if (n >= sizeof(diag_line)) return 0;
+	memcpy(diag_line, d, n);
+	diag_line[n] = 0;
+	return 1;
+}
 void User_pwm_init_func(void) {}
 void Update4MotPwmDuty(void) {}
 
@@ -71,7 +81,15 @@ int main(void)
 			   FlightLoop_StartupTestLpf(2));
 		return 1;
 	}
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightLoop_Process();              // 就绪后的第一个完整控制拍
+	GroundDiag_Process();
+	if (!strstr(diag_line, "YAW t=") || !strstr(diag_line, " y=")) {
+		printf("FAIL real FlightLoop did not produce YAW: %s\n", diag_line);
+		return 1;
+	}
 	printf("PASS startup ready at sample %d\n", i);
+	printf("YAW sample: %s", diag_line);
 
 	// 合法低油门包：FB=0x0400（-307）、其余中位、0002 解锁事件
 	FlightLoop_OnRcPacket(0x1000, 0x1000, 0x0400, 0x1000, 0x0002);
