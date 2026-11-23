@@ -8,6 +8,26 @@
  *    - 上电由一段静止样本的平均加速度定横滚/俯仰（允许斜放、倒放），偏航置 0；
  *    - 每次更新后归一化。
  *
+ *  数据流：
+ *    校准后的陀螺 Q10 rad/s + 加速度 mg
+ *      → 陀螺梯形积分推进 q
+ *      → 加速度预测方向与实际方向叉积，得到比例纠偏
+ *      → 归一化 q
+ *      → 控制层用 q 算目标角速度，日志同时保存原始 q。
+ *
+ *  单位与约定：
+ *    - q = [w,x,y,z]，Q15；表示机体 FRD → 水平系 H 的旋转；
+ *    - 陀螺 Q10 rad/s，加速度 mg；dt 单位 0.1ms；
+ *    - 横滚/俯仰由重力方向唯一确定，偏航上电置 0，靠陀螺积分维持；
+ *    - 没有磁力计，所以偏航角会随时间缓慢漂移，这是硬件限制，不是滤波器
+ *      可以把绝对偏航“修回来”的。
+ *
+ *  失败策略：
+ *    - 加速度模长不可信时只降低/暂停加速度纠偏，陀螺仍积分；
+ *    - 时间间隔过大、单步旋转过大、四元数状态异常、归一化溢出时，
+ *      本拍返回 0，保留上一拍姿态，并让控制层禁止本拍输出；
+ *    - 所有舍入余数都留到下一拍，避免长期固定方向偏置。
+ *
  *  全部 32 位整数实现（工具链没有 libgcc/软浮点，不能用 float）。
  *  配置全部来自 UserEuler.h，本文件不再重复定义阈值。
  */
@@ -197,6 +217,8 @@ att_i32 Euler_GyroToQ10(att_i32 raw_lsb, att_i32 bias_q6, att_i32 *rem)
 	return q10;
 }
 
+// 复位为单位四元数，并清空所有积分/余数/就绪标志。
+// 上电、初始化失败或状态损坏时调用；复位后 ready=0，需要重新完成静止初始化。
 void Euler_Reset(euler_q_t *m)
 {
 	m->q[0] = ATT_Q15_ONE;          // 单位四元数
@@ -218,6 +240,17 @@ void Euler_Reset(euler_q_t *m)
 	m->t_ms = 0;
 }
 
+// 用静止平均加速度初始化横滚/俯仰，偏航固定为 0。
+//
+// 重力方向在机体 FRD 中为 a=(sinθ, -sinφcosθ, -cosφcosθ)：
+//   - θ 俯仰：sinθ=ax；
+//   - φ 横滚：sinφ=-ay/cosθ，cosφ=-az/cosθ；
+//   - 用半角公式构造四元数 q=qy(θ)⊗qx(φ)，避免直接算欧拉角再转回去
+//     的奇点和大角度误差。
+//
+// 允许斜放/倒放启动：cosφ≈0（倒扣）时不用 sinφ/cosφ，而用
+// sqrt((1-cosφ)/2) 求半角正弦，避免除零。
+// 模长 <0.3g 或归一化失败时返回 0，由调用者继续积累静止样本。
 att_u8 Euler_InitFromAccel(euler_q_t *m, const att_i32 acc_mg[3], att_u32 t_ms)
 {
 	att_i32 ax, ay, az, n2, n;
@@ -292,6 +325,22 @@ att_u8 Euler_InitFromAccel(euler_q_t *m, const att_i32 acc_mg[3], att_u32 t_ms)
 	return 1;
 }
 
+// 单拍 Mahony 互补滤波更新。
+//
+// 执行顺序（与代码块一一对应）：
+//   1) 输入合法性/长间隔检查；
+//   2) 用当前 q 预测“重力向上方向”；
+//   3) 由加速度模长算 trust，决定本拍是否做加速度纠偏；
+//   4) 陀螺梯形积分（相邻两拍平均），叠加比例纠偏；
+//   5) q̇=0.5·q⊗ω，乘 dt 得到 Δq；
+//   6) 归一化；失败则恢复上一拍 q 并丢弃本拍端点。
+//
+// 为什么先积分再归一化：四元数对旋转是齐次的，归一化只去掉数值漂移；
+// 若每步都归一化再积分也可以，但本实现把“积分余数”和“归一化”分开，
+// 便于在异常时恢复上一拍有效状态。
+//
+// 返回 1 表示姿态已推进；返回 0 时调用者必须把本拍姿态视为无效，
+// 不能继续用于控制输出。
 att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q10[3],
                     att_i32 dt_100us, att_u32 t_ms)
 {
@@ -304,6 +353,8 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	att_u32 n2;
 	att_i32 n;
 
+	// 未完成静止初始化、或没有有效时间差时不推进姿态。
+	// 控制层收到 0 会禁止本拍输出，而不是拿旧姿态继续控制。
 	if (!m->ready || dt_100us <= 0) {
 		return 0;
 	}
@@ -323,6 +374,8 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	q3 = m->q[3];
 
 	// 预测静止比力方向：v = R^T × (0,0,-1)，Q15。
+	// 物理含义：如果当前姿态正确，加速度计测到的“向上”应当等于 v；
+	// 它与实测单位加速度的叉积就是姿态误差。
 	// 每项先移位再相减，避免 q 略大时中间和溢出。
 	vx = ((q0 * q2) >> 14) - ((q1 * q3) >> 14);
 	vy = -(((q0 * q1) >> 14) + ((q2 * q3) >> 14));
@@ -333,7 +386,9 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	n = (att_i32)euler_isqrt(n2);
 
 	// 先按模长算纠偏权重：权重为 0（自由落体/剧烈运动）时跳过归一化与叉积，
-	// 只保留陀螺积分，省掉每拍 3 次整数除法
+	// 只保留陀螺积分，省掉每拍 3 次整数除法。
+	// 0.85g..1.15g 完全信任；0.70..0.85 线性淡入；1.15..1.30 线性淡出；
+	// 超出范围完全不信。这样剧烈机动/自由落体时不会被“假重力”拉歪姿态。
 	trust = 0;
 	if (n >= C_ATT_TRUST_FULL_LO_MG && n <= C_ATT_TRUST_FULL_HI_MG) {
 		trust = ATT_Q15_ONE;
@@ -358,7 +413,9 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 		kp = (att_i32)(((att_i32)C_MAHONY_KP_Q15 * trust) >> 15);
 	}
 
-	// 梯形积分：相邻两拍角速度取平均
+	// 梯形积分：相邻两拍角速度取平均。
+	// 比直接用当前拍矩形积分少半个采样周期的系统误差；第一拍没有上一拍，
+	// 直接使用当前角速度并把 have_prev 置 1。
 	if (m->have_prev) {
 		// 相邻两拍取平均：余数累积，避免"0/-1 交替"这类输入的固定漂移
 		wx = euler_avg2(&m->trap_rem[0], m->gyro_prev[0] + gyro_q10[0]);
@@ -390,14 +447,21 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	m->gyro_prev[1] = gyro_q10[1];
 	m->gyro_prev[2] = gyro_q10[2];
 
-	// 叠加比例纠正（Q15·Q15 → Q30 → Q10）
+	// 叠加比例纠正（Q15·Q15 → Q30 → Q10）。
+	// kp 已经是“Kp×trust”的 Q15 值；ex/ey/ez 是 Q15 叉积误差。
+	// 右移 20 位把 Q30 压回 Q10，再与陀螺角速度相加。
 	wx += euler_round_shift(kp * ex, 20);
 	wy += euler_round_shift(kp * ey, 20);
 	wz += euler_round_shift(kp * ez, 20);
 
-	// q̇ = 0.5 × q ⊗ ω（Q24），用更新前的 q
-	// q 与 ω 相乘后要除以 2：同样用对称舍入，否则负角速度一侧会多积一点，
-	// 方波/往复输入 60 秒后会累积成可见的偏航漂移
+	// q̇ = 0.5 × q ⊗ ω（Q24），用更新前的 q。
+	// 展开式：
+	//   t0 = -q1·wx - q2·wy - q3·wz
+	//   t1 =  q0·wx + q2·wz - q3·wy
+	//   t2 =  q0·wy - q1·wz + q3·wx
+	//   t3 =  q0·wz + q1·wy - q2·wx
+	// 每项先乘 0.5；用对称舍入，否则负角速度一侧会多积一点，
+	// 方波/往复输入 60 秒后会累积成可见的偏航漂移。
 	t0 = -euler_round_shift((att_i32)q1 * wx, 1) - euler_round_shift((att_i32)q2 * wy, 1)
 	     - euler_round_shift((att_i32)q3 * wz, 1);
 	t1 =  euler_round_shift((att_i32)q0 * wx, 1) + euler_round_shift((att_i32)q2 * wz, 1)
@@ -455,6 +519,9 @@ att_u8 Euler_Update(euler_q_t *m, const att_i32 acc_mg[3], const att_i32 gyro_q1
 	return 1;
 }
 
+// 静止判定：加速度模长在 0.70g..1.30g、三轴角速度 <0.1rad/s、
+// 相邻加速度样本变化 <60mg。只有连续满足 500ms 才允许初始化姿态。
+// 这样飞机放在桌上但有人碰、或正在缓慢转动时，不会用错误的重力方向初始化。
 att_u8 Euler_IsStill(const att_i32 acc_mg[3], const att_i32 gyr_q10[3],
                      const att_i32 prev_acc[3], att_u8 have_prev)
 {
@@ -482,6 +549,13 @@ att_u8 Euler_IsStill(const att_i32 acc_mg[3], const att_i32 gyr_q10[3],
 	return 1;
 }
 
+// 从四元数取欧拉角，单位 0.01°；只用于显示/日志，控制内部仍用 q。
+//
+// 旋转矩阵 R（机体 FRD → 水平系 H）元素：
+//   r00=1-2(q2²+q3²)，r10=2(q1q2+q0q3)，r20=2(q1q3-q0q2)
+//   r21=2(q2q3+q0q1)，r22=1-2(q1²+q2²)
+// 横滚=atan2(r21,r22)，俯仰=atan2(-r20,sqrt(1-r20²))，偏航=atan2(r10,r00)。
+// 俯仰在 ±90° 附近本就奇异，显示值可能跳变，但 q 本身仍连续。
 void Euler_GetEulerDeg100(const euler_q_t *m, att_i32 *roll, att_i32 *pitch, att_i32 *yaw)
 {
 	att_i32 q0 = m->q[0], q1 = m->q[1], q2 = m->q[2], q3 = m->q[3];
