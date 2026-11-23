@@ -2495,6 +2495,8 @@ def main():
                       help="按 200Hz 飞控协议采集（FCQ/FCS；--l400 为兼容别名）")
     mode.add_argument("--arm-debug", action="store_true",
                       help="200Hz 飞控专用解锁诊断（默认 GUI；ADB/ADU/ADO/ADL/ADE）")
+    mode.add_argument("--ground-diag", action="store_true",
+                      help="地面 YAW 10Hz 诊断（四元数/偏航控制/PWM/振动四组曲线）")
     args = ap.parse_args()
 
     if args.list:
@@ -2503,6 +2505,9 @@ def main():
     if args.arm_debug:
         from arm_debug_monitor import run_arm_debug
         return run_arm_debug(args)
+    if args.ground_diag:
+        from ground_diag_monitor import run_ground_diag
+        return run_ground_diag(args, SerialSource, pick_port)
     run(args)
 
 
