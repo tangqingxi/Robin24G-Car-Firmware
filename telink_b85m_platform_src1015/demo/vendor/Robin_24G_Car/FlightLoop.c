@@ -42,6 +42,7 @@ typedef struct __attribute__((aligned(4))) {
 	u8 still_prev_ok;
 	u8 inited;
 	u8 test_bypass;
+	u16 bench_key_prev;
 } FlightLoopState;
 
 static FlightLoopState s_fl;
@@ -282,6 +283,21 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 		return;
 	}
 	ev = RcInput_OnPacket(&s_fl.rc, thr, rot, fb, lr, key, now);
+
+#if C_FLIGHT_ARM_DEBUG
+	{
+		u8 k3_edge = (u8)((ev.key & FLIGHT_LOG_KEY_START)
+						  && !(s_fl.bench_key_prev & FLIGHT_LOG_KEY_START));
+
+		s_fl.bench_key_prev = ev.key;
+		// 临时诊断：锁定、PWM 全零时短按 K3 直接跑 A/B 两组 Flash 对比。
+		if (k3_edge && !s_fl.safety.armed && FlightLoop_CanEraseLog()
+			&& FlightLog_State() == FLIGHT_LOG_IDLE) {
+			FlightLog_BenchRun(s_fl.next_tick);
+			return;
+		}
+	}
+#endif
 
 #if (!C_L400_KEY_CAPTURE)
 	{

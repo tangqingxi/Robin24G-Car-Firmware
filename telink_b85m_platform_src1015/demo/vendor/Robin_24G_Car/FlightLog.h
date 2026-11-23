@@ -64,6 +64,9 @@ void FlightLog_OnLinkDown(void);
 #define FLIGHT_LOG_TYPE_BASELINE 3u
 #define FLIGHT_LOG_TYPE_TAIL 4u
 void FlightLog_Stop(void);
+#if C_FLIGHT_ARM_DEBUG
+void FlightLog_BenchRun(unsigned int next_tick);
+#endif
 unsigned char FlightLog_Active(void);
 unsigned int FlightLog_Dropped(void);
 #if C_FLIGHT_ARM_DEBUG

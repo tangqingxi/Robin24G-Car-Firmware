@@ -580,6 +580,148 @@ void FlightLog_OnEvent(unsigned char event, const FlightLogSample *sample)
 	s_log.qcount = 0;
 }
 
+#if C_FLIGHT_ARM_DEBUG
+// 诊断专用：把一条 56 字节记录打包成现有格式，末尾写 CRC。
+static void bench_make_record(u8 *rec, u16 session, u16 seq, u32 t_ms)
+{
+	memset(rec, 0, FLIGHT_LOG_REC_SIZE);
+	put32(&rec[0], t_ms);
+	put16(&rec[4], session);
+	put16(&rec[6], seq);
+	put16(&rec[52], 0);
+	put16(&rec[54], crc16_update(0xFFFF, rec, 54));
+}
+
+static void bench_write_header(u32 base, u16 seq, u16 session, u16 count, u16 page_crc)
+{
+	u8 hdr[16];
+
+	put32(&hdr[0], FLIGHT_LOG_MAGIC);
+	put16(&hdr[4], FLIGHT_LOG_VERSION);
+	put16(&hdr[6], session);
+	put16(&hdr[8], seq);
+	put16(&hdr[10], count);
+	put16(&hdr[12], page_crc);
+	put16(&hdr[14], crc16_update(0xFFFF, hdr, 14));
+	flash_write_page(base, 16, hdr);
+}
+
+static char *bench_u32(char *p, u32 v)
+{
+	char tmp[10];
+	int n = 0;
+
+	do {
+		tmp[n++] = (char)('0' + v % 10);
+		v /= 10;
+	} while (v && n < 10);
+	while (n) {
+		*p++ = tmp[--n];
+	}
+	return p;
+}
+
+static void bench_line(const char *tag, u32 records, u32 writes,
+					   u32 total_us, u32 max_us, u32 over)
+{
+	char buf[72];
+	char *p = buf;
+
+	while (*tag) {
+		*p++ = *tag++;
+	}
+	*p++ = ' ';
+	*p++ = 'n';
+	*p++ = '=';
+	p = bench_u32(p, records);
+	*p++ = ' ';
+	*p++ = 'w';
+	*p++ = '=';
+	p = bench_u32(p, writes);
+	*p++ = ' ';
+	*p++ = 't';
+	*p++ = '=';
+	p = bench_u32(p, total_us);
+	*p++ = ' ';
+	*p++ = 'm';
+	*p++ = 'x';
+	*p++ = '=';
+	p = bench_u32(p, max_us);
+	*p++ = ' ';
+	*p++ = 'o';
+	*p++ = 'v';
+	*p++ = '=';
+	p = bench_u32(p, over);
+	*p++ = '\n';
+	UartDbgSend((unsigned char *)buf, (unsigned char)(p - buf));
+}
+
+// K3 诊断入口：A 组 24 次单条写；B 组 6 次四条合写。
+// 两组使用日志区独立扇区，按原 56 字节记录格式写，BDT 可直接核对。
+void FlightLog_BenchRun(u32 next_tick)
+{
+	u8 rec[FLIGHT_LOG_REC_SIZE];
+	u8 page[FLIGHT_LOG_REC_SIZE * 4];
+	u16 page_crc;
+	u32 base_a = FLIGHT_LOG_BASE + 10u * FLIGHT_LOG_SECTOR_SIZE;
+	u32 base_b = FLIGHT_LOG_BASE + 11u * FLIGHT_LOG_SECTOR_SIZE;
+	u32 t0, dt, sum, max, over;
+	u32 i, j;
+	u16 seq;
+
+	flash_erase_sector(base_a);
+	flash_erase_sector(base_b);
+
+	// A 组：24 条，每条 56 字节，一次物理编程。
+	sum = 0;
+	max = 0;
+	over = 0;
+	page_crc = 0xFFFF;
+	for (i = 0; i < 24; i++) {
+		u32 addr = base_a + FLIGHT_LOG_PAGE_HDR
+				   + (i / 4u) * 256u + (i % 4u) * FLIGHT_LOG_REC_SIZE;
+
+		bench_make_record(rec, 0xBA00u, (u16)(i + 1u), i * 40u);
+		page_crc = crc16_update(page_crc, rec, FLIGHT_LOG_REC_SIZE);
+		t0 = clock_time();
+		flash_write_page(addr, FLIGHT_LOG_REC_SIZE, rec);
+		dt = (u32)(clock_time() - t0);
+		sum += dt;
+		if (dt > max) max = dt;
+		if ((s32)(clock_time() - next_tick) > 0) over++;
+	}
+	bench_line("FBA", 24, 24, sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+			   max / (CLOCK_SYS_CLOCK_HZ / 1000000u), over);
+	bench_write_header(base_a, 10, 0xBA00u, 24, page_crc);
+
+	// B 组：每页页首一次写 4 条（224 字节），共 6 次。
+	sum = 0;
+	max = 0;
+	over = 0;
+	page_crc = 0xFFFF;
+	for (j = 0; j < 6; j++) {
+		u32 addr = base_b + FLIGHT_LOG_PAGE_HDR + j * 256u;
+
+		for (i = 0; i < 4; i++) {
+			seq = (u16)(j * 4u + i + 1u);
+			bench_make_record(&page[i * FLIGHT_LOG_REC_SIZE],
+							  0xBB00u, seq, seq * 40u);
+			page_crc = crc16_update(page_crc,
+									&page[i * FLIGHT_LOG_REC_SIZE],
+									FLIGHT_LOG_REC_SIZE);
+		}
+		t0 = clock_time();
+		flash_write_page(addr, FLIGHT_LOG_REC_SIZE * 4u, page);
+		dt = (u32)(clock_time() - t0);
+		sum += dt;
+		if (dt > max) max = dt;
+		if ((s32)(clock_time() - next_tick) > 0) over++;
+	}
+	bench_line("FBB", 24, 6, sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+			   max / (CLOCK_SYS_CLOCK_HZ / 1000000u), over);
+	bench_write_header(base_b, 11, 0xBB00u, 24, page_crc);
+}
+#endif
 void FlightLog_Stop(void)
 {
 	if (s_log.active) {

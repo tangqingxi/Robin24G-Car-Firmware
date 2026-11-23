@@ -39,6 +39,7 @@
 
 | `data/archive/flight_log_real_20261123_second_read.bin` | 实板第二趟 BDT 原始读取（同样停在第226条） | 53248 | `3425DE69F6C2D9277711B0A030E8C7993AF8819DF51AE75751D222986CB0FF71` | N/A | 原始数据归档 |
 
+| `firmware_delivery/candidates/Robin_24G_Car_flash_ab_trace.bin` | Flash A/B 单条 vs 四条合写诊断 | 37860 | `6AF6DB8C6321015A27C2770479935F140D606BE8C10D57F30F6B9133E260644D` | 0x4000 | 诊断/临时 |
 ## 清理与重复核对
 
 - 删除 `Robin_24G_Car_Flash.bin` 通用构建副本：与当前日志具名副本 SHA256 完全一致。
