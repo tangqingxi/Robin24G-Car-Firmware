@@ -61,6 +61,18 @@ static int has_prefix(const char *p)
 	return 0;
 }
 
+static int has_substr(const char *needle)
+{
+	int i;
+
+	for (i = 0; i < line_count; i++) {
+		if (strstr(lines[i], needle) != NULL) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static int all_lengths_ok(void)
 {
 	int i;
@@ -135,6 +147,26 @@ int main(void)
 		printf("FAIL successful same-tick write counted as miss before=%u after=%u max=%u\n",
 			   budget_before, FlightArmDebug_LogBudgetSkips(),
 			   FlightArmDebug_LogBudgetMaxRun());
+		return 1;
+	}
+
+	/* bm 只记同一控制拍第一次预算检查，后续查询不能拉低。 */
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnBudgetTiming(2400);
+	FlightArmDebug_OnBudgetTiming(1000);
+	if (FlightArmDebug_BudgetBelow() != 1
+		|| FlightArmDebug_BudgetMinUs() != 2400) {
+		printf("FAIL budget timing not deduped: below=%u min=%u\n",
+			   FlightArmDebug_BudgetBelow(), FlightArmDebug_BudgetMinUs());
+		return 1;
+	}
+
+	/* 启动擦除耗时必须单独输出 pm。 */
+	g_now += CLOCK_SYS_CLOCK_HZ;
+	FlightArmDebug_OnLogPrepareUs(12345);
+	FlightArmDebug_Process();
+	if (!has_prefix("ADT ") || !has_substr(" pm=12345")) {
+		printf("FAIL prepare time not reported in ADT\n");
 		return 1;
 	}
 

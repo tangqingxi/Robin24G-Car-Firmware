@@ -495,6 +495,15 @@ void FlightArmDebug_OnControlTiming(signed int left_us)
 void FlightArmDebug_OnBudgetTiming(signed int left_us)
 {
 	u32 v = left_us > 0 ? (u32)left_us : 0;
+	u32 tick = clock_time() / FLIGHT_PERIOD_TICKS;
+
+	// 同一控制拍主循环可能多次到达预算判断；只记控制拍结束后的第一次，
+	// 才能与 cm（控制结束余量）按同一拍比较，避免后续查询把 bm 拉低。
+	if (d.budget_tick_seen && tick == d.budget_tick) {
+		return;
+	}
+	d.budget_tick_seen = 1;
+	d.budget_tick = tick;
 
 	if (v < d.budget_min_us) {
 		d.budget_min_us = v;
@@ -520,6 +529,9 @@ void FlightArmDebug_OnLogPrepareUs(unsigned int us)
 }
 unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }
 unsigned int FlightArmDebug_LogBudgetMaxRun(void) { return d.budget_max; }
+unsigned int FlightArmDebug_BudgetMinUs(void) { return d.budget_min_us; }
+unsigned int FlightArmDebug_BudgetBelow(void) { return d.budget_below_us; }
+unsigned int FlightArmDebug_PrepareMaxUs(void) { return d.prepare_max_us; }
 
 void FlightArmDebug_OnLogState(unsigned char state)
 {
@@ -702,6 +714,8 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, d.budget_min_us);
 		p = p_str(p, " b2=");
 		p = p_u32(p, d.budget_below_us);
+		p = p_str(p, " pm=");
+		p = p_u32(p, d.prepare_max_us);
 		p = p_str(p, " sm=");
 		p = p_u32(p, d.service_max_us);
 		*p++ = '\n';
@@ -713,6 +727,7 @@ void FlightArmDebug_Process(void)
 		d.ctrl_below_us = 0;
 		d.budget_min_us = 0xFFFFFFFFu;
 		d.budget_below_us = 0;
+		d.prepare_max_us = 0;
 		d.service_max_us = 0;
 		d.read_ok = 0;
 		d.read_fail = 0;

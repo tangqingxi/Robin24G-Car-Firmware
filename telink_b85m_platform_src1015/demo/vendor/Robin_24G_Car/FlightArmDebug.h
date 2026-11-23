@@ -34,6 +34,9 @@ void FlightArmDebug_OnLogServiceUs(unsigned int us);
 void FlightArmDebug_OnLogPrepareUs(unsigned int us);
 unsigned int FlightArmDebug_LogBudgetSkips(void);
 unsigned int FlightArmDebug_LogBudgetMaxRun(void);
+unsigned int FlightArmDebug_BudgetMinUs(void);
+unsigned int FlightArmDebug_BudgetBelow(void);
+unsigned int FlightArmDebug_PrepareMaxUs(void);
 void FlightArmDebug_OnRead(unsigned char ok);
 void FlightArmDebug_OnStillSample(const int acc[3], const int gyro[3],
 								  const int prev[3], unsigned char have_prev,
