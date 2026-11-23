@@ -541,11 +541,21 @@ void FlightArmDebug_OnLogOverrun(void)
 {
 	d.overrun_count++;
 }
+
+// 普通记录确实发生物理编程，且服务耗时超过写入前余量：跨过下一控制拍。
+void FlightArmDebug_OnLogWriteResult(signed int left_us, unsigned int service_us,
+									 unsigned char wrote)
+{
+	if (wrote && (left_us < 0 || service_us > (unsigned int)left_us)) {
+		FlightArmDebug_OnLogOverrun();
+	}
+}
 unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }
 unsigned int FlightArmDebug_LogBudgetMaxRun(void) { return d.budget_max; }
 unsigned int FlightArmDebug_BudgetMinUs(void) { return d.budget_min_us; }
 unsigned int FlightArmDebug_BudgetBelow(void) { return d.budget_below_us; }
 unsigned int FlightArmDebug_PrepareMaxUs(void) { return d.prepare_max_us; }
+unsigned int FlightArmDebug_OverrunCount(void) { return d.overrun_count; }
 
 void FlightArmDebug_OnLogState(unsigned char state)
 {

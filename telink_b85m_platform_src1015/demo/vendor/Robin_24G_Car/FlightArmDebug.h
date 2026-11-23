@@ -34,6 +34,8 @@ void FlightArmDebug_OnLogServiceUs(unsigned int us);
 void FlightArmDebug_OnLogPrepareUs(unsigned int us);
 void FlightArmDebug_OnLogCloseUs(unsigned int us);
 void FlightArmDebug_OnLogOverrun(void);
+void FlightArmDebug_OnLogWriteResult(signed int left_us, unsigned int service_us, unsigned char wrote);
+unsigned int FlightArmDebug_OverrunCount(void);
 unsigned int FlightArmDebug_LogBudgetSkips(void);
 unsigned int FlightArmDebug_LogBudgetMaxRun(void);
 unsigned int FlightArmDebug_BudgetMinUs(void);

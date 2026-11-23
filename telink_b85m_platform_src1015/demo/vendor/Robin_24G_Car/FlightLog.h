@@ -69,6 +69,7 @@ unsigned int FlightLog_Dropped(void);
 #if C_FLIGHT_ARM_DEBUG
 unsigned int FlightLog_QueueCount(void);
 unsigned int FlightLog_Written(void);
+unsigned int FlightLog_PhysicalWrites(void);
 unsigned int FlightLog_QueueDrops(void);
 unsigned int FlightLog_FlashPeakUs(void);
 #endif

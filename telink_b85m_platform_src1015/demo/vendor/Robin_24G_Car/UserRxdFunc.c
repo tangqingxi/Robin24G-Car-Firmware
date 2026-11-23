@@ -2058,20 +2058,29 @@ void User_main_loop_process(void)
 		state_before = FlightLog_State();
 		{
 			unsigned int wr_before = FlightLog_Written();
+			unsigned int phys_before = FlightLog_PhysicalWrites();
+			signed int left_before = FlightLoop_LogBudgetLeftUs();
+			unsigned int service_us;
+			unsigned char wrote;
+			unsigned char phys_wrote;
 
-			FlightArmDebug_OnBudgetTiming(FlightLoop_LogBudgetLeftUs());
+			FlightArmDebug_OnBudgetTiming(left_before);
 			t0 = clock_time();
 			if (can_log) {
 				FlightLog_Service(1);
 			}
-			if (state_before == FLIGHT_LOG_REC
-				&& FlightLog_Written() != wr_before) {
-				FlightArmDebug_OnLogServiceUs(
-					(unsigned int)(clock_time() - t0)
-					/ (CLOCK_SYS_CLOCK_HZ / 1000000u));
+			service_us = (unsigned int)(clock_time() - t0)
+						 / (CLOCK_SYS_CLOCK_HZ / 1000000u);
+			wrote = (unsigned char)(FlightLog_Written() != wr_before);
+			phys_wrote = (unsigned char)(FlightLog_PhysicalWrites() != phys_before);
+			if (state_before == FLIGHT_LOG_REC && wrote) {
+				FlightArmDebug_OnLogServiceUs(service_us);
+				FlightArmDebug_OnLogWriteResult(left_before, service_us, wrote);
+			} else if (phys_wrote) {
+				// 收尾写入包含 summary/tail/扇区封口，单独统计，不混入普通写。
+				FlightArmDebug_OnLogCloseUs(service_us);
 			}
-			FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(),
-									 (unsigned char)(FlightLog_Written() != wr_before));
+			FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(), wrote);
 		}
 		(void)did_prep;
 	}

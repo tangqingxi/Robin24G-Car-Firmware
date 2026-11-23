@@ -161,6 +161,24 @@ int main(void)
 		return 1;
 	}
 
+	/* ov 必须只在真实写入且跨过下一控制拍时增加。 */
+	{
+		unsigned int ov0 = FlightArmDebug_OverrunCount();
+
+		FlightArmDebug_OnLogWriteResult(1500, 1600, 1);
+		if (FlightArmDebug_OverrunCount() != ov0 + 1) {
+			printf("FAIL ov did not count 1500/1600\n");
+			return 1;
+		}
+		ov0 = FlightArmDebug_OverrunCount();
+		FlightArmDebug_OnLogWriteResult(1900, 1600, 1);
+		FlightArmDebug_OnLogWriteResult(1500, 1600, 0);
+		if (FlightArmDebug_OverrunCount() != ov0) {
+			printf("FAIL ov counted non-overrun\n");
+			return 1;
+		}
+	}
+
 	/* 启动擦除耗时必须单独输出 pm。 */
 	g_now += CLOCK_SYS_CLOCK_HZ;
 	FlightArmDebug_OnLogPrepareUs(12345);

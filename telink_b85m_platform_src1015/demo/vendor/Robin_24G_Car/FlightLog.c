@@ -58,6 +58,7 @@ typedef struct {
 	u32 prep_ticks;
 #if C_FLIGHT_ARM_DEBUG
 	u32 written;
+	u32 physical_writes;
 	u32 queue_drops;
 #endif
 	u8 end_reason;
@@ -123,6 +124,9 @@ static void close_page(void)
 	put16(&hdr[12], s_log.page_crc);
 	put16(&hdr[14], crc16_update(0xFFFF, hdr, 14));
 	flash_write_page(s_log.page_base, 16, hdr);
+#if C_FLIGHT_ARM_DEBUG
+	s_log.physical_writes++;
+#endif
 	s_log.page_open = 0;
 }
 
@@ -185,6 +189,7 @@ static u8 write_blob(const u8 *rec, u8 is_data)
 	}
 #if C_FLIGHT_ARM_DEBUG
 	s_log.written++;
+	s_log.physical_writes++;
 #endif
 	return 1;
 }
@@ -524,6 +529,7 @@ unsigned int FlightLog_Dropped(void) { return s_log.dropped; }
 #if C_FLIGHT_ARM_DEBUG
 unsigned int FlightLog_QueueCount(void) { return s_log.qcount; }
 unsigned int FlightLog_Written(void) { return s_log.written; }
+unsigned int FlightLog_PhysicalWrites(void) { return s_log.physical_writes; }
 unsigned int FlightLog_QueueDrops(void) { return s_log.queue_drops; }
 unsigned int FlightLog_FlashPeakUs(void) { return ticks_to_us(s_log.flash_peak_ticks); }
 #endif
