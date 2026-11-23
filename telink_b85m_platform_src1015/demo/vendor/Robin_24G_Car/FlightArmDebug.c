@@ -78,6 +78,8 @@ typedef struct {
 	u32 budget_below_us;
 	u32 prepare_max_us;
 	u32 service_max_us;
+	u32 close_max_us;
+	u32 overrun_count;
 	u32 budget_tick;
 	u8 budget_tick_seen;
 } ArmDebug;
@@ -527,6 +529,18 @@ void FlightArmDebug_OnLogPrepareUs(unsigned int us)
 		d.prepare_max_us = us;
 	}
 }
+
+void FlightArmDebug_OnLogCloseUs(unsigned int us)
+{
+	if (us > d.close_max_us) {
+		d.close_max_us = us;
+	}
+}
+
+void FlightArmDebug_OnLogOverrun(void)
+{
+	d.overrun_count++;
+}
 unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }
 unsigned int FlightArmDebug_LogBudgetMaxRun(void) { return d.budget_max; }
 unsigned int FlightArmDebug_BudgetMinUs(void) { return d.budget_min_us; }
@@ -718,6 +732,10 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, d.prepare_max_us);
 		p = p_str(p, " sm=");
 		p = p_u32(p, d.service_max_us);
+		p = p_str(p, " fm=");
+		p = p_u32(p, d.close_max_us);
+		p = p_str(p, " ov=");
+		p = p_u32(p, d.overrun_count);
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
 
@@ -729,6 +747,8 @@ void FlightArmDebug_Process(void)
 		d.budget_below_us = 0;
 		d.prepare_max_us = 0;
 		d.service_max_us = 0;
+		d.close_max_us = 0;
+		d.overrun_count = 0;
 		d.read_ok = 0;
 		d.read_fail = 0;
 		d.still_max_ticks = 0;

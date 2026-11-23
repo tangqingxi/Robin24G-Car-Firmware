@@ -32,6 +32,8 @@ void FlightArmDebug_OnControlTiming(signed int left_us);
 void FlightArmDebug_OnBudgetTiming(signed int left_us);
 void FlightArmDebug_OnLogServiceUs(unsigned int us);
 void FlightArmDebug_OnLogPrepareUs(unsigned int us);
+void FlightArmDebug_OnLogCloseUs(unsigned int us);
+void FlightArmDebug_OnLogOverrun(void);
 unsigned int FlightArmDebug_LogBudgetSkips(void);
 unsigned int FlightArmDebug_LogBudgetMaxRun(void);
 unsigned int FlightArmDebug_BudgetMinUs(void);

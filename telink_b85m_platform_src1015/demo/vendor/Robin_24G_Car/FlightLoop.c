@@ -41,6 +41,7 @@ typedef struct __attribute__((aligned(4))) {
 	u8 have_ts;
 	u8 still_prev_ok;
 	u8 inited;
+	u8 test_bypass;
 } FlightLoopState;
 
 static FlightLoopState s_fl;
@@ -175,6 +176,9 @@ void FlightLoop_Init(void)
 	now = clock_time();
 	s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	s_fl.inited = 1;
+#if C_FLIGHT_ARM_DEBUG
+	s_fl.test_bypass = 6;
+#endif
 	FlightArmDebug_OnInit(0, rb, s_fl.still_ticks / FLIGHT_TICKS_PER_MS,
 						  s_fl.att.ready, s_fl.safety.pwm_ready);
 }
@@ -191,6 +195,20 @@ unsigned char FlightLoop_CanWriteLog(void)
 	// 给单次 Flash 写入留出距下一控制拍的余量；余量不足延期到下一主循环。
 	s32 left = (s32)(s_fl.next_tick - clock_time());
 
+#if C_FLIGHT_ARM_DEBUG
+	// 临时诊断：锁定、四路 PWM 为零时放少量普通记录绕过旧门槛，
+	// 只用于测量完整服务耗时；正常镜像不编译此分支。
+	if (s_fl.test_bypass && FlightLog_State() == FLIGHT_LOG_REC
+		&& !s_fl.safety.armed && FlightLog_QueueCount() > 0) {
+		unsigned short pwm[4];
+
+		FlightSafety_GetPwm(&s_fl.safety, pwm);
+		if ((pwm[0] | pwm[1] | pwm[2] | pwm[3]) == 0) {
+			s_fl.test_bypass--;
+			return 1;
+		}
+	}
+#endif
 	return left > (s32)(FLIGHT_PERIOD_TICKS / 2);
 }
 
