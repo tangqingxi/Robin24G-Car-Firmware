@@ -72,6 +72,9 @@ unsigned int FlightLog_Written(void);
 unsigned int FlightLog_PhysicalWrites(void);
 unsigned int FlightLog_QueueDrops(void);
 unsigned int FlightLog_FlashPeakUs(void);
+unsigned int FlightLog_PackPeakUs(void);
+unsigned int FlightLog_RecCrcPeakUs(void);
+unsigned int FlightLog_PageCrcPeakUs(void);
 #endif
 
 #endif /* FLIGHT_LOG_H */

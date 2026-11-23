@@ -12,7 +12,7 @@
 | **六轴校准维护件** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | `0x4000` |
 | **已验收回退件 412d6b5** | [`candidates/Robin_24G_Car_flight_control_alignfix.bin`](candidates/Robin_24G_Car_flight_control_alignfix.bin) | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | `0x4000` |
 | 日志时序诊断版 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33844 | `04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5` | `0x4000` |
-| 第227条路径诊断版（临时） | [`candidates/Robin_24G_Car_flight_log_trace.bin`](candidates/Robin_24G_Car_flight_log_trace.bin) | 35892 | `F57C7724339539F0D919402A4CD5FCD039373E7BD0A18CD2C77717CCE46513AD` | `0x4000` |
+| 第227条路径诊断版（临时） | [`candidates/Robin_24G_Car_flight_log_trace.bin`](candidates/Robin_24G_Car_flight_log_trace.bin) | 36580 | `1581873606A6312E3BFAC6701B780DB36E860A18874D48CEF277DEBDB7686AD5` | `0x4000` |
 | K3 录制键遥控 | [`candidates/Robin_24G_Remote_logkey.bin`](candidates/Robin_24G_Remote_logkey.bin) | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | `0x0` |
 | 日常 200 Hz 正式件 | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | `0x4000` |
 

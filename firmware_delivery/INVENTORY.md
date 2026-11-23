@@ -35,7 +35,7 @@
 
 | `data/archive/flight_log_real_20261123_read.bin` | 实板第一趟 BDT 原始读取（稀疏问题证据） | 53248 | `9453D6FF940FB25057A6FDB4C6684638028BCF2EA394A2E7AE6605F23DB9C57A` | N/A | 原始数据归档 |
 
-| `firmware_delivery/candidates/Robin_24G_Car_flight_log_trace.bin` | 第227条路径诊断版（FLQ/FLD/FLS/FLW/FLX） | 35892 | `F57C7724339539F0D919402A4CD5FCD039373E7BD0A18CD2C77717CCE46513AD` | 0x4000 | 诊断/临时 |
+| `firmware_delivery/candidates/Robin_24G_Car_flight_log_trace.bin` | 第227条路径诊断版（FLQ/FLD/FLS/FLW/FLX） | 36580 | `1581873606A6312E3BFAC6701B780DB36E860A18874D48CEF277DEBDB7686AD5` | 0x4000 | 诊断/临时 |
 
 | `data/archive/flight_log_real_20261123_second_read.bin` | 实板第二趟 BDT 原始读取（同样停在第226条） | 53248 | `3425DE69F6C2D9277711B0A030E8C7993AF8819DF51AE75751D222986CB0FF71` | N/A | 原始数据归档 |
 

@@ -720,16 +720,10 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, FlightLog_Dropped());
 		p = p_str(p, " q=");
 		p = p_u32(p, FlightLog_QueueCount());
-		p = p_str(p, " bs=");
-		p = p_u32(p, d.budget_skips);
-		p = p_str(p, " br=");
-		p = p_u32(p, d.budget_max);
 		p = p_str(p, " wr=");
 		p = p_u32(p, FlightLog_Written());
 		p = p_str(p, " fw=");
 		p = p_u32(p, FlightLog_FlashPeakUs());
-		p = p_str(p, " qd=");
-		p = p_u32(p, FlightLog_QueueDrops());
 		p = p_str(p, " cm=");
 		p = p_u32(p, d.ctrl_min_us);
 		p = p_str(p, " c2=");
@@ -746,6 +740,12 @@ void FlightArmDebug_Process(void)
 		p = p_u32(p, d.close_max_us);
 		p = p_str(p, " ov=");
 		p = p_u32(p, d.overrun_count);
+		p = p_str(p, " pk=");
+		p = p_u32(p, FlightLog_PackPeakUs());
+		p = p_str(p, " rc=");
+		p = p_u32(p, FlightLog_RecCrcPeakUs());
+		p = p_str(p, " pc=");
+		p = p_u32(p, FlightLog_PageCrcPeakUs());
 		*p++ = '\n';
 		q_line(buf, (unsigned char)(p - buf));
 

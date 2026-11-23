@@ -19,7 +19,10 @@ unsigned int FlightLog_Dropped(void) { return 0; }
 unsigned int FlightLog_QueueCount(void) { return 2; }
 unsigned int FlightLog_Written(void) { return 0; }
 unsigned int FlightLog_QueueDrops(void) { return 0; }
-unsigned int FlightLog_FlashPeakUs(void) { return 0; }
+unsigned int FlightLog_FlashPeakUs(void) { return 999999; }
+unsigned int FlightLog_PackPeakUs(void) { return 999999; }
+unsigned int FlightLog_RecCrcPeakUs(void) { return 999999; }
+unsigned int FlightLog_PageCrcPeakUs(void) { return 999999; }
 
 u8 UartTrySend(u8 *dat, u8 len)
 {
