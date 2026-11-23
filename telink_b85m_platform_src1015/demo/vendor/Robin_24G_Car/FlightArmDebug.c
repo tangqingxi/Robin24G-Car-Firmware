@@ -76,7 +76,10 @@ typedef struct {
 	u32 ctrl_below_us;
 	u32 budget_min_us;
 	u32 budget_below_us;
+	u32 prepare_max_us;
 	u32 service_max_us;
+	u32 budget_tick;
+	u8 budget_tick_seen;
 } ArmDebug;
 
 static ArmDebug d;
@@ -505,6 +508,14 @@ void FlightArmDebug_OnLogServiceUs(unsigned int us)
 {
 	if (us > d.service_max_us) {
 		d.service_max_us = us;
+	}
+}
+
+// 启动准备（13 个扇区擦除 + baseline）单独统计，不能混进录制写入门槛。
+void FlightArmDebug_OnLogPrepareUs(unsigned int us)
+{
+	if (us > d.prepare_max_us) {
+		d.prepare_max_us = us;
 	}
 }
 unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }

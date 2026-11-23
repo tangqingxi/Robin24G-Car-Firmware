@@ -2040,27 +2040,40 @@ void User_main_loop_process(void)
 	// 记录队列很快满，表现为样本稀疏、录不满。
 #if C_FLIGHT_ARM_DEBUG
 	{
-		unsigned int log_t0 = clock_time();
 		unsigned char can_log;
+		unsigned char state_before;
+		unsigned char did_prep = 0;
+		unsigned int t0;
 
+		// 启动擦除/base 写单独计时，不能混进录制期间的单条写预算。
 		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
+			t0 = clock_time();
 			FlightLog_BeginPrepare();
+			FlightArmDebug_OnLogPrepareUs(
+				(unsigned int)(clock_time() - t0)
+				/ (CLOCK_SYS_CLOCK_HZ / 1000000u));
+			did_prep = 1;
 		}
 		can_log = FlightLoop_CanWriteLog();
+		state_before = FlightLog_State();
 		{
 			unsigned int wr_before = FlightLog_Written();
 
 			FlightArmDebug_OnBudgetTiming(FlightLoop_LogBudgetLeftUs());
+			t0 = clock_time();
 			if (can_log) {
 				FlightLog_Service(1);
 			}
-			if (FlightLog_State() != FLIGHT_LOG_IDLE) {
-				unsigned int dt = (unsigned int)(clock_time() - log_t0);
-				FlightArmDebug_OnLogServiceUs(dt / (CLOCK_SYS_CLOCK_HZ / 1000000u));
+			if (state_before == FLIGHT_LOG_REC
+				&& FlightLog_Written() != wr_before) {
+				FlightArmDebug_OnLogServiceUs(
+					(unsigned int)(clock_time() - t0)
+					/ (CLOCK_SYS_CLOCK_HZ / 1000000u));
 			}
 			FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(),
 									 (unsigned char)(FlightLog_Written() != wr_before));
 		}
+		(void)did_prep;
 	}
 #else
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {

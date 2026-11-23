@@ -31,6 +31,7 @@ void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount, unsi
 void FlightArmDebug_OnControlTiming(signed int left_us);
 void FlightArmDebug_OnBudgetTiming(signed int left_us);
 void FlightArmDebug_OnLogServiceUs(unsigned int us);
+void FlightArmDebug_OnLogPrepareUs(unsigned int us);
 unsigned int FlightArmDebug_LogBudgetSkips(void);
 unsigned int FlightArmDebug_LogBudgetMaxRun(void);
 void FlightArmDebug_OnRead(unsigned char ok);
