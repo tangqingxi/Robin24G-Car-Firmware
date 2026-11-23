@@ -33,7 +33,7 @@
 #define FLIGHT_ATT_KP_Q8           1500
 #define FLIGHT_RATE_LIMIT_Q10      4096
 #define FLIGHT_KP_Q8               64      // 横滚/俯仰角速度内环 P=0.25
-#define FLIGHT_YAW_KP_Q8           128     // 偏航角速度内环 P=0.5，仅偏航轴使用
+#define FLIGHT_YAW_KP_Q8           512     // 偏航角速度内环 P=2.0，仅偏航轴使用
 #define FLIGHT_KI_Q16              0
 #define FLIGHT_KD_Q8               0
 #define FLIGHT_RATE_INT_MAX        1000000

@@ -71,7 +71,7 @@ void RateControl_Init(RateControl *rc)
 //
 // 每轴独立计算：
 //   1) err = target - gyro；
-//   2) P 项 = err × 轴增益 >> 8；偏航用 FLIGHT_YAW_KP_Q8=128，其余=64；
+//   2) P 项 = err × 轴增益 >> 8；偏航用 FLIGHT_YAW_KP_Q8=512，其余=64；
 //   3) 若启用 I：integ += err，先限幅再乘 Ki；
 //   4) 若启用 D：d_err = err - prev_err，乘 Kd；
 //   5) corr 限幅后交给混控。

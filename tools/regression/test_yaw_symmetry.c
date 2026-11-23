@@ -25,16 +25,50 @@ int main(void)
 	tgt[0] = tgt[1] = 0;
 	tgt[2] = 1;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], 0, "yaw +1 P -> 0");
+	expect(rc.corr[2], 2, "yaw +1 P=2");
 	tgt[2] = -1;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], 0, "yaw -1 P -> 0");
+	expect(rc.corr[2], -2, "yaw -1 P=2");
 	tgt[2] = 7;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], 3, "yaw +7 P at 0.5");
+	expect(rc.corr[2], 14, "yaw +7 P=2");
 	tgt[2] = -7;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], -3, "yaw -7 P at 0.5");
+	expect(rc.corr[2], -14, "yaw -7 P=2");
+
+	/* 未饱和区：±误差输出等幅反号，并匹配 P=2.0 的向零截断。 */
+	{
+		int e;
+		for (e = 1; e <= 120; e++) {
+			int want = (e * 512) >> 8;
+			tgt[2] = e;
+			RateControl_Update(&rc, tgt, gyro);
+			expect(rc.corr[2], want, "yaw +err P2");
+			tgt[2] = -e;
+			RateControl_Update(&rc, tgt, gyro);
+			expect(rc.corr[2], -want, "yaw -err P2");
+		}
+	}
+
+	/* target/gyro 到限幅边界，err=8192，乘法和 corr 存储不能溢出。 */
+	tgt[2] = 4096;
+	gyro[2] = -4096;
+	RateControl_Update(&rc, tgt, gyro);
+	expect(rc.corr[2], 4096, "yaw +max saturates");
+	tgt[2] = -4096;
+	gyro[2] = 4096;
+	RateControl_Update(&rc, tgt, gyro);
+	expect(rc.corr[2], -4096, "yaw -max saturates");
+	gyro[2] = 0;
+
+	/* 横滚/俯仰仍为 P=0.25。 */
+	tgt[0] = 7;
+	tgt[1] = -7;
+	tgt[2] = 0;
+	gyro[0] = gyro[1] = gyro[2] = 0;
+	RateControl_Update(&rc, tgt, gyro);
+	expect(rc.corr[0], 1, "roll +7 P0.25");
+	expect(rc.corr[1], -2, "pitch -7 P0.25");
 
 	MotorMixer_Mix(190, 0, 0, 1, &pos);
 	MotorMixer_Mix(190, 0, 0, -1, &neg);
