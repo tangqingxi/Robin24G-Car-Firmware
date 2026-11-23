@@ -7,17 +7,15 @@
 
 | 用途 | 文件 | 字节 | SHA256 | 烧录地址 |
 |---|---|---:|---|---|
-| **K3 启录日志应用（当前）** | [`candidates/Robin_24G_Car_flight_control_log.bin`](candidates/Robin_24G_Car_flight_control_log.bin) | 28948 | `051353F3775848A8E936E86E89698683F306FCF209F1C337F92CF1CB16FB1F5C` | `0x4000` |
+| **地面 UART 诊断版** | [`candidates/Robin_24G_Car_ground_uart_diag.bin`](candidates/Robin_24G_Car_ground_uart_diag.bin) | 25732 | `133EE06A4D0178C982FC6D27A27D1C576342E69245D6B4FE6CDF08DA1CDB8BE8` | `0x4000` |
+| **正常飞行版（无板载日志）** | [`candidates/Robin_24G_Car_flight_control_normal.bin`](candidates/Robin_24G_Car_flight_control_normal.bin) | 24820 | `C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917` | `0x4000` |
 | **无 OTA bootloader** | [`candidates/Robin_24G_Bootloader_no_ota.bin`](candidates/Robin_24G_Bootloader_no_ota.bin) | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | `0x0` |
 | **六轴校准维护件** | [`daily/Robin_24G_Car_maint_269a.bin`](daily/Robin_24G_Car_maint_269a.bin) | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | `0x4000` |
 | **已验收回退件 412d6b5** | [`candidates/Robin_24G_Car_flight_control_alignfix.bin`](candidates/Robin_24G_Car_flight_control_alignfix.bin) | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | `0x4000` |
-| 日志时序诊断版 | [`candidates/Robin_24G_Car_flight_log_debug.bin`](candidates/Robin_24G_Car_flight_log_debug.bin) | 33844 | `04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5` | `0x4000` |
-| 第227条路径诊断版（临时） | [`candidates/Robin_24G_Car_flight_log_trace.bin`](candidates/Robin_24G_Car_flight_log_trace.bin) | 36580 | `1581873606A6312E3BFAC6701B780DB36E860A18874D48CEF277DEBDB7686AD5` | `0x4000` |
-| Flash A/B 写入对比诊断版（临时） | [`candidates/Robin_24G_Car_flash_ab_trace.bin`](candidates/Robin_24G_Car_flash_ab_trace.bin) | 38772 | `386739308C81748D7B9A930506C40C6A7E1C9358D026E51C514D8C170C118186` | `0x4000` |
 | K3 录制键遥控 | [`candidates/Robin_24G_Remote_logkey.bin`](candidates/Robin_24G_Remote_logkey.bin) | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | `0x0` |
 | 日常 200 Hz 正式件 | [`daily/Robin_24G_Car_flight_control.bin`](daily/Robin_24G_Car_flight_control.bin) | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | `0x4000` |
 
-日志应用需要配无 OTA bootloader。日志区为 `0x10000..0x1CFFF`，BDT 读回 `0x10000` 起 `0xD000`。
+正常飞行版和地面诊断版都不做板载 Flash 记录；诊断版只走 UART 10 Hz。
 
 ## 常用烧录目录
 
@@ -25,10 +23,10 @@
 
 ```text
 telink_b85m_platform_src1015\project\tlsr_tc32\tc122x\Robin_24G_Car_Flash\
-    Robin_24G_Car_flight_control_log.bin
+    Robin_24G_Car_flight_control_normal.bin
+    Robin_24G_Car_ground_uart_diag.bin
     Robin_24G_Bootloader_no_ota.bin
     Robin_24G_Car_flight_control_alignfix.bin
-    Robin_24G_Car_flight_log_debug.bin
 ```
 
 这些文件与 `candidates/` 对应文件完整 SHA256 一致。通用 `Robin_24G_Car_Flash.bin` 重复副本已清理。
@@ -46,7 +44,6 @@ BDT 日志导出：
 
 ```powershell
 Set-Location "E:\泡沫纸飞机\code\tools"
-python flight_log_export.py --bin .\flight_log_dump.bin --out .\flight_log.csv
 ```
 
 工具回归：

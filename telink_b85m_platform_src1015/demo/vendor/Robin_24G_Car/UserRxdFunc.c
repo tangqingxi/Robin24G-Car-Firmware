@@ -21,8 +21,8 @@
 #if (C_FLIGHT_CONTROL_EN)
 #include "FlightLoop.h"
 #include "FlightConfig.h"
-#include "FlightArmDebug.h"
-#include "FlightLog.h"
+#include "FlightNoLog.h"
+#include "GroundDiag.h"
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -2038,66 +2038,12 @@ void User_main_loop_process(void)
 	// 日志服务紧跟在控制拍之后：此时距下一拍最远，余量最大。
 	// 若放到 car_work/调试发送之后，主循环稍长就会持续错过 2.5ms 余量，
 	// 记录队列很快满，表现为样本稀疏、录不满。
-#if C_FLIGHT_ARM_DEBUG
-	{
-		unsigned char can_log;
-		unsigned char state_before;
-		unsigned char did_prep = 0;
-		unsigned int t0;
-
-		// 启动擦除/base 写单独计时，不能混进录制期间的单条写预算。
-		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
-			t0 = clock_time();
-			FlightLog_BeginPrepare();
-			FlightArmDebug_OnLogPrepareUs(
-				(unsigned int)(clock_time() - t0)
-				/ (CLOCK_SYS_CLOCK_HZ / 1000000u));
-			did_prep = 1;
-		}
-		can_log = (unsigned char)(FlightLoop_CanWriteLog()
-								  || FlightLoop_CanEraseLog());
-		state_before = FlightLog_State();
-		{
-			unsigned int wr_before = FlightLog_Written();
-			unsigned int phys_before = FlightLog_PhysicalWrites();
-			signed int left_before = FlightLoop_LogBudgetLeftUs();
-			unsigned int service_us;
-			unsigned char wrote;
-			unsigned char phys_wrote;
-
-			FlightArmDebug_OnBudgetTiming(left_before);
-			t0 = clock_time();
-			if (can_log) {
-				FlightLog_Service(1);
-			}
-			service_us = (unsigned int)(clock_time() - t0)
-						 / (CLOCK_SYS_CLOCK_HZ / 1000000u);
-			wrote = (unsigned char)(FlightLog_Written() != wr_before);
-			phys_wrote = (unsigned char)(FlightLog_PhysicalWrites() != phys_before);
-			if (state_before == FLIGHT_LOG_REC && wrote) {
-				FlightArmDebug_OnLogServiceUs(service_us);
-				FlightArmDebug_OnLogWriteResult(left_before, service_us, wrote);
-			} else if (phys_wrote) {
-				// 收尾写入包含 summary/tail/扇区封口，单独统计，不混入普通写。
-				FlightArmDebug_OnLogCloseUs(service_us);
-			}
-			FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(), wrote);
-		}
-		(void)did_prep;
-	}
-#else
-	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
-		FlightLog_BeginPrepare();
-	}
-	if (FlightLoop_CanWriteLog() || FlightLoop_CanEraseLog()) {
-		FlightLog_Service(1);             // 空中按余量门；落地锁定后每轮最多一次补写
-	}
+#if C_GROUND_UART_DIAG
+	GroundDiag_Process();
 #endif
 	d24_rx_main_loop();
 	TimeBaseGenerate();
 	car_work();
-	FlightArmDebug_Process();       // 控制/收包之后非阻塞发送诊断
-	FlightArmDebug_OnLogState(FlightLog_State());
 	return;
 #elif (C_RC_BRINGUP_EN)
 	// 遥控联调入口：2.4G 收包 + 通道映射 + 低频串口观察，电机保持停转

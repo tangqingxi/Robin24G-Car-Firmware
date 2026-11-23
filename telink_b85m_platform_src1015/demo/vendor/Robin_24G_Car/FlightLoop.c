@@ -5,8 +5,8 @@
 #include "RateControl.h"
 #include "FlightSafety.h"
 #include "MotorMixer.h"
-#include "FlightArmDebug.h"
-#include "FlightLog.h"
+#include "FlightNoLog.h"
+#include "GroundDiag.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
 
@@ -529,10 +529,17 @@ void FlightLoop_Process(void)
 		flight_log_fill(&ls, imu_ok, att_updated, mixer_limited);
 		FlightLog_OnSample(&ls);
 #if C_FLIGHT_ARM_DEBUG
-		// 控制拍全部计算结束时，距下一拍还剩多少微秒。
-		FlightArmDebug_OnControlTiming(FlightLoop_LogBudgetLeftUs());
-		// Flash A/B 诊断：每个控制拍最多推进一次物理操作。
-		FlightLog_BenchStep(s_fl.next_tick);
+#if C_GROUND_UART_DIAG
+		{
+			unsigned short dpwm[4];
+
+			FlightSafety_GetPwm(&s_fl.safety, dpwm);
+			GroundDiag_OnControl(s_fl.rc.cmd[1], s_fl.attc.tgt_rate,
+								 s_fl.rate, s_fl.ratec.corr, dpwm,
+								 raw_a, s_fl.att.q,
+								 s_fl.safety.armed, mixer_limited);
+		}
+#endif
 #endif
 	}
 }

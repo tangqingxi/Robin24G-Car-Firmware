@@ -139,13 +139,12 @@
     "build_commit": "412d6b5",
     "behavior_baseline": "b3cb56f",
     "normal": {
-      "role": "candidate_normal",
-      "file": "candidates/Robin_24G_Car_flight_control_alignfix.bin",
-      "bytes": 24900,
-      "sha256": "008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "role": "current_normal",
+      "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
+      "bytes": 24820,
+      "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
       "flash_address": "0x4000",
-      "app_remaining_bytes": 20156
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
     "arm_debug": {
       "role": "candidate_arm_debug",
@@ -174,9 +173,10 @@
       ]
     },
     "app": {
-      "file": "candidates/Robin_24G_Car_flight_control_log.bin",
-      "bytes": 28948,
-      "sha256": "051353F3775848A8E936E86E89698683F306FCF209F1C337F92CF1CB16FB1F5C",
+      "role": "current_normal",
+      "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
+      "bytes": 24820,
+      "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -206,11 +206,12 @@
       "finalize_stats": true
     },
     "debug": {
-      "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
-      "bytes": 33844,
-      "sha256": "04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5",
+      "role": "ground_uart_diag",
+      "file": "candidates/Robin_24G_Car_ground_uart_diag.bin",
+      "bytes": 25732,
+      "sha256": "133EE06A4D0178C982FC6D27A27D1C576342E69245D6B4FE6CDF08DA1CDB8BE8",
       "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
     },
     "remote": {
       "file": "candidates/Robin_24G_Remote_logkey.bin",
@@ -226,13 +227,6 @@
     "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
     "files": [
       {
-        "role": "current_log_app",
-        "file": "Robin_24G_Car_flight_control_log.bin",
-        "bytes": 28948,
-        "sha256": "051353F3775848A8E936E86E89698683F306FCF209F1C337F92CF1CB16FB1F5C",
-        "flash_address": "0x4000"
-      },
-      {
         "role": "current_no_ota_boot",
         "file": "Robin_24G_Bootloader_no_ota.bin",
         "bytes": 6844,
@@ -247,12 +241,27 @@
         "flash_address": "0x4000"
       },
       {
-        "role": "current_log_debug",
-        "file": "Robin_24G_Car_flight_log_debug.bin",
-        "bytes": 33844,
-        "sha256": "04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5",
+        "role": "current_normal",
+        "file": "Robin_24G_Car_flight_control_normal.bin",
+        "bytes": 24820,
+        "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+        "flash_address": "0x4000"
+      },
+      {
+        "role": "ground_uart_diag",
+        "file": "Robin_24G_Car_ground_uart_diag.bin",
+        "bytes": 25732,
+        "sha256": "133EE06A4D0178C982FC6D27A27D1C576342E69245D6B4FE6CDF08DA1CDB8BE8",
         "flash_address": "0x4000"
       }
     ]
+  },
+  "app": {
+    "role": "current_normal",
+    "file": "candidates/Robin_24G_Car_flight_control_normal.bin",
+    "bytes": 24820,
+    "sha256": "C9F94E2B9C2EFEFCD3272C6746BAD6C254F3B5C3FFD3246AD4C0692EAC62D917",
+    "flash_address": "0x4000",
+    "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
   }
 }
