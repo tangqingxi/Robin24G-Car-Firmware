@@ -16,6 +16,10 @@ static int busy_once;
 static int uart_calls;
 
 unsigned int FlightLog_Dropped(void) { return 0; }
+unsigned int FlightLog_QueueCount(void) { return 2; }
+unsigned int FlightLog_Written(void) { return 0; }
+unsigned int FlightLog_QueueDrops(void) { return 0; }
+unsigned int FlightLog_FlashPeakUs(void) { return 0; }
 
 u8 UartTrySend(u8 *dat, u8 len)
 {
@@ -103,6 +107,36 @@ int main(void)
 	FlightArmDebug_Process();
 	FlightArmDebug_OnEstop();
 	FlightArmDebug_Process();
+
+	/* 真实错过一次：同一拍先无预算、整拍结束仍未写，下一拍结算 bs/br。 */
+	g_now = 100u * CLOCK_SYS_CLOCK_HZ;
+	FlightArmDebug_OnLogGate(0, 2, 0);
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnLogGate(0, 2, 0);
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnLogGate(0, 2, 0);
+	if (FlightArmDebug_LogBudgetSkips() < 2
+		|| FlightArmDebug_LogBudgetMaxRun() < 2) {
+		printf("FAIL gate skip not counted\n");
+		return 1;
+	}
+
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnLogGate(1, 0, 0);        // 结算上一拍
+	unsigned int budget_before = FlightArmDebug_LogBudgetSkips();
+
+	/* 同一拍先无预算、后段实际写成功：这一拍不能算错过。 */
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnLogGate(0, 2, 0);
+	FlightArmDebug_OnLogGate(1, 2, 1);
+	g_now += FLIGHT_PERIOD_TICKS;
+	FlightArmDebug_OnLogGate(1, 0, 0);
+	if (FlightArmDebug_LogBudgetSkips() != budget_before) {
+		printf("FAIL successful same-tick write counted as miss before=%u after=%u max=%u\n",
+			   budget_before, FlightArmDebug_LogBudgetSkips(),
+			   FlightArmDebug_LogBudgetMaxRun());
+		return 1;
+	}
 
 	if (!has_prefix("ADB ")) { printf("FAIL no ADB\n"); return 1; }
 	if (!has_prefix("ADS ")) { printf("FAIL no ADS\n"); return 1; }

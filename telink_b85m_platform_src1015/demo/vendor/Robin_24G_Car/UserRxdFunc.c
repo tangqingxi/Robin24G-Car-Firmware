@@ -2041,9 +2041,23 @@ void User_main_loop_process(void)
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
+#if C_FLIGHT_ARM_DEBUG
+	{
+		unsigned char can_log = FlightLoop_CanWriteLog();
+		unsigned int wr_before = FlightLog_Written();
+
+		if (can_log) {
+			FlightLog_Service(1);
+		}
+		// 同一控制拍内可能多次检查；用实际写入增量判断这拍到底写没写。
+		FlightArmDebug_OnLogGate(can_log, FlightLog_QueueCount(),
+								 (unsigned char)(FlightLog_Written() != wr_before));
+	}
+#else
 	if (FlightLoop_CanWriteLog()) {
 		FlightLog_Service(1);             // 每轮最多一次编程，余量不足延期
 	}
+#endif
 	d24_rx_main_loop();
 	TimeBaseGenerate();
 	car_work();

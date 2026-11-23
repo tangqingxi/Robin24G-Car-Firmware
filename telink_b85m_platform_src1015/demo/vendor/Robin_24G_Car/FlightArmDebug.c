@@ -68,6 +68,10 @@ typedef struct {
 	u32 budget_skips;
 	u32 budget_run;
 	u32 budget_max;
+	u8 gate_seen;
+	u8 gate_pending;
+	u8 gate_wrote;
+	u8 gate_blocked;
 } ArmDebug;
 
 static ArmDebug d;
@@ -433,28 +437,43 @@ void FlightArmDebug_OnUnlockAttempt(unsigned short key,
 
 // 每个控制拍最多统计一次：同一拍内主循环可能多次查询服务余量，不能重复计数。
 // can_write=0 表示这一拍因剩余时间不足没有发起写；只有队列有待写样本时才算预算跳过。
-void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount)
+void FlightArmDebug_OnLogGate(unsigned char can_write, unsigned int qcount,
+							 unsigned char wrote)
 {
 	u32 tick = clock_time() / FLIGHT_PERIOD_TICKS;
 
-	if (tick == d.gate_tick) {
-		return;
+	if (!d.gate_seen) {
+		d.gate_seen = 1;
+		d.gate_tick = tick;
+	} else if (tick != d.gate_tick) {
+		// 控制拍切换时结算上一拍：只有“有待写样本、曾被预算挡住、整拍没写成功”
+		// 才记一次错过；先被挡住、同一拍后段又写成功，不算错过。
+		if (d.gate_pending && !d.gate_wrote && d.gate_blocked) {
+			d.budget_skips++;
+			d.budget_run++;
+			if (d.budget_run > d.budget_max) {
+				d.budget_max = d.budget_run;
+			}
+		} else {
+			d.budget_run = 0;
+		}
+		d.gate_pending = 0;
+		d.gate_wrote = 0;
+		d.gate_blocked = 0;
+		d.gate_tick = tick;
 	}
-	d.gate_tick = tick;
-	if (!qcount) {
-		d.budget_run = 0;
-		return;
+	if (qcount) {
+		d.gate_pending = 1;
 	}
 	if (!can_write) {
-		d.budget_skips++;
-		d.budget_run++;
-		if (d.budget_run > d.budget_max) {
-			d.budget_max = d.budget_run;
-		}
-	} else {
-		d.budget_run = 0;
+		d.gate_blocked = 1;
+	}
+	if (wrote) {
+		d.gate_wrote = 1;
 	}
 }
+unsigned int FlightArmDebug_LogBudgetSkips(void) { return d.budget_skips; }
+unsigned int FlightArmDebug_LogBudgetMaxRun(void) { return d.budget_max; }
 
 void FlightArmDebug_OnLogState(unsigned char state)
 {
@@ -626,7 +645,7 @@ void FlightArmDebug_Process(void)
 		p = p_str(p, " wr=");
 		p = p_u32(p, FlightLog_Written());
 		p = p_str(p, " fw=");
-		p = p_u32(p, FlightLog_FlashPeakUs() / 1000);
+		p = p_u32(p, FlightLog_FlashPeakUs());
 		p = p_str(p, " qd=");
 		p = p_u32(p, FlightLog_QueueDrops());
 		*p++ = '\n';

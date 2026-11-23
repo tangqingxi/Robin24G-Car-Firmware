@@ -58,6 +58,12 @@ try {
         (Join-Path $Here 'test_boot_validate.c')
     ) @()
 
+    Invoke-Case 'arm_debug_gate' @(
+        (Join-Path $Here 'test_flight_arm_debug.c'),
+        (Join-Path $Car 'FlightArmDebug.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
+        '-DC_FLIGHT_ARM_DEBUG=1', '-DARM_DBG_QDEPTH=3', '-fpack-struct')
+
     $env:PYTHONIOENCODING = 'utf-8'
     foreach ($test in @('test_arm_debug_monitor.py', 'test_package_bin.py', 'test_l400_monitor.py')) {
         python (Join-Path $Here $test)
