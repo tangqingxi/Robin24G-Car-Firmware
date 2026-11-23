@@ -71,7 +71,7 @@ void RateControl_Init(RateControl *rc)
 //
 // 每轴独立计算：
 //   1) err = target - gyro；
-//   2) P 项 = err × FLIGHT_KP_Q8 >> 8；
+//   2) P 项 = err × 轴增益 >> 8；偏航用 FLIGHT_YAW_KP_Q8=128，其余=64；
 //   3) 若启用 I：integ += err，先限幅再乘 Ki；
 //   4) 若启用 D：d_err = err - prev_err，乘 Kd；
 //   5) corr 限幅后交给混控。
@@ -86,8 +86,9 @@ void RateControl_Update(RateControl *rc, const int target[3],
 
 	for (i = 0; i < 3; i++) {
 		int err = target[i] - gyro[i];
+		// 偏航独立 P=0.5（Q8=128）；横滚/俯仰仍为 P=0.25（Q8=64）。
 		int corr = (i == 2)
-				   ? rate_yaw_shift(err * FLIGHT_KP_Q8, 8)
+				   ? rate_yaw_shift(err * FLIGHT_YAW_KP_Q8, 8)
 				   : ((err * FLIGHT_KP_Q8) >> 8);
 
 #if (FLIGHT_KI_Q16 != 0)

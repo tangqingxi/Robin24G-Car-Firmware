@@ -31,10 +31,10 @@ int main(void)
 	expect(rc.corr[2], 0, "yaw -1 P -> 0");
 	tgt[2] = 7;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], 1, "yaw +7 P");
+	expect(rc.corr[2], 3, "yaw +7 P at 0.5");
 	tgt[2] = -7;
 	RateControl_Update(&rc, tgt, gyro);
-	expect(rc.corr[2], -1, "yaw -7 P");
+	expect(rc.corr[2], -3, "yaw -7 P at 0.5");
 
 	MotorMixer_Mix(190, 0, 0, 1, &pos);
 	MotorMixer_Mix(190, 0, 0, -1, &neg);
