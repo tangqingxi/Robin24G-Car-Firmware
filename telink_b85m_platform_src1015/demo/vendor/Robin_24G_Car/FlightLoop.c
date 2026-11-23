@@ -38,6 +38,10 @@ typedef struct __attribute__((aligned(4))) {
 	u32 dt_rem __attribute__((aligned(4)));
 	u32 next_tick __attribute__((aligned(4)));
 	u32 retry_tick __attribute__((aligned(4)));
+	u32 last_actual __attribute__((aligned(4)));
+	u16 max_gap_ms;
+	u16 missed_ticks;
+	u8 stats_init;
 	u32 lpf_alpha __attribute__((aligned(4)));
 	u32 lpf_alpha_dt_us __attribute__((aligned(4)));
 	u8 lpf_ok;
@@ -93,6 +97,10 @@ static void flight_state_reset(void)
 	s_fl.lpf_ok = 0;
 	s_fl.lpf_alpha = 0;
 	s_fl.lpf_alpha_dt_us = 0;
+	s_fl.stats_init = 0;
+	s_fl.max_gap_ms = 0;
+	s_fl.missed_ticks = 0;
+	s_fl.last_actual = 0;
 	s_fl.still_prev_ok = 0;
 	for (i = 0; i < 3; i++) {
 		s_fl.gyro_rem[i] = 0;
@@ -240,8 +248,20 @@ void FlightLoop_Process(void)
 
 	planned = s_fl.next_tick;
 	s_fl.next_tick = planned + FLIGHT_PERIOD_TICKS;
+	if (s_fl.stats_init) {
+		u32 gap = now - s_fl.last_actual;
+		u16 gap_ms = (u16)((gap + FLIGHT_TICKS_PER_MS / 2)
+						   / FLIGHT_TICKS_PER_MS);
+
+		if (gap_ms > s_fl.max_gap_ms) {
+			s_fl.max_gap_ms = gap_ms;
+		}
+	}
+	s_fl.last_actual = now;
+	s_fl.stats_init = 1;
 	if ((u32)(now - planned) >= FLIGHT_PERIOD_TICKS) {
 		// 已错过至少一拍：从当前时刻重新排下一拍，不追发补拍。
+		s_fl.missed_ticks += (u16)((now - planned) / FLIGHT_PERIOD_TICKS);
 		s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	}
 
@@ -368,6 +388,31 @@ void FlightLoop_Process(void)
 							 s_fl.safety.armed, mixer_limited);
 	}
 #endif
+}
+
+// 供地面气压诊断读取当前安全状态和控制调度统计；不改变控制行为。
+void FlightLoop_ResetDiagStats(void)
+{
+	s_fl.stats_init = 0;
+	s_fl.max_gap_ms = 0;
+	s_fl.missed_ticks = 0;
+}
+
+void FlightLoop_GetDiagStatus(u8 *armed, u16 pwm[4], u16 *max_gap_ms,
+							  u16 *missed_ticks)
+{
+	if (armed) {
+		*armed = s_fl.safety.armed;
+	}
+	if (pwm) {
+		FlightSafety_GetPwm(&s_fl.safety, pwm);
+	}
+	if (max_gap_ms) {
+		*max_gap_ms = s_fl.max_gap_ms;
+	}
+	if (missed_ticks) {
+		*missed_ticks = s_fl.missed_ticks;
+	}
 }
 
 #ifdef FLIGHT_STARTUP_TEST

@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 MODULES = [
-    "FlightLoop", "FlightSafety", "MotorMixer",
+    "FlightLoop", "FlightSafety", "MotorMixer", "BaroBdt",
     "RcInput", "AttitudeControl", "RateControl",
 ]
 

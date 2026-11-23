@@ -20,6 +20,9 @@
 #include "FlightLoop.h"
 #include "FlightConfig.h"
 #include "GroundDiag.h"
+#if C_BARO_BDT_DIAG
+#include "BaroBdt.h"
+#endif
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -1654,6 +1657,10 @@ void User_main_loop_process(void)
 	// 紧跟控制拍调用 10Hz 非阻塞地面 UART 输出，忙时允许丢诊断帧。
 #if C_GROUND_UART_DIAG
 	GroundDiag_Process();
+#endif
+#if C_BARO_BDT_DIAG
+	// 气压诊断在 200Hz 控制拍之外执行；采样期间只写 RAM。
+	BaroBdt_Process();
 #endif
 	d24_rx_main_loop();
 	TimeBaseGenerate();

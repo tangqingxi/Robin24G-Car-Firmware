@@ -7,6 +7,11 @@
 #endif
 #include "UserEuler.h"
 
+// 地面气压 BDT 诊断构建开关：默认关闭，独立构建时置 1。
+#ifndef C_BARO_BDT_DIAG
+#define C_BARO_BDT_DIAG 0
+#endif
+
 // 200Hz 飞控公共常量。所有时间仍以 tick 计，毫秒超时只在边界换算。
 #define FLIGHT_LOOP_HZ             200
 #define FLIGHT_PERIOD_TICKS        (CLOCK_SYS_CLOCK_HZ / FLIGHT_LOOP_HZ)

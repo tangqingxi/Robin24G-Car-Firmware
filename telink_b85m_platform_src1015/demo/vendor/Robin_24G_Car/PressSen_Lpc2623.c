@@ -368,6 +368,42 @@ void Get_LPC2623_Value(void)
 	u8PresNewFlag++;		//通知飞控：气压数据已更新
 }
 
+// 诊断用初始化检查：只读产品 ID，不加载校准系数，省 RAM。
+u8 LPC2623_CheckId(void)
+{
+	uint8_t prod_id;
+
+	if (i2c_read_reg(REG_PROD_ID, &prod_id)) {
+		return 1;
+	}
+	if ((prod_id & 0x0F) != 0x0A) {
+		return 1;
+	}
+	return 0;
+}
+
+// 诊断用带返回值的读取：保留原始计数换算，I2C 失败不覆盖上一次有效值。
+u8 LPC2623_ReadRaw(s32 *raw)
+{
+	u8 d[3];
+	s32 v;
+
+	if (i2c_read_regs(0x00, d, 3)) {
+		return 1;
+	}
+	v = ((s32)d[0] << 16) | ((s32)d[1] << 8) | (s32)d[2];
+	if (v & 0x800000) {
+		v |= (s32)0xFF000000;
+	}
+	v = (s32)0xFFFFFFFF - v;
+	s32PresValue = v;
+	u8PresNewFlag++;
+	if (raw) {
+		*raw = v;
+	}
+	return 0;
+}
+
 //**********************************************************************************
 //**********************************************************************************
 

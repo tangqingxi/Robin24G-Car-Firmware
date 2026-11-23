@@ -60,6 +60,12 @@ try {
         (Join-Path $Car 'MotorMixer.c')
     ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'baro_bdt' @(
+        (Join-Path $Here 'test_baro_bdt.c'),
+        (Join-Path $Car 'BaroBdt.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
+        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
     Invoke-Case 'flight_startup_ground' @(
         (Join-Path $Here 'test_flight_startup.c'),
         (Join-Path $Car 'FlightLoop.c'),
@@ -77,7 +83,7 @@ try {
 
 
     $env:PYTHONIOENCODING = 'utf-8'
-    foreach ($test in @('test_package_bin.py')) {
+    foreach ($test in @('test_baro_export.py', 'test_package_bin.py')) {
         python (Join-Path $Here $test)
         if ($LASTEXITCODE -ne 0) { throw ($test + ' failed') }
     }
