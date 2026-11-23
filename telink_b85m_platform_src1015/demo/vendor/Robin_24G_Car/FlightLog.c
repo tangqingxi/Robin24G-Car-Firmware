@@ -592,9 +592,10 @@ static void bench_make_record(u8 *rec, u16 session, u16 seq, u32 t_ms)
 	put16(&rec[54], crc16_update(0xFFFF, rec, 54));
 }
 
-static void bench_write_header(u32 base, u16 seq, u16 session, u16 count, u16 page_crc)
+static void bench_write_header(u32 base, u16 seq, u16 session, u16 count,
+							   u16 page_crc, u32 total_us, u32 max_us, u32 over)
 {
-	u8 hdr[16];
+	u8 hdr[32];
 
 	put32(&hdr[0], FLIGHT_LOG_MAGIC);
 	put16(&hdr[4], FLIGHT_LOG_VERSION);
@@ -603,9 +604,15 @@ static void bench_write_header(u32 base, u16 seq, u16 session, u16 count, u16 pa
 	put16(&hdr[10], count);
 	put16(&hdr[12], page_crc);
 	put16(&hdr[14], crc16_update(0xFFFF, hdr, 14));
-	flash_write_page(base, 16, hdr);
-}
 
+	// 16..31 为诊断保留区：不改标准头，导出器仍只读前 16 字节。
+	put32(&hdr[16], 0x41425453u);       // "STBA"
+	put32(&hdr[20], total_us);
+	put32(&hdr[24], max_us);
+	put16(&hdr[28], (u16)over);
+	put16(&hdr[30], crc16_update(0xFFFF, &hdr[16], 14));
+	flash_write_page(base, 32, hdr);
+}
 static char *bench_u32(char *p, u32 v)
 {
 	char tmp[10];
@@ -760,7 +767,9 @@ u8 FlightLog_BenchStep(u32 next_tick)
 		break;
 
 	case BENCH_A_HDR:
-		bench_write_header(b.base_a, 10, 0xBA00u, 24, b.page_crc);
+		bench_write_header(b.base_a, 10, 0xBA00u, 24, b.page_crc,
+						   b.sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+						   b.max / (CLOCK_SYS_CLOCK_HZ / 1000000u), b.over);
 		b.sum = 0;
 		b.max = 0;
 		b.over = 0;
@@ -800,7 +809,9 @@ u8 FlightLog_BenchStep(u32 next_tick)
 		break;
 
 	case BENCH_B_HDR:
-		bench_write_header(b.base_b, 11, 0xBB00u, 24, b.page_crc);
+		bench_write_header(b.base_b, 11, 0xBB00u, 24, b.page_crc,
+						   b.sum / (CLOCK_SYS_CLOCK_HZ / 1000000u),
+						   b.max / (CLOCK_SYS_CLOCK_HZ / 1000000u), b.over);
 		b.active = 0;
 		b.phase = BENCH_IDLE;
 		break;
