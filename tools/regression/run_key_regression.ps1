@@ -47,7 +47,7 @@ try {
         (Join-Path $Here 'test_flight_log_integration.c')) + $logDeps) @(
         '-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
         '-DFLIGHT_STARTUP_TEST=1', '-DFLIGHT_LOG_HOST_TEST=1', '-fpack-struct')
-    foreach ($case in @('preserve', 'locked', 'unlock', 'closing')) {
+    foreach ($case in @('preserve', 'full', 'locked', 'unlock', 'closing')) {
         Invoke-Case ('flight_log_states_' + $case) (@(
             (Join-Path $Here 'test_flight_log_states.c')) + $logDeps) @(
             '-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',

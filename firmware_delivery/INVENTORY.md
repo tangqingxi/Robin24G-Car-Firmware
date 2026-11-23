@@ -22,16 +22,18 @@
 | `firmware_delivery/candidates/Robin_24G_Bootloader_no_ota.bin` | 当前无 OTA bootloader | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 | 交付/当前 |
 | `firmware_delivery/candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin` | 对齐修复解锁诊断件 | 30452 | `1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189` | 0x4000 | 交付诊断 |
 | `firmware_delivery/candidates/Robin_24G_Car_flight_control_alignfix.bin` | 已无桨验收回退件 412d6b5 | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | 0x4000 | 交付/回退 |
-| `firmware_delivery/candidates/Robin_24G_Car_flight_control_log.bin` | 当前 K3 启录日志应用 | 27636 | `989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562` | 0x4000 | 交付/当前 |
-| `firmware_delivery/candidates/Robin_24G_Car_flight_log_debug.bin` | 当前日志时序诊断版 | 33844 | `AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A` | 0x4000 | 交付/诊断 |
+| `firmware_delivery/candidates/Robin_24G_Car_flight_control_log.bin` | 当前 K3 启录日志应用 | 27636 | `5557BF95888010960A600D4FBE697596C9F24401D02AB232204ADA324CF11AEA` | 0x4000 | 交付/当前 |
+| `firmware_delivery/candidates/Robin_24G_Car_flight_log_debug.bin` | 当前日志时序诊断版 | 33844 | `04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5` | 0x4000 | 交付/诊断 |
 | `firmware_delivery/candidates/Robin_24G_Remote_logkey.bin` | K3 录制键和未映射键修复遥控 | 19880 | `C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09` | 0x0 | 交付/当前 |
 | `firmware_delivery/daily/Robin_24G_Car_flight_control.bin` | 日常 200Hz 无日志正式件 | 28500 | `AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60` | 0x4000 | 日常 |
 | `firmware_delivery/daily/Robin_24G_Car_maint_269a.bin` | 六轴校准维护件 0x269A | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 | 维护 |
 | `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Bootloader_no_ota.bin` | 常用烧录目录 bootloader 具名副本 | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 | 常用烧录目录 |
 | `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_control_alignfix.bin` | 常用烧录目录回退件具名副本 | 24900 | `008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087` | 0x4000 | 常用烧录目录 |
-| `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_control_log.bin` | 常用烧录目录当前日志应用具名副本 | 27636 | `989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562` | 0x4000 | 常用烧录目录 |
-| `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_log_debug.bin` | 常用烧录目录诊断版具名副本 | 33844 | `AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A` | 0x4000 | 常用烧录目录 |
+| `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_control_log.bin` | 常用烧录目录当前日志应用具名副本 | 27636 | `5557BF95888010960A600D4FBE697596C9F24401D02AB232204ADA324CF11AEA` | 0x4000 | 常用烧录目录 |
+| `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_log_debug.bin` | 常用烧录目录诊断版具名副本 | 33844 | `04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5` | 0x4000 | 常用烧录目录 |
 | `tools/regression/fixtures/flight_log_v1_history.bin` | 由历史 CSV 重建的 v1 导出夹具（非实飞原始 dump） | 53248 | `C54EA380D7790352DB310C9757A8F030A1C4F5480FA4F58AC3F22280C0E62B74` | N/A | 回归夹具 |
+
+| `data/archive/flight_log_real_20261123_read.bin` | 实板第一趟 BDT 原始读取（稀疏问题证据） | 53248 | `9453D6FF940FB25057A6FDB4C6684638028BCF2EA394A2E7AE6605F23DB9C57A` | N/A | 原始数据归档 |
 
 ## 清理与重复核对
 

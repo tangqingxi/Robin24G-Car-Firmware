@@ -53,7 +53,9 @@ static void step(void)
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
-	FlightLog_Service(1);
+	if (FlightLoop_CanWriteLog()) {
+		FlightLog_Service(1);          // 与真实主循环一致，走余量门
+	}
 }
 
 static void boot_ready(void)
@@ -228,6 +230,24 @@ int main(int argc, char **argv)
 		}
 		drain_log();
 		printf("PASS K3 ignored during closing\n");
+		return 0;
+	}
+	if (strcmp(argv[1], "full") == 0) {
+		start_key();
+		for (i = 0; i < 6020; i++) {
+			step();
+		}
+		drain_log();
+		if (FlightLog_Active()) {
+			printf("FAIL log still active after full run\n");
+			return 1;
+		}
+		if (FlightLog_State() != FLIGHT_LOG_ST_END) {
+			printf("FAIL full run not sealed, state=%u\n", FlightLog_State());
+			return 1;
+		}
+		dump("flight_log_full.bin");
+		printf("PASS full 750-record session\n");
 		return 0;
 	}
 	if (strcmp(argv[1], "locked") == 0) {

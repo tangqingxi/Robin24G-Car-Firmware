@@ -76,7 +76,9 @@ int main(void)
 		if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 			FlightLog_BeginPrepare();
 		}
-		FlightLog_Service(1);
+		if (FlightLoop_CanWriteLog()) {
+			FlightLog_Service(1);
+		}
 	}
 	if (!FlightLog_Active()) {
 		printf("FAIL real log not active\n");

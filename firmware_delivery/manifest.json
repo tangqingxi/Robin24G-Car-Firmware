@@ -176,7 +176,7 @@
     "app": {
       "file": "candidates/Robin_24G_Car_flight_control_log.bin",
       "bytes": 27636,
-      "sha256": "989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562",
+      "sha256": "5557BF95888010960A600D4FBE697596C9F24401D02AB232204ADA324CF11AEA",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1"
     },
@@ -208,7 +208,7 @@
     "debug": {
       "file": "candidates/Robin_24G_Car_flight_log_debug.bin",
       "bytes": 33844,
-      "sha256": "AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A",
+      "sha256": "04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5",
       "flash_address": "0x4000",
       "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1"
     },
@@ -229,7 +229,7 @@
         "role": "current_log_app",
         "file": "Robin_24G_Car_flight_control_log.bin",
         "bytes": 27636,
-        "sha256": "989AA5573CE4DE210278096E630AEBB11B88CA054F780D7B9F1BDA6071F33562",
+        "sha256": "5557BF95888010960A600D4FBE697596C9F24401D02AB232204ADA324CF11AEA",
         "flash_address": "0x4000"
       },
       {
@@ -250,7 +250,7 @@
         "role": "current_log_debug",
         "file": "Robin_24G_Car_flight_log_debug.bin",
         "bytes": 33844,
-        "sha256": "AE8C58EA4E2C154E4190B383930F916E1E8C9E0CEF5BC4AF17EFF556A1ED713A",
+        "sha256": "04D953C791A4367DBE7D2EC974BD29EB235439C7368961F834254F7A964427F5",
         "flash_address": "0x4000"
       }
     ]

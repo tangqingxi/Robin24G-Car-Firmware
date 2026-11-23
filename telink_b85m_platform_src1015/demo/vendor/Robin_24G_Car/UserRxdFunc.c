@@ -2033,20 +2033,21 @@ void User_main_loop_process(void)
 
 #if (C_ATT_BENCH_EN)
 #if (C_FLIGHT_CONTROL_EN)
-	// 200Hz 到点时先执行采样/控制；射频中断仍在后台收包，
-	// d24_rx_main_loop 紧随其后处理配对/ACK，应用层收包放到控制之后。
+	// 200Hz 到点先采样/控制，射频中断在后台收包。
 	FlightLoop_Process();
-	d24_rx_main_loop();
-	TimeBaseGenerate();
-	car_work();
-	FlightArmDebug_Process();       // 控制/收包之后非阻塞发送诊断
-	// 收包路径只提交请求；主循环复核锁定/PWM 全零后再擦除准备。
+	// 日志服务紧跟在控制拍之后：此时距下一拍最远，余量最大。
+	// 若放到 car_work/调试发送之后，主循环稍长就会持续错过 2.5ms 余量，
+	// 记录队列很快满，表现为样本稀疏、录不满。
 	if (FlightLog_State() == FLIGHT_LOG_PREP && FlightLoop_CanEraseLog()) {
 		FlightLog_BeginPrepare();
 	}
 	if (FlightLoop_CanWriteLog()) {
-		FlightLog_Service(1);             // 余量不足延期，队列满时由日志层计丢样
+		FlightLog_Service(1);             // 每轮最多一次编程，余量不足延期
 	}
+	d24_rx_main_loop();
+	TimeBaseGenerate();
+	car_work();
+	FlightArmDebug_Process();       // 控制/收包之后非阻塞发送诊断
 	FlightArmDebug_OnLogState(FlightLog_State());
 	return;
 #elif (C_RC_BRINGUP_EN)
