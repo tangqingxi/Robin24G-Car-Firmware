@@ -41,8 +41,11 @@ def parse_record(data):
     if h[0:4] != MAGIC:
         raise ValueError("magic 不是 BARO")
     version = h[4]
-    if version != 1:
+    if version not in (1, 2):
         raise ValueError(f"不支持的记录版本 {version}")
+    sample_ms = struct.unpack_from("<H", h, 34)[0] if version >= 2 else 100
+    if sample_ms not in (100, 500):
+        raise ValueError(f"不支持的采样间隔 {sample_ms} ms")
     count, start_ms, i2c_fail, dropped, max_read, max_gap, missed = struct.unpack_from(
         "<H I H H H H H", h, 6)
     crc = struct.unpack_from("<H", h, 22)[0]
@@ -63,7 +66,7 @@ def parse_record(data):
     for slot in range(SLOTS):
         if (bits[slot // 8] >> (slot % 8)) & 1:
             delta = struct.unpack_from("<h", raw, slot * 2)[0]
-            samples.append((slot * 100, base + delta))
+            samples.append((slot * sample_ms, base + delta))
     stats = {
         "version": version,
         "count": count,
@@ -75,6 +78,7 @@ def parse_record(data):
         "missed_ticks": missed,
         "init_failed": bool(h[5] & 1),
         "base": base,
+        "sample_ms": sample_ms,
     }
     return samples, stats
 

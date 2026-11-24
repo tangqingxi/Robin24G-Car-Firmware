@@ -102,7 +102,7 @@ static void make_header(void)
 	s_header[1] = 'A';
 	s_header[2] = 'R';
 	s_header[3] = 'O';
-	s_header[4] = 1;                         // 记录版本
+	s_header[4] = BARO_BDT_RECORD_VERSION;   // 记录版本
 	s_header[5] = s_init_failed ? 1 : 0;     // bit0：气压初始化失败
 	put16(&s_header[6], s_count);            // 有效样本数
 	put32(&s_header[8], s_sample_start_tick / FLIGHT_TICKS_PER_MS);
@@ -116,6 +116,7 @@ static void make_header(void)
 	put16(&s_header[26], 0x0001);             // bit0：完整记录
 	put16(&s_header[28], BARO_BDT_SLOTS);     // 槽位数
 	put32(&s_header[30], (u32)s_base);        // 32 位原始压力基准
+	put16(&s_header[34], BARO_BDT_SAMPLE_MS); // 采样间隔 ms
 }
 
 static u8 pressure_init(void)
@@ -160,7 +161,7 @@ static void write_record(void)
 	BARO_FLASH_READ(BARO_BDT_SECTOR, sizeof(verified), verified);
 	if (verified[0] != 'B' || verified[1] != 'A'
 		|| verified[2] != 'R' || verified[3] != 'O'
-		|| verified[4] != 1
+		|| verified[4] != BARO_BDT_RECORD_VERSION
 		|| verified[6] != (u8)s_count
 		|| verified[7] != (u8)(s_count >> 8)) {
 		s_state = BARO_BDT_ST_ERROR;

@@ -7,8 +7,11 @@
 // 结束后仅在锁定且四路 PWM 全零时写 0x10000 的单个 4KB 扇区。
 #define BARO_BDT_MAX_SAMPLES   300
 #define BARO_BDT_START_MS      5000
+#ifndef BARO_BDT_SAMPLE_MS
 #define BARO_BDT_SAMPLE_MS     100
-#define BARO_BDT_DURATION_MS   30000
+#endif
+#define BARO_BDT_DURATION_MS   (BARO_BDT_MAX_SAMPLES * BARO_BDT_SAMPLE_MS)
+#define BARO_BDT_RECORD_VERSION 2
 #define BARO_BDT_SECTOR        0x10000ul
 
 #define BARO_BDT_ST_WAIT       0

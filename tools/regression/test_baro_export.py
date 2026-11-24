@@ -56,9 +56,18 @@ def main():
     else:
         raise AssertionError("CRC 错误未报错")
 
+    drift = Path("baro_read_drift.bin")
+    if drift.is_file():
+        frames, stats = ex.parse_record(drift.read_bytes())
+        assert len(frames) == 300 and stats["sample_ms"] == 500, stats
+        assert frames[-1][0] == 149500, frames[-1]
+        print("PASS drift: 300 samples, 500ms, last=149500ms")
+
     for name, expect, missing_slot in (
             ("baro_read_initial.bin", 299, 0),
-            ("baro_read_miss.bin", 299, 1)):
+            ("baro_read_miss.bin", 299, 1),
+            ("baro_read_initial_drift.bin", 299, 0),
+            ("baro_read_miss_drift.bin", 299, 1)):
         path = Path(name)
         if not path.is_file():
             continue
