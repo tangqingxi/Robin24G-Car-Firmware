@@ -1,11 +1,104 @@
 {
-  "generated_at": "2026-11-23",
-  "flash_address_car_app": "0x4000",
-  "note": "日常只使用 daily 两份；archive 仅回退参考。构建目录里的通用 .bin 与命名副本已清理，重新编译才生成，不能按文件名判断用途。",
-  "daily": [
+  "current": {
+    "flight_baseline": {
+      "role": "当前实飞基线（气压关闭）",
+      "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
+      "bytes": 24516,
+      "sha256": "C4DE867D9C8C0B0937382EABF50DAFD307FD43BDA2994A98DE43473FEAAB07F2",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
+      "build_commit": "29215e9",
+      "yaw_kp_q8": 512,
+      "yaw_p": 2.0,
+      "acceptance": "主机回归和构建检查通过；实飞记录属于归档的 fb28cc3 镜像",
+      "baro_enabled": false
+    },
+    "bootloader": {
+      "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
+      "bytes": 6844,
+      "sha256": "4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096",
+      "flash_address": "0x0",
+      "ota": false,
+      "app_validate": [
+        "startup_flag",
+        "size<=0xB000",
+        "crc32"
+      ],
+      "role": "无 OTA bootloader"
+    },
+    "remote_recovery": {
+      "file": "candidates/Robin_24G_Remote_logkey.bin",
+      "bytes": 19880,
+      "sha256": "C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09",
+      "flash_address": "0x0",
+      "key": "0x0004 StuntShow short press",
+      "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间",
+      "build_commit": "0c27a88",
+      "role": "遥控器恢复镜像",
+      "note": "含未映射键处理修复；K3 映射供历史日志复现"
+    },
+    "imu_calibration": {
+      "role": "六轴校准维护镜像",
+      "file": "daily/Robin_24G_Car_maint_269a.bin",
+      "bytes": 17716,
+      "sha256": "F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38",
+      "build_flag": "-DC_MAINT_269A_EN=1",
+      "monitor": "default binary 0x269A",
+      "calibration_scripts": [
+        "tools/imu_axis_map.py",
+        "tools/accel_six_face_cal.py",
+        "tools/gyro_bias_cal.py"
+      ],
+      "serial_protocol": "0x269A binary frames, ~100 Hz",
+      "flash_address": "0x4000"
+    },
+    "ground_baro_fixed": {
+      "role": "实板通过的定点温补诊断",
+      "file": "candidates/Robin_24G_Car_ground_baro_fixed_bdt.bin",
+      "bytes": 29812,
+      "sha256": "FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF",
+      "flash_address": "0x4000"
+    }
+  },
+  "archive": [
     {
-      "role": "flight_control_200hz",
-      "file": "daily/Robin_24G_Car_flight_control.bin",
+      "role": "已通过无桨验收的回退件",
+      "file": "archive/Robin_24G_Car_flight_control_alignfix.bin",
+      "bytes": 24900,
+      "sha256": "008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087",
+      "flash_address": "0x4000",
+      "build_commit": "412d6b5"
+    },
+    {
+      "role": "对齐修复版解锁诊断",
+      "file": "archive/Robin_24G_Car_flight_arm_debug_alignfix.bin",
+      "bytes": 30452,
+      "sha256": "1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
+      "flash_address": "0x4000",
+      "app_remaining_bytes": 14604,
+      "build_commit": "412d6b5"
+    },
+    {
+      "role": "偏航取整修正前地面 UART 对照",
+      "file": "archive/Robin_24G_Car_ground_uart_diag.bin",
+      "bytes": 26164,
+      "sha256": "4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1",
+      "build_commit": "6712fd2"
+    },
+    {
+      "role": "偏航取整修正后地面 UART 对照",
+      "file": "archive/Robin_24G_Car_ground_uart_yaw_sym.bin",
+      "bytes": 26292,
+      "sha256": "A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F",
+      "flash_address": "0x4000",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
+    },
+    {
+      "role": "旧 200 Hz 飞控交付件",
+      "file": "archive/Robin_24G_Car_flight_control.bin",
       "bytes": 28500,
       "sha256": "AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60",
       "build_commit": "f7cf2ae",
@@ -17,30 +110,23 @@
       "size_limit_bytes": 45056,
       "app_base": "0x4000",
       "app_end": "0xF000",
-      "app_remaining_bytes": 16556,
-      "log_candidate_flash": [
-        "0x10000-0x1BFFF",
-        "0x1C000-0x1CFFF"
-      ]
+      "app_remaining_bytes": 16556
     },
     {
-      "role": "maint_269a",
-      "file": "daily/Robin_24G_Car_maint_269a.bin",
-      "bytes": 17716,
-      "sha256": "F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38",
-      "build_flag": "-DC_MAINT_269A_EN=1",
-      "monitor": "default binary 0x269A",
-      "calibration_scripts": [
-        "tools/imu_axis_map.py",
-        "tools/accel_six_face_cal.py",
-        "tools/gyro_bias_cal.py"
-      ],
-      "serial_protocol": "0x269A binary frames, ~100 Hz"
-    }
-  ],
-  "archive": [
+      "role": "旧解锁诊断交付件",
+      "file": "archive/Robin_24G_Car_flight_arm_debug.bin",
+      "bytes": 33876,
+      "sha256": "DFDBE4E4C6888388EAC037DF88333A55E796A7C054A80C2C045A2705458A3955",
+      "build_commit": "f7cf2ae",
+      "behavior_baseline": "b3cb56f",
+      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
+      "flash_address": "0x4000",
+      "app_remaining_bytes": 11180,
+      "serial_protocol": "ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE",
+      "monitor": "uart_sensor_monitor.py --arm-debug"
+    },
     {
-      "role": "flight_control_b3cb56f_rollback",
+      "role": "拆分前 200 Hz 飞控回退",
       "file": "archive/Robin_24G_Car_flight_control_b3cb56f.bin",
       "bytes": 35108,
       "sha256": "F8607D150B56FCDABEDC10F1DE8AE514039CED1CCEB6F500DC5B35A3C8824BF5",
@@ -48,10 +134,11 @@
       "build_flag": "-DC_RC_LOOP_400_EN=1",
       "monitor": "--l400 (historical)",
       "serial_protocol": "L400Q/L400S text",
-      "note": "拆分前主联调镜像，回退用；不是当前主镜像"
+      "note": "拆分前主联调镜像，回退用；不是当前主镜像",
+      "flash_address": "0x4000"
     },
     {
-      "role": "historical_400hz_l400",
+      "role": "历史 400 Hz 联调",
       "file": "archive/Robin_24G_Car_rc_loop400.bin",
       "bytes": 25156,
       "sha256": "3F8F62093D97F48E98F8F1B287C05011B4CDCA534CB74E49657F19AD547AA821",
@@ -59,20 +146,22 @@
       "build_flag": "-DC_RC_LOOP_400_EN=1",
       "monitor": "--l400",
       "serial_protocol": "L400/L400S text",
-      "note": "历史 400Hz 联调件，仅回退参考"
+      "note": "历史 400Hz 联调件，仅回退参考",
+      "flash_address": "0x4000"
     },
     {
-      "role": "rc_bringup",
+      "role": "历史遥控联调",
       "file": "archive/Robin_24G_Car_rc_bringup.bin",
       "bytes": 18228,
       "sha256": "476628BD9A3FE679E857104A36956E611ECCE775E327FD8D3CC76235EE152F0F",
       "build_commit": "dad49ff",
       "build_flag": "-DC_RC_BRINGUP_EN=1",
       "serial_protocol": "RC lk=... text",
-      "monitor": "not parsed by current monitor"
+      "monitor": "not parsed by current monitor",
+      "flash_address": "0x4000"
     },
     {
-      "role": "attitude_bench_rebuilt",
+      "role": "历史姿态台架重建件",
       "file": "archive/Robin_24G_Car_att_bench_dad49ff_rebuilt.bin",
       "bytes": 24852,
       "sha256": "54CE488F2F0AB045A924CFF2CFF25772798D0F02D12F841AD88276746D781BD1",
@@ -80,10 +169,11 @@
       "build_flag": "none (C_ATT_BENCH_EN=1 default bench mode)",
       "monitor": "--attitude",
       "serial_protocol": "ATT/STA text",
-      "note": "原 24852 字节姿态件已被 40cae79 的 L400 构建覆盖；本文件是 dad49ff 源码重建的回退件，不是逐字节原件。原件 SHA256 前缀记录为 DFFB6463..."
+      "note": "原 24852 字节姿态件已被 40cae79 的 L400 构建覆盖；本文件是 dad49ff 源码重建的回退件，不是逐字节原件。原件 SHA256 前缀记录为 DFFB6463...",
+      "flash_address": "0x4000"
     },
     {
-      "role": "bench_rc_loop400_keycap",
+      "role": "历史 400 Hz 按键捕获",
       "file": "archive/Robin_24G_Car_rc_loop400_keycap.bin",
       "bytes": 27076,
       "sha256": "4571D27456AAD9A86D231243484EB3043B75C58CD882613B46E5FFD1E7D13DDF",
@@ -91,194 +181,77 @@
       "note": "历史台架镜像，唯一件归档"
     },
     {
-      "role": "bench_rc_loop400_sched",
+      "role": "历史 400 Hz 调度",
       "file": "archive/Robin_24G_Car_rc_loop400_sched.bin",
       "bytes": 26644,
       "sha256": "CAFEAC6C8551889CD7F81225B204408841BA331D878BD4E6D9D681368166BF16",
       "flash_address": "0x4000",
       "note": "历史台架镜像，唯一件归档"
+    },
+    {
+      "role": "气压升降基础诊断",
+      "file": "archive/Robin_24G_Car_ground_baro_bdt.bin",
+      "bytes": 26804,
+      "sha256": "6BF6D562B93E8EFBB40C141BBE633C153CD78AF2C9180D0DD592CCF8BF600929",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "气压长时间漂移诊断",
+      "file": "archive/Robin_24G_Car_ground_baro_drift_bdt.bin",
+      "bytes": 26804,
+      "sha256": "1A470B06E3A6A46A6D4CE651F9716ED548F83B408DDF8AE815E01ACEFD8ED898",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "气压和温度双通道诊断",
+      "file": "archive/Robin_24G_Car_ground_baro_temp_bdt.bin",
+      "bytes": 27172,
+      "sha256": "D7F430B27BFF7470B5AB670A23F4A8A8151559F90A6E95E7E666B1C8D72DDDE8",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "出厂系数和离线温补诊断",
+      "file": "archive/Robin_24G_Car_ground_baro_cal_bdt.bin",
+      "bytes": 27252,
+      "sha256": "759E132068C330F6117FC953326BE2D9F14217F345C95FF90B74866B12542AEC",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "归档的原实飞镜像（实飞记录对应此件）",
+      "file": "archive/Robin_24G_Car_flight_control_fb28cc3.bin",
+      "bytes": 24948,
+      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
+      "flash_address": "0x4000",
+      "build_commit": "fb28cc3"
+    },
+    {
+      "role": "已移出当前交付的气压飞行候选",
+      "file": "archive/Robin_24G_Car_flight_control_baro_candidate.bin",
+      "bytes": 27780,
+      "sha256": "A7CD8CB36A55546ACC90EA5FEDF084213FBE603EFD72F68FF116596DA9D2ADE4",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "已移出当前交付的气压开启验收构建",
+      "file": "archive/Robin_24G_Car_flight_control_baro_on_accept.bin",
+      "bytes": 27764,
+      "sha256": "0EB8651582F87A62C83EB0B3D71A6689F64A4DD516016D52B689F317F4E870C9",
+      "flash_address": "0x4000"
+    },
+    {
+      "role": "已移出当前交付的重复气压关闭构建",
+      "file": "archive/Robin_24G_Car_flight_control_baro_off_accept.bin",
+      "bytes": 24516,
+      "sha256": "C4DE867D9C8C0B0937382EABF50DAFD307FD43BDA2994A98DE43473FEAAB07F2",
+      "flash_address": "0x4000"
     }
   ],
-  "build_artifacts": {
-    "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
-    "file": "Robin_24G_Car_flight_control.bin",
-    "bytes": 28500,
-    "sha256": "AA3D53590D2C366EE203B9840207ABCA4E434E5281C77A72FB9F4C59AFEEAB60",
-    "flash_address": "0x4000",
-    "data_bytes": 440,
-    "bss_bytes": 1246,
-    "stack_reserve_bytes": 600,
-    "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-    "generic_bin": "Robin_24G_Car_Flash.bin",
-    "text_bytes": 27976,
-    "app_base": "0x4000",
-    "app_end": "0xF000",
-    "app_remaining_bytes": 16556
-  },
-  "baseline": {
-    "file": "firmware_baseline/Robin_24G_Car_Flash/Robin_24G_Car_Flash.bin",
-    "bytes": 34404,
-    "sha256": "504042715AF62E84EB8580E35016FF0434992BC0867510C920425424BC9421DF",
-    "note": "原始整机固件回退件，不是当前联调/校准镜像"
-  },
-  "arm_debug": {
-    "role": "flight_arm_debug",
-    "file": "arm_debug/Robin_24G_Car_flight_arm_debug.bin",
-    "bytes": 33876,
-    "sha256": "DFDBE4E4C6888388EAC037DF88333A55E796A7C054A80C2C045A2705458A3955",
-    "build_commit": "f7cf2ae",
-    "behavior_baseline": "b3cb56f",
-    "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
-    "flash_address": "0x4000",
-    "app_remaining_bytes": 11180,
-    "serial_protocol": "ADB/ADS/ADI/ADU/ADG/ADO/ADL/ADE",
-    "monitor": "uart_sensor_monitor.py --arm-debug"
-  },
-  "candidates": {
-    "status": "awaiting_no_prop_acceptance",
-    "build_commit": "fb28cc3",
-    "behavior_baseline": "b3cb56f",
-    "normal": {
-      "role": "current_baseline",
-      "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
-      "bytes": 24948,
-      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-      "build_commit": "fb28cc3",
-      "yaw_kp_q8": 512,
-      "yaw_p": 2.0
-    },
-    "arm_debug": {
-      "role": "candidate_arm_debug",
-      "file": "candidates/Robin_24G_Car_flight_arm_debug_alignfix.bin",
-      "bytes": 30452,
-      "sha256": "1FA9323EF35333E201C87A32E4AE6B00F87508C0CC725FFE93BDA10817A1E189",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_FLIGHT_ARM_DEBUG=1",
-      "flash_address": "0x4000",
-      "app_remaining_bytes": 14604
-    },
-    "yaw_sym_ground": {
-      "role": "candidate_yaw_sym_ground",
-      "file": "candidates/Robin_24G_Car_ground_uart_yaw_sym.bin",
-      "bytes": 26292,
-      "sha256": "A8C7D563416D8EE45288C79442780A1F83180A6F817D27F5D669BE9B128C776F",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
-    }
-  },
-  "task2": {
-    "status": "awaiting_no_prop_acceptance",
-    "build_commit": "fb28cc3",
-    "behavior_baseline": "b3cb56f",
-    "bootloader": {
-      "file": "candidates/Robin_24G_Bootloader_no_ota.bin",
-      "bytes": 6844,
-      "sha256": "4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096",
-      "flash_address": "0x0",
-      "ota": false,
-      "app_validate": [
-        "startup_flag",
-        "size<=0xB000",
-        "crc32"
-      ]
-    },
-    "app": {
-      "role": "current_baseline",
-      "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
-      "bytes": 24948,
-      "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-      "build_commit": "fb28cc3",
-      "yaw_kp_q8": 512,
-      "yaw_p": 2.0
-    },
-    "log": {
-      "base": "0x10000",
-      "end": "0x1D000",
-      "sectors": 13,
-      "bytes": 53248,
-      "record_bytes": 56,
-      "records_max": 750,
-      "rate_hz": 10,
-      "seconds_nominal": 30,
-      "export": "tools/flight_log_export.py",
-      "page_header_bytes": 256,
-      "records_per_phys_page": 4,
-      "phys_pages_per_sector": 15,
-      "records_per_sector": 60,
-      "summary_record": true,
-      "complete_export": true,
-      "start": "K3/0x0004 rising edge",
-      "version": 2,
-      "baseline_record": true,
-      "tail_record": true,
-      "deferred_writes": true,
-      "export_v1_compatible": true,
-      "max_control_us": "max_dt_us",
-      "finalize_stats": true
-    },
-    "debug": {
-      "role": "ground_uart_diag",
-      "file": "candidates/Robin_24G_Car_ground_uart_diag.bin",
-      "bytes": 26164,
-      "sha256": "4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2",
-      "flash_address": "0x4000",
-      "build_flag": "-DC_FLIGHT_CONTROL_EN=1 -DC_GROUND_UART_DIAG=1"
-    },
-    "remote": {
-      "file": "candidates/Robin_24G_Remote_logkey.bin",
-      "bytes": 19880,
-      "sha256": "C11CD83F5D19AFE5289DE60561A4D338B5290BB64974B407EA9C57596DE96F09",
-      "flash_address": "0x0",
-      "key": "0x0004 StuntShow short press",
-      "physical": "演示（Stunt）键，方向键上排第三个，右与K7之间",
-      "build_commit": "0c27a88"
-    }
-  },
   "burn": {
     "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
-    "files": [
-      {
-        "role": "current_no_ota_boot",
-        "file": "Robin_24G_Bootloader_no_ota.bin",
-        "bytes": 6844,
-        "sha256": "4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096",
-        "flash_address": "0x0"
-      },
-      {
-        "role": "accepted_fallback",
-        "file": "Robin_24G_Car_flight_control_alignfix.bin",
-        "bytes": 24900,
-        "sha256": "008FB301A43782E1F74046C755FC8D942229C6468D68F18057C5E73AF8449087",
-        "flash_address": "0x4000"
-      },
-      {
-        "role": "current_baseline",
-        "file": "Robin_24G_Car_flight_control_baseline.bin",
-        "bytes": 24948,
-        "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
-        "flash_address": "0x4000"
-      },
-      {
-        "role": "ground_uart_diag",
-        "file": "Robin_24G_Car_ground_uart_diag.bin",
-        "bytes": 26164,
-        "sha256": "4A8B851CF902EFDBEEDA12EEF46BE3494B2D6BF0200BA4EBF773CD2F6192C3D2",
-        "flash_address": "0x4000"
-      }
+    "copies": [
+      "flight_baseline",
+      "bootloader",
+      "ground_baro_fixed"
     ]
-  },
-  "app": {
-    "role": "current_baseline",
-    "file": "candidates/Robin_24G_Car_flight_control_baseline.bin",
-    "bytes": 24948,
-    "sha256": "B9B98FF5B82105C150BFDD10078B9DD07987EBD3B0F065668E795610A6AF010C",
-    "flash_address": "0x4000",
-    "build_flag": "-DC_FLIGHT_CONTROL_EN=1",
-    "build_commit": "fb28cc3",
-    "yaw_kp_q8": 512,
-    "yaw_p": 2.0
   }
 }
