@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LPC2623 地面 BDT 记录导出。
+"""LPC2623 地面 BDT 导出，兼容 v1/v2/v3/v4/v5。
 
-v1/v2：单通道气压；v3：气压+温度；v4：气压+温度+板端定点温补结果(0.1Pa)。
-原始计数均按“32 位基准 + 16 位差值”还原。
+v4：含出厂校准块的旧温补记录，输出 Pa / °C。
+v5：定点诊断，输出原始气压、实际温度、板端 0.1Pa 补偿值。
 """
 import argparse
 import csv
@@ -13,10 +13,8 @@ import sys
 from pathlib import Path
 
 MAGIC = b"BARO"
-SLOTS_OLD = 300
-SLOTS_TEMP = 150
+SCALES = (524288, 1572864, 3670016, 7864320, 253952, 516096, 1040384, 2088960)
 SLOTS_FIXED = 90
-BIT_BYTES = 38
 
 
 def crc16(data):
@@ -28,193 +26,222 @@ def crc16(data):
     return crc
 
 
+def _signed(value, width):
+    sign = 1 << (width - 1)
+    return (value ^ sign) - sign
+
+
+def _decode_cal(block, cfg):
+    p = block[6:]
+    if cfg & 0x07 >= len(SCALES) or p in (bytes(20), b"\xff" * 20):
+        return None
+    gain = _signed(block[0], 8)
+    dvbe_trim = _signed(block[1] >> 1, 7)
+    vbe_trim = _signed((block[2] << 1) | (block[1] & 1), 9)
+    adc = gain * 8.4375e-5 + 0.675
+    vbe = (vbe_trim * 1.05031e-4 + 0.463232422) / adc
+    dvbe = (dvbe_trim * 1.25885e-5 + 0.04027621) / adc
+    tcal = 5030 * dvbe - 273.15
+    vbe27 = vbe - (tcal - 27) * (-1.735e-3)
+    ptat = (0.687027 - vbe27) * (-0.8) + 0.039
+    a = 5030 * (vbe + 9.45 * dvbe) * (1 + ptat)
+    b = -273.15 * (1 + ptat) - ptat * tcal
+    c = (
+        _signed((p[0] << 12) | (p[1] << 4) | (p[2] >> 4), 20),
+        _signed(((p[2] & 0x0F) << 16) | (p[3] << 8) | p[4], 20),
+        _signed((p[5] << 12) | (p[6] << 4) | (p[7] >> 4), 20),
+        _signed(((p[7] & 0x0F) << 16) | (p[8] << 8) | p[9], 20),
+        _signed(((p[10] & 0x7F) << 8) | p[11], 15),
+        _signed(((p[12] & 0x0F) << 8) | p[13], 12),
+        _signed((p[14] << 9) | (p[15] << 1) | (p[16] >> 7), 17),
+        _signed(((p[16] & 0x7F) << 10) | (p[17] << 2) | (p[18] >> 6), 17),
+        _signed(((p[18] & 0x3F) << 8) | p[19], 14),
+    )
+    return SCALES[cfg & 0x07], c, a, b
+
+
+def reference_v4(p_raw, t_raw, cal):
+    if cal is None or t_raw is None:
+        return None, None
+    scale, c, a, b = cal
+    tx = t_raw / 1048576
+    tc = a * tx / (1 + 9.45 * tx) + b
+    if p_raw is None:
+        return None, tc
+    p = p_raw / scale
+    s = 8.5 * tx / (1 + 8.8 * tx)
+    c00, c10, c01, c02, c20, c30, c11, c12, c21 = c
+    pa = (c00 + c10 * p + c01 * s + c02 * s * s + c20 * p * p
+          + c30 * p * p * p + c11 * p * s + c12 * p * s * s + c21 * p * p * s)
+    return pa, tc
+
+
 def parse_record(data):
-    """返回 (rows, stats)。"""
     if len(data) < 5 or data[:4] != MAGIC:
         raise ValueError("magic 不是 BARO")
-    version = data[4]
-    if version in (1, 2):
-        return _parse_single(data, version)
-    if version == 3:
-        return _parse_temp(data)
-    if version == 4:
-        return _parse_fixed(data)
-    raise ValueError(f"不支持的记录版本 {version}")
+    v = data[4]
+    if v in (1, 2):
+        return _parse_single(data, v)
+    if v == 3:
+        return _parse_v3(data)
+    if v == 4:
+        return _parse_v4(data)
+    if v == 5:
+        return _parse_v5(data)
+    raise ValueError(f"不支持的记录版本 {v}")
 
 
-def _parse_single(data, version):
-    header_len = 40
-    need = header_len + 600 + 38
-    if len(data) < need:
-        raise ValueError(f"记录截断：{len(data)} 字节，至少需要 {need}")
-    h = data[:header_len]
-    sample_ms = struct.unpack_from("<H", h, 34)[0] if version >= 2 else 100
-    count, start_ms, i2c_fail, dropped, max_read, max_gap, missed = struct.unpack_from(
-        "<H I H H H H H", h, 6)
+def _parse_single(data, v):
+    h = data[:40]
+    sample_ms = struct.unpack_from("<H", h, 34)[0] if v >= 2 else 100
+    count, start, i2c, drop, mread, mgap, miss = struct.unpack_from("<H I H H H H H", h, 6)
     crc = struct.unpack_from("<H", h, 22)[0]
     raw_bytes, flags, slots = struct.unpack_from("<H H H", h, 24)
     base = struct.unpack_from("<i", h, 30)[0]
-    if raw_bytes != 600 or slots != SLOTS_OLD:
-        raise ValueError(f"记录尺寸不符：raw={raw_bytes} slots={slots}")
-    if not (flags & 1):
-        raise ValueError("记录未标记为完整")
-    raw = data[header_len:header_len + 600]
-    bits = data[header_len + 600:header_len + 638]
-    if crc != crc16(h[:22] + b"\x00\x00" + h[24:] + raw + bits):
+    raw = data[40:640]
+    bits = data[640:678]
+    if crc != crc16(h[:22] + b"\0\0" + h[24:] + raw + bits):
         raise ValueError("CRC16 校验失败")
-    valid = sum((bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_OLD))
-    if valid != count:
-        raise ValueError(f"有效位数 {valid} 与头部 count={count} 不符")
     rows = []
-    for slot in range(SLOTS_OLD):
-        if (bits[slot // 8] >> (slot % 8)) & 1:
-            delta = struct.unpack_from("<h", raw, slot * 2)[0]
-            rows.append((slot * sample_ms, base + delta, None))
-    stats = {
-        "version": version, "count": count, "start_ms": start_ms,
-        "i2c_fail": i2c_fail, "dropped": dropped, "max_read_us": max_read,
-        "max_gap_ms": max_gap, "missed_ticks": missed,
-        "sample_ms": sample_ms, "base": base, "init_failed": bool(h[5] & 1),
-    }
-    return rows, stats
+    for s in range(300):
+        if (bits[s // 8] >> (s % 8)) & 1:
+            rows.append((s * sample_ms, base + struct.unpack_from("<h", raw, s * 2)[0], None))
+    return rows, {"version": v, "sample_ms": sample_ms, "i2c_fail": i2c,
+                  "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
+                  "missed_ticks": miss, "count": count}
 
 
-def _parse_temp(data):
-    header_len = 48
-    need = header_len + 300 + 300 + 19 + 19
-    if len(data) < need:
-        raise ValueError(f"记录截断：{len(data)} 字节，至少需要 {need}")
-    h = data[:header_len]
-    p_count = struct.unpack_from("<H", h, 6)[0]
-    start_ms, i2c_fail, dropped, max_read, max_gap, missed = struct.unpack_from(
-        "<I H H H H H", h, 8)
-    crc = struct.unpack_from("<H", h, 22)[0]
-    slots, sample_ms = struct.unpack_from("<H H", h, 24)
+def _parse_v3(data):
+    h = data[:48]
     p_base = struct.unpack_from("<i", h, 28)[0]
     t_base = struct.unpack_from("<i", h, 32)[0]
-    p_bytes, t_bytes, t_count = struct.unpack_from("<H H H", h, 36)
-    if slots != SLOTS_TEMP or sample_ms != 1000:
-        raise ValueError(f"双通道尺寸不符：slots={slots} interval={sample_ms}")
-    if p_bytes != 300 or t_bytes != 300:
-        raise ValueError("双通道差分区尺寸不符")
-    p_raw = data[header_len:header_len + 300]
-    t_raw = data[header_len + 300:header_len + 600]
-    p_bits = data[header_len + 600:header_len + 619]
-    t_bits = data[header_len + 619:header_len + 638]
-    mixed = bytes(sum(([p_bits[i], t_bits[i]] for i in range(19)), []))
-    if crc != crc16(h[:22] + b"\x00\x00" + h[24:] + p_raw + t_raw + mixed):
-        raise ValueError("CRC16 校验失败")
-    pv = sum((p_bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_TEMP))
-    tv = sum((t_bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_TEMP))
-    if pv != p_count or tv != t_count:
-        raise ValueError(f"有效位数不符：p={pv}/{p_count} t={tv}/{t_count}")
-    rows = []
-    for slot in range(SLOTS_TEMP):
-        p_ok = (p_bits[slot // 8] >> (slot % 8)) & 1
-        t_ok = (t_bits[slot // 8] >> (slot % 8)) & 1
-        if not (p_ok or t_ok):
-            continue
-        p = p_base + struct.unpack_from("<h", p_raw, slot * 2)[0] if p_ok else None
-        t = t_base + struct.unpack_from("<h", t_raw, slot * 2)[0] if t_ok else None
-        rows.append((slot * sample_ms, p, t))
-    stats = {
-        "version": 3, "p_count": p_count, "t_count": t_count,
-        "count": t_count, "start_ms": start_ms, "i2c_fail": i2c_fail,
-        "dropped": dropped, "max_read_us": max_read,
-        "max_gap_ms": max_gap, "missed_ticks": missed,
-        "sample_ms": sample_ms, "p_base": p_base, "t_base": t_base,
-        "init_failed": bool(h[5] & 1),
-    }
-    return rows, stats
-
-
-def _parse_fixed(data):
-    header_len = 56
-    need = header_len + 540 + 36
-    if len(data) < need:
-        raise ValueError(f"记录截断：{len(data)} 字节，至少需要 {need}")
-    h = data[:header_len]
-    p_count = struct.unpack_from("<H", h, 6)[0]
-    start_ms, i2c_fail, dropped, max_read, max_gap, missed = struct.unpack_from(
-        "<I H H H H H", h, 8)
+    pcount = struct.unpack_from("<H", h, 6)[0]
     crc = struct.unpack_from("<H", h, 22)[0]
-    slots, sample_ms = struct.unpack_from("<H H", h, 24)
+    p = data[48:348]
+    t = data[348:648]
+    pb = data[648:667]
+    tb = data[667:686]
+    mixed = bytes(sum(([pb[i], tb[i]] for i in range(19)), []))
+    if crc != crc16(h[:22] + b"\0\0" + h[24:] + p + t + mixed):
+        raise ValueError("CRC16 校验失败")
+    rows = []
+    for s in range(150):
+        po = (pb[s // 8] >> (s % 8)) & 1
+        to = (tb[s // 8] >> (s % 8)) & 1
+        if po or to:
+            rows.append((s * 1000,
+                         p_base + struct.unpack_from("<h", p, s * 2)[0] if po else None,
+                         t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None))
+    return rows, {"version": 3, "sample_ms": 1000, "i2c_fail": 0,
+                  "dropped": 0, "max_read_us": 0, "max_gap_ms": 0,
+                  "missed_ticks": 0, "count": len(rows)}
+
+
+def _parse_v4(data):
+    h = data[:74]
+    pcount, start, i2c, drop, mread, mgap, miss = struct.unpack_from("<H I H H H H H", h, 6)
     p_base = struct.unpack_from("<i", h, 28)[0]
     t_base = struct.unpack_from("<i", h, 32)[0]
-    p_bytes, t_bytes, f_count = struct.unpack_from("<H H H", h, 36)
+    pbytes, tbytes, tcount = struct.unpack_from("<H H H", h, 36)
+    cfg = h[42]
+    crc = struct.unpack_from("<H", h, 22)[0]
+    p = data[74:374]
+    t = data[374:674]
+    pb = data[674:693]
+    tb = data[693:712]
+    mixed = bytes(sum(([pb[i], tb[i]] for i in range(19)), []))
+    if crc != crc16(h[:22] + b"\0\0" + h[24:] + p + t + mixed):
+        raise ValueError("CRC16 校验失败")
+    cal = _decode_cal(h[48:74], cfg)
+    rows = []
+    for s in range(150):
+        po = (pb[s // 8] >> (s % 8)) & 1
+        to = (tb[s // 8] >> (s % 8)) & 1
+        if po or to:
+            pr = p_base + struct.unpack_from("<h", p, s * 2)[0] if po else None
+            tr = t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None
+            rows.append((s * 1000, pr, tr))
+    return rows, {"version": 4, "sample_ms": 1000, "i2c_fail": i2c,
+                  "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
+                  "missed_ticks": miss, "count": pcount,
+                  "p_count": pcount, "t_count": tcount, "calibration": cal}
+
+
+def _parse_v5(data):
+    h = data[:56]
+    pcount = struct.unpack_from("<H", h, 6)[0]
+    start, i2c, drop, mread, mgap, miss = struct.unpack_from("<I H H H H H", h, 8)
+    crc = struct.unpack_from("<H", h, 22)[0]
+    slots, sample = struct.unpack_from("<H H", h, 24)
+    p_base = struct.unpack_from("<i", h, 28)[0]
+    t_base = struct.unpack_from("<i", h, 32)[0]
+    pbytes, tbytes, fcount = struct.unpack_from("<H H H", h, 36)
     f_base = struct.unpack_from("<i", h, 42)[0]
-    f_bytes = struct.unpack_from("<H", h, 46)[0]
-    max_comp = struct.unpack_from("<H", h, 48)[0]
-    if slots != SLOTS_FIXED or sample_ms != 1000:
-        raise ValueError(f"定点尺寸不符：slots={slots} interval={sample_ms}")
-    if p_bytes != 180 or t_bytes != 180 or f_bytes != 180:
-        raise ValueError("定点差分区尺寸不符")
-    p_raw = data[header_len:header_len + 180]
-    t_raw = data[header_len + 180:header_len + 360]
-    f_raw = data[header_len + 360:header_len + 540]
-    p_bits = data[header_len + 540:header_len + 552]
-    t_bits = data[header_len + 552:header_len + 564]
-    f_bits = data[header_len + 564:header_len + 576]
-    mixed = bytes(sum(([p_bits[i], t_bits[i], f_bits[i]] for i in range(12)), []))
-    if crc != crc16(h[:22] + b"\x00\x00" + h[24:] + p_raw + t_raw + f_raw + mixed):
+    fbytes = struct.unpack_from("<H", h, 46)[0]
+    maxcomp = struct.unpack_from("<H", h, 48)[0]
+    p = data[56:236]
+    t = data[236:416]
+    f = data[416:596]
+    pb = data[596:608]
+    tb = data[608:620]
+    fb = data[620:632]
+    mixed = bytes(sum(([pb[i], tb[i], fb[i]] for i in range(12)), []))
+    if crc != crc16(h[:22] + b"\0\0" + h[24:] + p + t + f + mixed):
         raise ValueError("CRC16 校验失败")
-    pv = sum((p_bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_FIXED))
-    tv = sum((t_bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_FIXED))
-    fv = sum((f_bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS_FIXED))
-    # 温度有效数没有独立头部字段，按位图统计；固定结果数必须一致。
-    if pv != p_count or fv != f_count:
-        raise ValueError(f"有效位数不符：p={pv}/{p_count} f={fv}/{f_count}")
     rows = []
-    for slot in range(SLOTS_FIXED):
-        p_ok = (p_bits[slot // 8] >> (slot % 8)) & 1
-        t_ok = (t_bits[slot // 8] >> (slot % 8)) & 1
-        f_ok = (f_bits[slot // 8] >> (slot % 8)) & 1
-        if not (p_ok or t_ok or f_ok):
-            continue
-        p = p_base + struct.unpack_from("<h", p_raw, slot * 2)[0] if p_ok else None
-        t = t_base + struct.unpack_from("<h", t_raw, slot * 2)[0] if t_ok else None
-        f = f_base + struct.unpack_from("<h", f_raw, slot * 2)[0] if f_ok else None
-        rows.append((slot * 1000, p, t, f))
-    stats = {
-        "version": 4, "count": f_count, "p_count": p_count, "t_count": tv,
-        "f_count": f_count, "start_ms": start_ms, "i2c_fail": i2c_fail,
-        "dropped": dropped, "max_read_us": max_read, "max_gap_ms": max_gap,
-        "missed_ticks": missed, "sample_ms": 1000,
-        "max_comp_us": max_comp, "p_base": p_base, "t_base": t_base, "f_base": f_base,
-        "init_failed": bool(h[5] & 1),
-    }
-    return rows, stats
+    for s in range(SLOTS_FIXED):
+        po = (pb[s // 8] >> (s % 8)) & 1
+        to = (tb[s // 8] >> (s % 8)) & 1
+        fo = (fb[s // 8] >> (s % 8)) & 1
+        if po or to or fo:
+            pr = p_base + struct.unpack_from("<h", p, s * 2)[0] if po else None
+            tr = t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None
+            fr = f_base + struct.unpack_from("<h", f, s * 2)[0] if fo else None
+            rows.append((s * 1000, pr, tr, fr))
+    return rows, {"version": 5, "sample_ms": 1000, "i2c_fail": i2c,
+                  "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
+                  "missed_ticks": miss, "max_comp_us": maxcomp,
+                  "p_count": pcount, "f_count": fcount, "count": fcount}
 
 
 def main():
-    ap = argparse.ArgumentParser(description="导出 LPC2623 地面 BDT 诊断记录")
+    ap = argparse.ArgumentParser(description="导出 LPC2623 地面 BDT 记录")
     ap.add_argument("--bin", default=r"E:\Tools\TelinkBDT\config\user\Read.bin")
     ap.add_argument("--out", default="")
-    args = ap.parse_args()
-    src = Path(args.bin)
+    a = ap.parse_args()
+    src = Path(a.bin)
     if not src.is_file():
         sys.exit(f"找不到 Read.bin：{src}")
     try:
-        rows, stats = parse_record(src.read_bytes())
-    except ValueError as exc:
-        sys.exit(f"记录无效：{exc}")
-    out = Path(args.out) if args.out else Path("data/logs") / (
+        rows, st = parse_record(src.read_bytes())
+    except ValueError as e:
+        sys.exit(f"记录无效：{e}")
+    out = Path(a.out) if a.out else Path("data/logs") / (
         "baro_bdt_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv")
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8-sig") as fp:
         w = csv.writer(fp)
-        if stats["version"] == 4:
+        if st["version"] == 4:
+            w.writerow(["session_ms", "raw_pressure", "raw_temperature",
+                        "pressure_pa", "temperature_c"])
+            for t, p, temp in rows:
+                pa, tc = reference_v4(p, temp, st.get("calibration"))
+                w.writerow([t, p, temp,
+                            "" if pa is None else f"{pa:.6f}",
+                            "" if tc is None else f"{tc:.6f}"])
+        elif st["version"] == 5:
             w.writerow(["session_ms", "raw_pressure", "raw_temperature",
                         "pressure_01pa"])
+            for row in rows:
+                w.writerow(row)
         else:
             w.writerow(["session_ms", "raw_pressure", "raw_temperature"])
-        for row in rows:
-            w.writerow(row)
-    print(f"记录有效：{len(rows)} 行，间隔 {stats['sample_ms']}ms，"
-          f"I2C失败 {stats['i2c_fail']}，丢样 {stats['dropped']}，"
-          f"最大读取 {stats['max_read_us']}us，最大温补 {stats.get('max_comp_us', 0)}us，"
-          f"最大控制间隔 {stats['max_gap_ms']}ms，"
-          f"漏拍 {stats['missed_ticks']}")
+            for row in rows:
+                w.writerow(row)
+    print(f"记录有效：{len(rows)} 行，间隔 {st['sample_ms']}ms，"
+          f"I2C失败 {st['i2c_fail']}，丢样 {st['dropped']}，"
+          f"最大读取 {st['max_read_us']}us，最大控制间隔 {st['max_gap_ms']}ms，"
+          f"漏拍 {st['missed_ticks']}")
     print(f"CSV：{out}")
 
 

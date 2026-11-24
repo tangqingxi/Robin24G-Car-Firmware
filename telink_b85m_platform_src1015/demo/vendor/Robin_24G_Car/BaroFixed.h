@@ -29,6 +29,8 @@ u8 BaroFixed_Compensate01Pa(s32 p_raw, s32 t_raw,
 
 // 上电读取一次出厂系数；返回 0 成功。
 u8 BaroFixed_LoadCalibration(BaroFixedCal_t *cal);
+u8 BaroFixed_LoadCalibrationBlock(const u8 *block, u8 pressure_config,
+								  BaroFixedCal_t *cal);
 
 #ifdef BARO_BDT_HOST_TEST
 // 主机测试：直接装载 v4 台架拟合系数，不访问 I2C。

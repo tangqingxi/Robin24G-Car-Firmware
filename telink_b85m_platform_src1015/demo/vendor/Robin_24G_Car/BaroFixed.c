@@ -52,7 +52,6 @@ static void parse_coeff(const u8 *r, BaroFixedCal_t *c)
 	v = (((s32)r[18] & 0x3F) << 8) | r[19];
 	if (v & 0x2000) v -= 0x4000;
 	c->C21 = v;
-	c->KP = 524288;             // 诊断使用 1Hz 气压采样
 	c->valid = 1;
 }
 
@@ -68,8 +67,25 @@ u8 BaroFixed_LoadCalibration(BaroFixedCal_t *cal)
 	if (LPC2623_ReadCalibration(block, &psr_cfg)) {
 		return 1;
 	}
+	return BaroFixed_LoadCalibrationBlock(block, psr_cfg, cal);
+}
+
+u8 BaroFixed_LoadCalibrationBlock(const u8 *block, u8 pressure_config,
+								  BaroFixedCal_t *cal)
+{
+	static const s32 scales[8] = {
+		524288, 1572864, 3670016, 7864320,
+		253952, 516096, 1040384, 2088960
+	};
+	u8 idx;
+
+	if (!cal || !block) {
+		return 1;
+	}
+	cal->valid = 0;
 	parse_coeff(&block[6], cal);  // 0x20..0x25 不是压力系数
-	(void)psr_cfg;
+	idx = pressure_config & 0x07;
+	cal->KP = scales[idx];
 	return cal->valid ? 0 : 1;
 }
 
@@ -97,7 +113,11 @@ u8 BaroFixed_Compensate01Pa(s32 p_raw, s32 t_raw,
 		un = (u32)(num32 < 0 ? -num32 : num32);
 		ud = (u32)(den32 < 0 ? -den32 : den32);
 		us = (un << 16) / ud;
-		x = p_raw / (cal->KP / Q16);
+		{
+			u32 raw_comp = 0xFFFFFFFFu - (u32)p_raw;
+			u32 x32 = raw_comp / (u32)(cal->KP / Q16);
+			x = (long long)x32;
+		}
 		s = (num32 < 0) != (den32 < 0) ? -(long long)us : (long long)us;
 		(void)t; (void)num; (void)den;
 	}
