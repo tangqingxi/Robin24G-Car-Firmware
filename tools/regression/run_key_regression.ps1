@@ -60,6 +60,11 @@ try {
         (Join-Path $Car 'MotorMixer.c')
     ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'lpc2623_ready' @(
+        (Join-Path $Here 'test_lpc2623_ready.c'),
+        (Join-Path $Car 'PressSen_Lpc2623_Ready.c')
+    ) @('-DBARO_BDT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000')
+
     Invoke-Case 'baro_bdt' @(
         (Join-Path $Here 'test_baro_bdt.c'),
         (Join-Path $Car 'BaroBdt.c')

@@ -382,17 +382,6 @@ u8 LPC2623_CheckId(void)
 	return 0;
 }
 
-// 诊断用数据就绪：INT_STS 的 PRS_RDY 位（0x04）。
-u8 LPC2623_IsPressureReady(void)
-{
-	u8 st;
-
-	if (i2c_read_reg(REG_INT_STS, &st)) {
-		return 0;
-	}
-	return (st & 0x04) ? 1 : 0;
-}
-
 // 诊断用带返回值的读取：保留原始计数换算，I2C 失败不覆盖上一次有效值。
 u8 LPC2623_ReadRaw(s32 *raw)
 {
