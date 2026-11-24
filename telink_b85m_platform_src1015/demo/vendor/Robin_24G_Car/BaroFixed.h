@@ -32,4 +32,8 @@ u8 BaroFixed_LoadCalibration(BaroFixedCal_t *cal);
 u8 BaroFixed_LoadCalibrationBlock(const u8 *block, u8 pressure_config,
 								  BaroFixedCal_t *cal);
 
+#ifdef BARO_BDT_HOST_TEST
+void BaroFixed_TestSetV4Cal(BaroFixedCal_t *cal);
+#endif
+
 #endif /* BARO_FIXED_H */

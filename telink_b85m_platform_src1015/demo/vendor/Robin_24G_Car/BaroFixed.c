@@ -182,3 +182,20 @@ u8 BaroFixed_Compensate01Pa(s32 p_raw, s32 t_raw,
 	}
 	return BARO_FIXED_OK;
 }
+
+#ifdef BARO_BDT_HOST_TEST
+void BaroFixed_TestSetV4Cal(BaroFixedCal_t *cal)
+{
+	cal->C00 = 67542;
+	cal->C10 = -77141;
+	cal->C01 = 74959;
+	cal->C02 = -66612;
+	cal->C20 = -4532;
+	cal->C30 = -313;
+	cal->C11 = -13873;
+	cal->C12 = 5716;
+	cal->C21 = -594;
+	cal->KP = 7864320;
+	cal->valid = 1;
+}
+#endif
