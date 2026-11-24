@@ -45,6 +45,7 @@ try {
     Invoke-Case 'flight_order' @(
         (Join-Path $Here 'test_flight_order.c'),
         (Join-Path $Car 'FlightLoop.c'),
+        (Join-Path $Car 'ImuMeasure.c'),
         (Join-Path $Car 'RcInput.c'),
         (Join-Path $Car 'FlightSafety.c'),
         (Join-Path $Car 'MotorMixer.c')
@@ -115,6 +116,7 @@ try {
     $startupSources = @(
         (Join-Path $Here 'test_flight_startup.c'),
         (Join-Path $Car 'FlightLoop.c'),
+        (Join-Path $Car 'ImuMeasure.c'),
         (Join-Path $Car 'RcInput.c'),
         (Join-Path $Car 'FlightSafety.c'),
         (Join-Path $Car 'MotorMixer.c'),
