@@ -1,4 +1,4 @@
-/* 定点温补地面记录：100×1s，三路对齐，锁定后保存。 */
+/* 定点温补地面记录：90×1s，三路对齐，锁定后保存。 */
 #include <stdio.h>
 #include <string.h>
 
@@ -13,6 +13,9 @@ static unsigned int t_ready_left;
 static unsigned int p_fail_left;
 static unsigned int t_fail_left;
 static unsigned char armed;
+static unsigned char pressure_config;
+static unsigned char continuous_started;
+static unsigned char factory_cal[LPC2623_CALIB_BYTES];
 static unsigned char flash_mem[4096];
 
 u32 BaroFixedBdt_TestClock(void) { return now; }
@@ -26,12 +29,14 @@ u8 LPC2623_IsTempReady(void)
 }
 u8 LPC2623_ReadCalibration(u8 block[LPC2623_CALIB_BYTES], u8 *cfg)
 {
-	(void)block; (void)cfg;
-	return 1;
+	if (pressure_config != 0x03 || !continuous_started) return 1;
+	memcpy(block, factory_cal, sizeof(factory_cal));
+	*cfg = pressure_config;
+	return 0;
 }
 void LPC2623_rateset(unsigned char a, unsigned char b, unsigned char c)
-{ (void)a; (void)b; (void)c; }
-void LPC2623_start_continuous(unsigned char m) { (void)m; }
+{ if (a == PRESSURE_SENSOR && b == 1 && c == 8) pressure_config = 0x03; }
+void LPC2623_start_continuous(unsigned char m) { continuous_started = m == CONTINUOUS_P_AND_T; }
 u8 LPC2623_ReadRaw(s32 *raw)
 {
 	if (p_fail_left) { p_fail_left--; return 1; }
@@ -79,19 +84,22 @@ static void write_file(const char *name)
 	fclose(fp);
 }
 
-static void run(void)
+static void begin(void)
 {
-	unsigned int i;
-	BaroFixedCal_t cal;
-	BaroFixed_TestSetV4Cal(&cal);
-	BaroFixedBdt_TestCal(&cal);
-	BaroFixedBdt_TestReset();
-	BaroFixedBdt_TestCal(&cal);
+	pressure_config = 0;
+	continuous_started = 0;
 	now = 0;
 	BaroFixedBdt_Process();
 	now = 5000u * 24000u;
 	BaroFixedBdt_Process();
 	BaroFixedBdt_Process();
+}
+
+static void run(void)
+{
+	unsigned int i;
+
+	begin();
 	for (i = 1; i < BARO_FIXED_SLOTS; i++) {
 		now += 1000u * 24000u;
 		BaroFixedBdt_Process();
@@ -100,7 +108,15 @@ static void run(void)
 
 int main(void)
 {
+	FILE *fp;
+	size_t count;
+
 	setvbuf(stdout, NULL, _IONBF, 0);
+	fp = fopen("v4_actual.bin", "rb");
+	if (!fp) return 1;
+	count = fseek(fp, 48, SEEK_SET) ? 0 : fread(factory_cal, 1, sizeof(factory_cal), fp);
+	fclose(fp);
+	if (count != sizeof(factory_cal)) return 1;
 	run();
 	write_file("baro_fixed_read.bin");
 	if (BaroFixedBdt_GetState() != BARO_FIXED_ST_DONE
@@ -117,16 +133,7 @@ int main(void)
 	// 缺温度：该槽温补无效，但气压槽保留。
 	BaroFixedBdt_TestReset();
 	t_ready_left = 1;
-	{
-		BaroFixedCal_t cal;
-		BaroFixed_TestSetV4Cal(&cal);
-		BaroFixedBdt_TestCal(&cal);
-	}
-	now = 0; BaroFixedBdt_Process();
-	now = 5000u * 24000u; BaroFixedBdt_Process(); BaroFixedBdt_Process();
-	for (unsigned int i = 1; i < BARO_FIXED_SLOTS; i++) {
-		now += 1000u * 24000u; BaroFixedBdt_Process();
-	}
+	run();
 	if (BaroFixedBdt_GetState() != BARO_FIXED_ST_DONE
 		|| BaroFixedBdt_GetPressureCount() != BARO_FIXED_SLOTS
 		|| BaroFixedBdt_GetFixedCount() != BARO_FIXED_SLOTS - 1) {
@@ -138,18 +145,14 @@ int main(void)
 
 	// 解锁取消。
 	BaroFixedBdt_TestReset();
-	{
-		BaroFixedCal_t cal;
-		BaroFixed_TestSetV4Cal(&cal);
-		BaroFixedBdt_TestCal(&cal);
-	}
-	now = 0; BaroFixedBdt_Process();
-	now = 5000u * 24000u; BaroFixedBdt_Process(); BaroFixedBdt_Process();
+	erase_count = 0;
+	write_count = 0;
+	begin();
 	armed = 1; now += 1000u * 24000u; BaroFixedBdt_Process(); armed = 0;
 	while (BaroFixedBdt_GetState() == BARO_FIXED_ST_SAMPLING) {
 		now += 1000u * 24000u; BaroFixedBdt_Process();
 	}
-	if (BaroFixedBdt_GetState() != BARO_FIXED_ST_CANCELED) {
+	if (BaroFixedBdt_GetState() != BARO_FIXED_ST_CANCELED || erase_count || write_count) {
 		printf("FAIL cancel state=%u\n", BaroFixedBdt_GetState());
 		return 1;
 	}

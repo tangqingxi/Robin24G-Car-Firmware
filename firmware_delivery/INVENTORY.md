@@ -12,8 +12,6 @@
 | `firmware_delivery/daily/Robin_24G_Car_maint_269a.bin` | 六轴校准维护镜像 | 17716 | `F8E59BD29D35C2D8138F9CE60D5202C32907DFB50C7B469EFF60DF123B5C5C38` | 0x4000 |
 | `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_flight_control_baseline.bin` | 当前实飞基线的烧录副本 | 24516 | `C4DE867D9C8C0B0937382EABF50DAFD307FD43BDA2994A98DE43473FEAAB07F2` | 0x4000 |
 | `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Bootloader_no_ota.bin` | 无 OTA bootloader的烧录副本 | 6844 | `4BA1B269A24779D664360B1F405374975241E86E7D90291CB904EBB41D014096` | 0x0 |
-| `firmware_delivery/candidates/Robin_24G_Car_ground_baro_fixed_bdt.bin` | 实板通过的定点温补诊断 | 29812 | `FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF` | 0x4000 |
-| `telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash/Robin_24G_Car_ground_baro_fixed_bdt.bin` | 实板通过的定点温补诊断的烧录副本 | 29812 | `FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF` | 0x4000 |
 
 ## 归档固件
 
@@ -61,3 +59,4 @@
 | `firmware_delivery/archive/Robin_24G_Car_flight_control_baro_candidate.bin` | 已移出当前交付的气压飞行候选 | 27780 | `A7CD8CB36A55546ACC90EA5FEDF084213FBE603EFD72F68FF116596DA9D2ADE4` | 0x4000 |
 | `firmware_delivery/archive/Robin_24G_Car_flight_control_baro_on_accept.bin` | 已移出当前交付的气压开启验收构建 | 27764 | `0EB8651582F87A62C83EB0B3D71A6689F64A4DD516016D52B689F317F4E870C9` | 0x4000 |
 | `firmware_delivery/archive/Robin_24G_Car_flight_control_baro_off_accept.bin` | 已移出当前交付的重复气压关闭构建 | 24516 | `C4DE867D9C8C0B0937382EABF50DAFD307FD43BDA2994A98DE43473FEAAB07F2` | 0x4000 |
+| irmware_delivery/archive/Robin_24G_Car_ground_baro_fixed_bdt.bin | 独立定点温补地面诊断归档 | 29812 | FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF | 0x4000 |

@@ -51,13 +51,6 @@
       ],
       "serial_protocol": "0x269A binary frames, ~100 Hz",
       "flash_address": "0x4000"
-    },
-    "ground_baro_fixed": {
-      "role": "实板通过的定点温补诊断",
-      "file": "candidates/Robin_24G_Car_ground_baro_fixed_bdt.bin",
-      "bytes": 29812,
-      "sha256": "FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF",
-      "flash_address": "0x4000"
     }
   },
   "archive": [
@@ -244,14 +237,20 @@
       "bytes": 24516,
       "sha256": "C4DE867D9C8C0B0937382EABF50DAFD307FD43BDA2994A98DE43473FEAAB07F2",
       "flash_address": "0x4000"
+    },
+    {
+      "role": "独立定点温补地面诊断归档",
+      "file": "archive/Robin_24G_Car_ground_baro_fixed_bdt.bin",
+      "bytes": 29812,
+      "sha256": "FACF8892CDEF9B2E2244807A80A83A8EE992C6DBF9E57878474536F163C920AF",
+      "flash_address": "0x4000"
     }
   ],
   "burn": {
     "dir": "telink_b85m_platform_src1015/project/tlsr_tc32/tc122x/Robin_24G_Car_Flash",
     "copies": [
       "flight_baseline",
-      "bootloader",
-      "ground_baro_fixed"
+      "bootloader"
     ]
   }
 }

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MISSING = []
+DELIVERY = ROOT / "firmware_delivery"
 
 
 def sha256_of(path: Path) -> str:
@@ -22,11 +22,13 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest().upper()
 
 
-def check(rel: str, size: int, sha: str, label: str) -> bool:
-    path = ROOT / rel
+def check(path: Path, entry: dict) -> bool:
+    rel = path.relative_to(ROOT).as_posix()
+    label = entry.get("role", path.name)
+    size = entry["bytes"]
+    sha = entry["sha256"]
     if not path.is_file():
         print(f"[缺失] {label}: {rel}")
-        MISSING.append(rel)
         return False
     actual_size = path.stat().st_size
     actual_sha = sha256_of(path)
@@ -40,64 +42,36 @@ def check(rel: str, size: int, sha: str, label: str) -> bool:
     return ok
 
 
-def check_entry(entry: dict, base: str = "") -> bool:
-    rel = entry["file"]
-    if base:
-        rel = f"{base}/{rel}"
-    return check(rel, int(entry["bytes"]), entry["sha256"], entry.get("role", rel))
-
-
 def main() -> int:
-    manifest = json.loads((Path(__file__).resolve().parent / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((DELIVERY / "manifest.json").read_text(encoding="utf-8"))
+    current = manifest["current"]
     ok = True
 
-    print("== 当前无桨日志应用 / bootloader / 诊断 / 遥控 ==")
-    t2 = manifest["task2"]
-    for key in ("app", "bootloader", "debug", "remote"):
-        ok &= check_entry(t2[key], "firmware_delivery")
+    print("== 当前交付镜像 ==")
+    for entry in current.values():
+        ok &= check(DELIVERY / entry["file"], entry)
 
-    print("== 维护件 ==")
-    for item in manifest["daily"]:
-        ok &= check_entry(item, "firmware_delivery")
-
-    print("== 已验收回退件 ==")
-    for key in ("normal", "arm_debug"):
-        ok &= check_entry(manifest["candidates"][key], "firmware_delivery")
-    ok &= check_entry(manifest["archive"][0], "firmware_delivery")  # b3cb56f
-
-    print("== 归档唯一镜像 ==")
-    for item in manifest["archive"]:
-        ok &= check_entry(item, "firmware_delivery")
-    ok &= check_entry(manifest["arm_debug"], "firmware_delivery")
+    print("== 归档镜像 ==")
+    for entry in manifest["archive"]:
+        ok &= check(DELIVERY / entry["file"], entry)
 
     print("== 原始基线 ==")
-    b = manifest["baseline"]
-    ok &= check(b["file"], int(b["bytes"]), b["sha256"], "原始基线")
+    original_dir = ROOT / "firmware_baseline"
+    original_manifest = json.loads((original_dir / "manifest.json").read_text(encoding="utf-8"))
+    for entry in original_manifest["files"]:
+        if entry["file"].endswith(".bin"):
+            ok &= check(original_dir / entry["target"] / entry["file"], entry)
 
     print("== 常用烧录目录具名副本 ==")
     burn = manifest["burn"]
-    for item in burn["files"]:
-        ok &= check(f"{burn['dir']}/{item['file']}",
-                    int(item["bytes"]), item["sha256"], item["role"])
-
-    # 当前飞行基线必须与常用烧录目录里的同名副本逐字节一致。
-    base = manifest["candidates"]["normal"]
-    print(f"== 当前飞行基线：{base['file']} "
-          f"P={base.get('yaw_p', '?')} Q8={base.get('yaw_kp_q8', '?')} "
-          f"地址 {base['flash_address']} 提交 {base.get('build_commit', '?')} ==")
-    burn_copy = next((f for f in burn["files"] if f["role"] == "current_baseline"), None)
-    if burn_copy is None:
-        print("[缺失] 常用烧录目录没有 current_baseline")
-        ok = False
+    copies = [(ROOT / burn["dir"] / Path(current[key]["file"]).name, current[key])
+              for key in burn["copies"]]
+    if any(path.exists() for path, _ in copies):
+        for path, entry in copies:
+            ok &= check(path, entry)
     else:
-        same = (burn_copy["file"] == Path(base["file"]).name
-                and burn_copy["bytes"] == base["bytes"]
-                and burn_copy["sha256"].upper() == base["sha256"].upper())
-        print(("[OK]   " if same else "[FAIL] ") + "当前基线与烧录副本一致")
-        ok &= same
+        print("[参考-缺失] 本地没有具名副本，可从当前交付目录取镜像。")
 
-    if MISSING:
-        print(f"\n缺失 {len(MISSING)} 个受管文件。")
     print("\n交付镜像全部通过" if ok else "\n交付镜像存在不一致，请先核对再烧录。")
     return 0 if ok else 1
 

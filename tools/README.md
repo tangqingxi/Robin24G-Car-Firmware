@@ -1,28 +1,43 @@
 # 工具入口
 
-> 本页只列当前常用命令。详细历史说明见 [`README_DETAIL.md`](README_DETAIL.md)。
-> 回归测试已移到 [`regression/`](regression/)，数据已按用途整理。
+本页只列当前常用工具；历史实验和旧命令见
+[`README_DETAIL.md`](README_DETAIL.md)。
 
-## 当前命令
+## 常用入口
 
-从仓库根目录核验交付镜像：
+| 类别 | 工具 | 用途 | 运行位置 |
+|---|---|---|---|
+| 构建与交付 | `check_bin_size.py` | 检查最终 BIN 是否超出应用区上限 | 仓库根目录 |
+| 构建与交付 | `package_flight_control.py` | 检查后原子复制最终 BIN 到交付路径 | 仓库根目录 |
+| 构建与交付 | `patch_flight_build.py` | 向 Telink `subdir.mk` 补齐飞控源文件和编译项目 | 仓库根目录 |
+| 构建与交付 | `patch_bootloader_no_ota.py` | 从 bootloader 工程移除 OTA 源文件 | 仓库根目录 |
+| 六轴与串口 | `imu_axis_map.py` | 采集并生成 IMU 轴向映射 | 仓库根目录 |
+| 六轴与串口 | `accel_six_face_cal.py` | 六面加速度校准 | 仓库根目录 |
+| 六轴与串口 | `gyro_bias_cal.py` | 陀螺零偏校准 | 仓库根目录 |
+| 六轴与串口 | `uart_sensor_monitor.py` | 串口观察传感器/地面诊断并输出 CSV | 仓库根目录 |
+| 气压诊断 | `baro_bdt_export.py` | 解析 BDT 回读的 `Read.bin`，导出气压/温度/补偿结果 | 仓库根目录 |
+| 回归 | `regression/run_key_regression.ps1` | 运行关键主机回归 | 仓库根目录 |
+
+## 构建与交付
 
 ```powershell
-python firmware_delivery\verify_hashes.py
+python tools\check_bin_size.py path\to\Robin_24G_Car_Flash.bin
+python tools\package_flight_control.py path\to\Robin_24G_Car_Flash.bin firmware_delivery\candidates\Robin_24G_Car_flight_control_baseline.bin
 ```
 
-地面 UART 采集需刷地面诊断固件。归档里的两份 UART 固件用于复现偏航 P=0.25 的旧实验；当前飞行基线的偏航 P 为 2.0。
-烧录后断开 BDT，再接 UART，在仓库根目录运行：
+正常飞行构建开关：
 
-```powershell
-python tools\uart_sensor_monitor.py --port COM12 --ground-diag --csv "data\logs\ground_yaw_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
+```text
+-DC_FLIGHT_CONTROL_EN=1
 ```
 
-历史 BDT 数据的导出方法见 [历史说明](README_DETAIL.md)。
+气压测量默认关闭；显式开启才使用：
 
-## 校准命令
+```text
+-DC_FLIGHT_BARO_EN=1
+```
 
-校准 JSON 仍保留在 `data/` 根目录，现有默认命令不变：
+## 六轴校准与串口
 
 ```powershell
 python tools\imu_axis_map.py --port COM12 --out data\imu_axis_map_frd.json
@@ -30,7 +45,34 @@ python tools\accel_six_face_cal.py --port COM12 --axis-map data\imu_axis_map_frd
 python tools\gyro_bias_cal.py --port COM12 --axis-map data\imu_axis_map_frd.json --out data\gyro_bias_frd.json
 ```
 
-维护固件：`firmware_delivery/daily/Robin_24G_Car_maint_269a.bin`，烧 `0x4000`。
+六轴维护固件：
+
+```text
+firmware_delivery\daily\Robin_24G_Car_maint_269a.bin
+烧录地址 0x4000
+```
+
+地面 UART：
+
+```powershell
+python tools\uart_sensor_monitor.py --port COM12 --ground-diag --csv "data\logs\ground_diag.csv"
+```
+
+## 气压 BDT 导出
+
+BDT 回读：
+
+```text
+TC122X rf 10000 -s 4k
+```
+
+导出：
+
+```powershell
+python tools\baro_bdt_export.py --bin "E:\Tools\TelinkBDT\config\user\Read.bin" --out "data\logs\baro_bdt.csv"
+```
+
+支持的记录版本和 CSV 列见脚本顶部说明；v4 输出 Pa/°C，v5 输出板端 `0.1 Pa` 补偿值。
 
 ## 回归
 
@@ -38,28 +80,20 @@ python tools\gyro_bias_cal.py --port COM12 --axis-map data\imu_axis_map_frd.json
 powershell -ExecutionPolicy Bypass -File tools\regression\run_key_regression.ps1
 ```
 
-覆盖 CRC、真实 FlightLoop 启动/解锁/急停/失联、地面 UART 诊断、偏航对称、boot 校验和打包尺寸。
+回归覆盖构建尺寸、Flash/boot 校验、FlightLoop 启动与保护、地面诊断、偏航对称、LPC2623 就绪/定点温补、气压测量分步与导出。
 
-历史 v1 导出夹具：
-
-```powershell
-python tools\flight_log_export.py --bin tools\regression\fixtures\flight_log_v1_history.bin --out .\history_v1.csv
-```
-
-## 数据
+## 数据与历史
 
 ```text
-data\            当前校准 JSON
-data\logs\       历史日志/导出文本
-data\archive\    归档原始数据（含 flight_log_dumps_20261122）
+data\             当前校准 JSON
+data\logs\        导出 CSV/文本
+data\archive\     归档原始数据
 ```
 
-`tools/regression/DATA_MIGRATION.md` 记录迁移路径、字节数和 SHA256。
+历史工具说明：
 
-## 旧件
-
-- 交付镜像：`firmware_delivery/INVENTORY.md`
-- 历史镜像：`firmware_delivery/archive/`
-- 原始基线：`firmware_baseline/`
-- 旧工具说明：`tools/README_DETAIL.md`
-- 旧交付说明：`firmware_delivery/README_DETAIL.md`
+```text
+tools\README_DETAIL.md
+tools\regression\DATA_MIGRATION.md
+firmware_delivery\README_DETAIL.md
+```
