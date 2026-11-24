@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""气压 BDT 记录导出回归：完整、截断、CRC 错误、CSV 行数。"""
+"""气压 BDT 端到端导出回归：固件写出的 Read.bin、32 位基准+16 位差值。"""
 import struct
 import subprocess
 import sys
@@ -12,19 +12,20 @@ sys.path.insert(0, str(TOOLS))
 import baro_bdt_export as ex
 
 
-def make_record(count=300, corrupt=False):
+def make_record(count=300, base=40000, corrupt=False):
     raw = bytearray(ex.RAW_BYTES)
     bits = bytearray(ex.BIT_BYTES)
     for i in range(ex.SLOTS):
-        struct.pack_into("<h", raw, i * 2, 600 - i) if i < count else struct.pack_into("<h", raw, i * 2, 0)
         if i < count:
+            struct.pack_into("<h", raw, i * 2, i)      # base + i，均超过 32767
             bits[i // 8] |= 1 << (i % 8)
-    h = bytearray(32)
+    h = bytearray(ex.HEADER_LEN)
     h[0:4] = b"BARO"
     h[4] = 1
     struct.pack_into("<H I H H H H H", h, 6, count, 5000, 0, 0, 123, 17, 2)
     struct.pack_into("<H H H", h, 24, ex.RAW_BYTES, 1, ex.SLOTS)
-    crc = ex.crc16(h[:22] + raw + bits)
+    struct.pack_into("<i", h, 30, base)
+    crc = ex.crc16(h[:22] + b"\x00\x00" + h[24:] + raw + bits)
     if corrupt:
         crc ^= 0xFFFF
     struct.pack_into("<H", h, 22, crc)
@@ -32,10 +33,13 @@ def make_record(count=300, corrupt=False):
 
 
 def main():
-    data = make_record()
+    firmware = Path("baro_read.bin")
+    data = firmware.read_bytes() if firmware.is_file() else make_record()
     samples, stats = ex.parse_record(data)
-    assert len(samples) == 300 and stats["count"] == 300
-    assert samples[0] == (0, 600) and samples[-1] == (29900, 301)
+    assert len(samples) == 300 and stats["count"] == 300, (len(samples), stats)
+    base = stats["base"]
+    assert base == 40000, base
+    assert samples[0] == (0, 40000) and samples[-1] == (29900, 40299), samples[:2]
 
     for bad in (data[:100], data[:650]):
         try:
@@ -60,7 +64,7 @@ def main():
                         "--bin", str(src), "--out", str(out)], check=True)
         lines = out.read_text(encoding="utf-8-sig").splitlines()
         assert len(lines) == 301, len(lines)
-    print("PASS baro BDT complete/truncated/CRC/CSV")
+    print("PASS baro BDT firmware Read.bin, 300 samples, 32-bit base + delta")
     print("RESULT OK")
 
 

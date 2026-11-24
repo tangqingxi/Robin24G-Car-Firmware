@@ -25,10 +25,11 @@ void BaroBdt_TestFlashRead(unsigned long addr, unsigned long len, u8 *data);
 #define BARO_BDT_SLOTS        BARO_BDT_MAX_SAMPLES
 #define BARO_BDT_RAW_BYTES    (BARO_BDT_SLOTS * 2)
 #define BARO_BDT_BIT_BYTES    ((BARO_BDT_SLOTS + 7) / 8)
+#define BARO_BDT_HEADER_BYTES 40
 
 static s16 s_raw[BARO_BDT_SLOTS];
 static u8 s_valid[BARO_BDT_BIT_BYTES];
-static u8 s_header[32];
+static u8 s_header[BARO_BDT_HEADER_BYTES];
 static u8 s_started;
 static u8 s_state;
 static u8 s_seen_armed;
@@ -40,6 +41,8 @@ static u16 s_max_read_us;
 static u16 s_max_gap_ms;
 static u16 s_missed_ticks;
 static u16 s_slot;
+static s32 s_base;
+static u8 s_have_base;
 static u32 s_boot_tick;
 static u32 s_next_tick;
 static u32 s_sample_start_tick;
@@ -76,7 +79,7 @@ static u16 record_crc(void)
 	u16 i;
 	const u8 *p = (const u8 *)s_raw;
 
-	for (i = 0; i < 22; i++) {
+	for (i = 0; i < BARO_BDT_HEADER_BYTES; i++) {
 		crc = crc16_update(crc, s_header[i]);
 	}
 	for (i = 0; i < BARO_BDT_RAW_BYTES; i++) {
@@ -88,7 +91,7 @@ static u16 record_crc(void)
 	return crc;
 }
 
-static void make_header(u16 crc)
+static void make_header(void)
 {
 	u16 i;
 
@@ -108,10 +111,11 @@ static void make_header(u16 crc)
 	put16(&s_header[16], s_max_read_us);
 	put16(&s_header[18], s_max_gap_ms);
 	put16(&s_header[20], s_missed_ticks);
-	put16(&s_header[22], crc);
-	put16(&s_header[24], BARO_BDT_RAW_BYTES); // raw 区字节数
+	put16(&s_header[22], 0);                  // 先填头，CRC 随后计算
+	put16(&s_header[24], BARO_BDT_RAW_BYTES); // delta 区字节数
 	put16(&s_header[26], 0x0001);             // bit0：完整记录
 	put16(&s_header[28], BARO_BDT_SLOTS);     // 槽位数
+	put32(&s_header[30], (u32)s_base);        // 32 位原始压力基准
 }
 
 static u8 pressure_init(void)
@@ -133,8 +137,9 @@ static void write_record(void)
 	u16 i;
 	u8 verified[32];
 
+	make_header();
 	crc = record_crc();
-	make_header(crc);
+	put16(&s_header[22], crc);
 
 	BARO_FLASH_ERASE(BARO_BDT_SECTOR);
 
@@ -145,10 +150,10 @@ static void write_record(void)
 		if (n > 256u) {
 			n = 256u;
 		}
-		BARO_FLASH_WRITE(BARO_BDT_SECTOR + 32u + i,
+		BARO_FLASH_WRITE(BARO_BDT_SECTOR + BARO_BDT_HEADER_BYTES + i,
 						 (unsigned long)n, (u8 *)s_raw + i);
 	}
-	BARO_FLASH_WRITE(BARO_BDT_SECTOR + 32u + BARO_BDT_RAW_BYTES,
+	BARO_FLASH_WRITE(BARO_BDT_SECTOR + BARO_BDT_HEADER_BYTES + BARO_BDT_RAW_BYTES,
 					 BARO_BDT_BIT_BYTES, s_valid);
 	BARO_FLASH_WRITE(BARO_BDT_SECTOR, sizeof(s_header), s_header);
 
@@ -245,21 +250,31 @@ void BaroBdt_Process(void)
 	s_slot = slot;
 
 	read0 = BARO_BDT_CLOCK();
-	if (LPC2623_ReadRaw(&raw) == 0
-		&& raw >= -32768 && raw <= 32767) {
-		read1 = BARO_BDT_CLOCK();
-		if ((u32)(read1 - read0) / FLIGHT_TICKS_PER_US > 60000u) {
-			s_max_read_us = 60000u;
-		} else {
-			u16 us = (u16)(((u32)(read1 - read0))
-						   / FLIGHT_TICKS_PER_US);
-			if (us > s_max_read_us) {
-				s_max_read_us = us;
-			}
+	if (LPC2623_ReadRaw(&raw) == 0) {
+		s32 delta;
+
+		if (!s_have_base) {
+			s_base = raw;
+			s_have_base = 1;
 		}
-		s_raw[slot] = (s16)raw;
-		s_valid[slot / 8u] |= (u8)(1u << (slot % 8u));
-		s_count++;
+		delta = raw - s_base;
+		if (delta < -32768 || delta > 32767) {
+			s_i2c_fail++;              // 本实验量程内不应发生，坏了也不写假值
+		} else {
+			read1 = BARO_BDT_CLOCK();
+			if ((u32)(read1 - read0) / FLIGHT_TICKS_PER_US > 60000u) {
+				s_max_read_us = 60000u;
+			} else {
+				u16 us = (u16)(((u32)(read1 - read0))
+							   / FLIGHT_TICKS_PER_US);
+				if (us > s_max_read_us) {
+					s_max_read_us = us;
+				}
+			}
+			s_raw[slot] = (s16)delta;
+			s_valid[slot / 8u] |= (u8)(1u << (slot % 8u));
+			s_count++;
+		}
 	} else {
 		s_i2c_fail++;
 	}
@@ -298,6 +313,8 @@ void BaroBdt_TestReset(void)
 	s_max_gap_ms = 0;
 	s_missed_ticks = 0;
 	s_slot = 0;
+	s_base = 0;
+	s_have_base = 0;
 	s_boot_tick = 0;
 	s_next_tick = 0;
 	s_sample_start_tick = 0;

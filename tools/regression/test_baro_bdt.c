@@ -29,7 +29,7 @@ u8 LPC2623_ReadRaw(s32 *raw)
 		read_fail_left--;
 		return 1;
 	}
-	if (raw) *raw = 600;
+	if (raw) *raw = 40000 + (s32)((now / 24000u - 5000u) / 100u);
 	return 0;
 }
 

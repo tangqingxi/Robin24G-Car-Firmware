@@ -8,7 +8,7 @@
   632..669   300 位有效位图
 头部字段（小端）：
   magic, version, init_flag, count, start_ms, i2c_fail, dropped,
-  max_read_us, max_gap_ms, missed_ticks, crc16, raw_bytes, flags, slots
+  max_read_us, max_gap_ms, missed_ticks, crc16, raw_bytes, flags, slots, base
 """
 import argparse
 import csv
@@ -17,7 +17,7 @@ import struct
 import sys
 from pathlib import Path
 
-HEADER_LEN = 32
+HEADER_LEN = 40
 RAW_BYTES = 600
 BIT_BYTES = 38
 SLOTS = 300
@@ -47,13 +47,14 @@ def parse_record(data):
         "<H I H H H H H", h, 6)
     crc = struct.unpack_from("<H", h, 22)[0]
     raw_bytes, flags, slots = struct.unpack_from("<H H H", h, 24)
+    base = struct.unpack_from("<i", h, 30)[0]
     if raw_bytes != RAW_BYTES or slots != SLOTS:
         raise ValueError(f"记录尺寸不符：raw={raw_bytes} slots={slots}")
     if not (flags & 1):
         raise ValueError("记录未标记为完整")
     raw = data[HEADER_LEN:HEADER_LEN + RAW_BYTES]
     bits = data[HEADER_LEN + RAW_BYTES:HEADER_LEN + RAW_BYTES + BIT_BYTES]
-    if crc != crc16(h[:22] + raw + bits):
+    if crc != crc16(h[:22] + b"\x00\x00" + h[24:] + raw + bits):
         raise ValueError("CRC16 校验失败")
     valid = sum((bits[i // 8] >> (i % 8)) & 1 for i in range(SLOTS))
     if valid != count:
@@ -61,8 +62,8 @@ def parse_record(data):
     samples = []
     for slot in range(SLOTS):
         if (bits[slot // 8] >> (slot % 8)) & 1:
-            raw_val = struct.unpack_from("<h", raw, slot * 2)[0]
-            samples.append((slot * 100, raw_val))
+            delta = struct.unpack_from("<h", raw, slot * 2)[0]
+            samples.append((slot * 100, base + delta))
     stats = {
         "version": version,
         "count": count,
@@ -73,6 +74,7 @@ def parse_record(data):
         "max_gap_ms": max_gap,
         "missed_ticks": missed,
         "init_failed": bool(h[5] & 1),
+        "base": base,
     }
     return samples, stats
 
