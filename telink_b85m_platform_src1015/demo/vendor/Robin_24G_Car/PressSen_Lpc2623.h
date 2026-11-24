@@ -45,6 +45,7 @@
 
 /* 校准系数寄存器起始地址 */
 #define REG_CALIB_START  0x20
+#define LPC2623_CALIB_BYTES 26
 #define REG_CALIB_END    0x39
 
 
@@ -177,6 +178,9 @@ u8 LPC2623_ReadRaw(s32 *raw);
 
 // 读取 TMP_B2..B0 原始温度（24 位补码），返回 0=成功。
 u8 LPC2623_ReadTempRaw(s32 *raw);
+
+// 读取当前压力配置及出厂校准寄存器 0x20..0x39，返回 0 表示两次读取均成功。
+u8 LPC2623_ReadCalibration(u8 block[LPC2623_CALIB_BYTES], u8 *pressure_config);
 //**********************************************************************************
 #endif /* VENDOR_ROBIN_24G_CAR_PRESSSEN_LPC2623_H_ */
 //**********************************************************************************

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """气压 BDT 端到端导出回归：固件写出的 Read.bin、32 位基准+16 位差值。"""
+import csv
 import struct
 import subprocess
 import sys
@@ -56,22 +57,61 @@ def main():
     else:
         raise AssertionError("CRC 错误未报错")
 
+    fixed = Path("baro_fixed_read.bin")
+    if fixed.is_file():
+        frames, stats = ex.parse_record(fixed.read_bytes())
+        assert len(frames) == 90 and stats["sample_ms"] == 1000, stats
+        assert stats["p_count"] == 90 and stats["f_count"] == 90, stats
+        assert frames[0][1:] == (1390050, 92995, 1016812), frames[0]
+        assert frames[-1][0] == 89000, frames[-1]
+        print("PASS fixed: 90 samples, raw pressure/temperature/fixed 0.1Pa")
+
     temp = Path("baro_temp_read.bin")
     if temp.is_file():
         frames, stats = ex.parse_record(temp.read_bytes())
         assert len(frames) == 150 and stats["sample_ms"] == 1000, stats
         assert stats["p_count"] == 150 and stats["t_count"] == 150, stats
-        assert frames[0][1:] == (40000, 50000), frames[0]
+        assert frames[0][1:] == (40000, 93000), frames[0]
         assert frames[-1][0] == 149000, frames[-1]
-        assert frames[-1][1:] == (40149, 50149), frames[-1]
-        print("PASS temp: 150 samples, 1000ms, pressure+temperature")
+        assert frames[-1][1:] == (40149, 93149), frames[-1]
+        assert stats["version"] == 4
+        calibration = stats["calibration"]
+        assert calibration[1] == (100000, -12037, 2201, -311, 212, -187, -420, 512, -33)
+        p, t = ex.compensated_readings(*frames[0][1:], calibration)
+        # 按规格书以独立十进制计算得到的参考值。
+        assert abs(p - 100937.84207073484) < 1e-8, p
+        assert abs(t - 30.04695214665) < 1e-8, t
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "calibrated.csv"
+            subprocess.run([sys.executable, str(TOOLS / "baro_bdt_export.py"),
+                            "--bin", str(temp), "--out", str(out)], check=True)
+            with out.open(encoding="utf-8-sig", newline="") as fp:
+                first = next(csv.DictReader(fp))
+            assert first["pressure_pa"] == "100937.842" and first["temperature_c"] == "30.047", first
+        corrupt = bytearray(temp.read_bytes())
+        corrupt[48] ^= 1
+        try:
+            ex.parse_record(corrupt)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("校准字节损坏未被 CRC 检出")
+        print("PASS temp: 150 samples and factory-calibrated values")
 
     missing = Path("baro_temp_missing.bin")
     if missing.is_file():
         frames, stats = ex.parse_record(missing.read_bytes())
         assert len(frames) == 150 and stats["t_count"] == 149, stats
         assert sum(1 for row in frames if row[2] is None) == 1
+        assert ex.compensated_readings(*frames[0][1:], stats["calibration"]) == (None, None)
         print("PASS temp missing: one temperature slot blank")
+
+    no_calibration = Path("baro_temp_cal_missing.bin")
+    if no_calibration.is_file():
+        frames, stats = ex.parse_record(no_calibration.read_bytes())
+        assert len(frames) == 150 and stats["calibration"] is None, stats
+        assert ex.compensated_readings(*frames[0][1:], stats["calibration"]) == (None, None)
+        print("PASS missing factory calibration: raw samples still readable")
 
     drift = Path("baro_read_drift.bin")
     if drift.is_file():

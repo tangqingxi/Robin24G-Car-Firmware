@@ -11,6 +11,8 @@ $Boot = Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\Robin_24G_Boot
 $Tmp = Join-Path $env:TEMP ('robin_regression_' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $Tmp | Out-Null
 Push-Location $Tmp
+Copy-Item (Join-Path $Root 'data\logs\baro_bdt_20261124_151101.csv') `
+    (Join-Path $Tmp 'v4_baro.csv') -Force
 
 $Gcc = (Get-Command gcc -ErrorAction SilentlyContinue).Source
 if (-not $Gcc) {
@@ -71,11 +73,20 @@ try {
     ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
         '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
-    Invoke-Case 'baro_temp' @(
-        (Join-Path $Here 'test_baro_temp_bdt.c'),
-        (Join-Path $Car 'BaroTempBdt.c')
+    Invoke-Case 'baro_fixed' @(
+        (Join-Path $Here 'test_baro_fixed.c'),
+        (Join-Path $Car 'BaroFixed.c')
     ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
-        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct',
+        '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections')
+
+    Invoke-Case 'baro_fixed_diag' @(
+        (Join-Path $Here 'test_baro_fixed_bdt.c'),
+        (Join-Path $Car 'BaroFixedBdt.c'),
+        (Join-Path $Car 'BaroFixed.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
+        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct',
+        '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections')
 
     Invoke-Case 'baro_drift' @(
         (Join-Path $Here 'test_baro_bdt.c'),

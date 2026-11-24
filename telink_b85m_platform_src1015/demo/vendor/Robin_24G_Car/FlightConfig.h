@@ -11,6 +11,9 @@
 #ifndef C_BARO_BDT_DIAG
 #define C_BARO_BDT_DIAG 0
 #endif
+#ifndef C_BARO_FIXED_BDT_DIAG
+#define C_BARO_FIXED_BDT_DIAG 0
+#endif
 #ifndef C_BARO_TEMP_BDT_DIAG
 #define C_BARO_TEMP_BDT_DIAG 0
 #endif

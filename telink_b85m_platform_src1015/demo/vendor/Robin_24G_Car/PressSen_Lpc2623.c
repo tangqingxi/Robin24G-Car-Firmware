@@ -382,6 +382,14 @@ u8 LPC2623_CheckId(void)
 	return 0;
 }
 
+u8 LPC2623_ReadCalibration(u8 block[LPC2623_CALIB_BYTES], u8 *pressure_config)
+{
+	if (i2c_read_reg(REG_PSR_CFG, pressure_config)) {
+		return 1;
+	}
+	return i2c_read_regs(REG_CALIB_START, block, LPC2623_CALIB_BYTES);
+}
+
 // 诊断用温度原始值：TMP_B2..B0，24 位二进制补码，不做取反。
 u8 LPC2623_ReadTempRaw(s32 *raw)
 {

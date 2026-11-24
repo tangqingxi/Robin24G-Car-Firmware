@@ -26,6 +26,9 @@
 #if C_BARO_TEMP_BDT_DIAG
 #include "BaroTempBdt.h"
 #endif
+#if C_BARO_FIXED_BDT_DIAG
+#include "BaroFixedBdt.h"
+#endif
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -1668,6 +1671,10 @@ void User_main_loop_process(void)
 #if C_BARO_TEMP_BDT_DIAG
 	// 气压+温度双通道诊断同样在控制拍之外执行。
 	BaroTempBdt_Process();
+#endif
+#if C_BARO_FIXED_BDT_DIAG
+	// 定点温补诊断在控制拍之外执行。
+	BaroFixedBdt_Process();
 #endif
 	d24_rx_main_loop();
 	TimeBaseGenerate();
