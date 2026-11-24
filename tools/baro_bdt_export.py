@@ -77,6 +77,11 @@ def reference_v4(p_raw, t_raw, cal):
     return pa, tc
 
 
+def compensated_readings(pressure_raw, temperature_raw, calibration):
+    """兼容旧用例：返回 (Pa, °C)，缺通道保留空。"""
+    return reference_v4(pressure_raw, temperature_raw, calibration)
+
+
 def parse_record(data):
     if len(data) < 5 or data[:4] != MAGIC:
         raise ValueError("magic 不是 BARO")
