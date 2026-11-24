@@ -33,7 +33,8 @@ def _signed(value, width):
 
 def _decode_cal(block, cfg):
     p = block[6:]
-    if cfg & 0x07 >= len(SCALES) or p in (bytes(20), b"\xff" * 20):
+    osr = cfg & 0x0F
+    if osr >= len(SCALES) or p in (bytes(20), b"\xff" * 20):
         return None
     gain = _signed(block[0], 8)
     dvbe_trim = _signed(block[1] >> 1, 7)
@@ -57,7 +58,7 @@ def _decode_cal(block, cfg):
         _signed(((p[16] & 0x7F) << 10) | (p[17] << 2) | (p[18] >> 6), 17),
         _signed(((p[18] & 0x3F) << 8) | p[19], 14),
     )
-    return SCALES[cfg & 0x07], c, a, b
+    return SCALES[osr], c, a, b
 
 
 def reference_v4(p_raw, t_raw, cal):
@@ -68,7 +69,7 @@ def reference_v4(p_raw, t_raw, cal):
     tc = a * tx / (1 + 9.45 * tx) + b
     if p_raw is None:
         return None, tc
-    p = p_raw / scale
+    p = (~p_raw) / scale
     s = 8.5 * tx / (1 + 8.8 * tx)
     c00, c10, c01, c02, c20, c30, c11, c12, c21 = c
     pa = (c00 + c10 * p + c01 * s + c02 * s * s + c20 * p * p
@@ -92,12 +93,16 @@ def parse_record(data):
 
 
 def _parse_single(data, v):
+    if len(data) < 678:
+        raise ValueError("单通道记录截断")
     h = data[:40]
     sample_ms = struct.unpack_from("<H", h, 34)[0] if v >= 2 else 100
     count, start, i2c, drop, mread, mgap, miss = struct.unpack_from("<H I H H H H H", h, 6)
     crc = struct.unpack_from("<H", h, 22)[0]
     raw_bytes, flags, slots = struct.unpack_from("<H H H", h, 24)
     base = struct.unpack_from("<i", h, 30)[0]
+    if slots != 300 or raw_bytes != 600 or sample_ms not in (100, 500) or not (flags & 1):
+        raise ValueError("单通道记录的长度、间隔或完成标记无效")
     raw = data[40:640]
     bits = data[640:678]
     if crc != crc16(h[:22] + b"\0\0" + h[24:] + raw + bits):
@@ -106,16 +111,22 @@ def _parse_single(data, v):
     for s in range(300):
         if (bits[s // 8] >> (s % 8)) & 1:
             rows.append((s * sample_ms, base + struct.unpack_from("<h", raw, s * 2)[0], None))
-    return rows, {"version": v, "sample_ms": sample_ms, "i2c_fail": i2c,
+    if len(rows) != count:
+        raise ValueError("单通道有效样本计数不符")
+    return rows, {"version": v, "sample_ms": sample_ms, "start_ms": start, "base": base,
+                  "init_failed": bool(h[5] & 1), "i2c_fail": i2c,
                   "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
                   "missed_ticks": miss, "count": count}
 
 
 def _parse_v3(data):
+    if len(data) < 686:
+        raise ValueError("双通道 v3 记录截断")
     h = data[:48]
     p_base = struct.unpack_from("<i", h, 28)[0]
     t_base = struct.unpack_from("<i", h, 32)[0]
-    pcount = struct.unpack_from("<H", h, 6)[0]
+    pcount, start, i2c, drop, mread, mgap, miss = struct.unpack_from("<H I H H H H H", h, 6)
+    tcount = struct.unpack_from("<H", h, 40)[0]
     crc = struct.unpack_from("<H", h, 22)[0]
     p = data[48:348]
     t = data[348:648]
@@ -132,12 +143,14 @@ def _parse_v3(data):
             rows.append((s * 1000,
                          p_base + struct.unpack_from("<h", p, s * 2)[0] if po else None,
                          t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None))
-    return rows, {"version": 3, "sample_ms": 1000, "i2c_fail": 0,
-                  "dropped": 0, "max_read_us": 0, "max_gap_ms": 0,
-                  "missed_ticks": 0, "count": len(rows)}
+    return rows, {"version": 3, "sample_ms": 1000, "start_ms": start, "i2c_fail": i2c,
+                  "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
+                  "missed_ticks": miss, "count": len(rows), "p_count": pcount, "t_count": tcount}
 
 
 def _parse_v4(data):
+    if len(data) < 712:
+        raise ValueError("双通道 v4 记录截断")
     h = data[:74]
     pcount, start, i2c, drop, mread, mgap, miss = struct.unpack_from("<H I H H H H H", h, 6)
     p_base = struct.unpack_from("<i", h, 28)[0]
@@ -152,7 +165,7 @@ def _parse_v4(data):
     mixed = bytes(sum(([pb[i], tb[i]] for i in range(19)), []))
     if crc != crc16(h[:22] + b"\0\0" + h[24:] + p + t + mixed):
         raise ValueError("CRC16 校验失败")
-    cal = _decode_cal(h[48:74], cfg)
+    cal = _decode_cal(h[48:74], cfg) if h[5] & 2 else None
     rows = []
     for s in range(150):
         po = (pb[s // 8] >> (s % 8)) & 1
@@ -161,13 +174,15 @@ def _parse_v4(data):
             pr = p_base + struct.unpack_from("<h", p, s * 2)[0] if po else None
             tr = t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None
             rows.append((s * 1000, pr, tr))
-    return rows, {"version": 4, "sample_ms": 1000, "i2c_fail": i2c,
+    return rows, {"version": 4, "sample_ms": 1000, "start_ms": start, "i2c_fail": i2c,
                   "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
                   "missed_ticks": miss, "count": pcount,
                   "p_count": pcount, "t_count": tcount, "calibration": cal}
 
 
 def _parse_v5(data):
+    if len(data) < 632:
+        raise ValueError("定点 v5 记录截断")
     h = data[:56]
     pcount = struct.unpack_from("<H", h, 6)[0]
     start, i2c, drop, mread, mgap, miss = struct.unpack_from("<I H H H H H", h, 8)
@@ -179,6 +194,8 @@ def _parse_v5(data):
     f_base = struct.unpack_from("<i", h, 42)[0]
     fbytes = struct.unpack_from("<H", h, 46)[0]
     maxcomp = struct.unpack_from("<H", h, 48)[0]
+    if slots != SLOTS_FIXED or sample != 1000 or (pbytes, tbytes, fbytes) != (180, 180, 180):
+        raise ValueError("定点 v5 记录的长度或采样间隔无效")
     p = data[56:236]
     t = data[236:416]
     f = data[416:596]
@@ -198,10 +215,13 @@ def _parse_v5(data):
             tr = t_base + struct.unpack_from("<h", t, s * 2)[0] if to else None
             fr = f_base + struct.unpack_from("<h", f, s * 2)[0] if fo else None
             rows.append((s * 1000, pr, tr, fr))
-    return rows, {"version": 5, "sample_ms": 1000, "i2c_fail": i2c,
+    if sum(row[1] is not None for row in rows) != pcount or sum(row[3] is not None for row in rows) != fcount:
+        raise ValueError("定点 v5 有效样本计数不符")
+    return rows, {"version": 5, "sample_ms": sample, "start_ms": start, "i2c_fail": i2c,
                   "dropped": drop, "max_read_us": mread, "max_gap_ms": mgap,
                   "missed_ticks": miss, "max_comp_us": maxcomp,
-                  "p_count": pcount, "f_count": fcount, "count": fcount}
+                  "p_count": pcount, "t_count": sum(row[2] is not None for row in rows),
+                  "f_count": fcount, "count": fcount}
 
 
 def main():

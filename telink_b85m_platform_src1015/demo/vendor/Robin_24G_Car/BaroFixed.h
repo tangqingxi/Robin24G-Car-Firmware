@@ -32,9 +32,4 @@ u8 BaroFixed_LoadCalibration(BaroFixedCal_t *cal);
 u8 BaroFixed_LoadCalibrationBlock(const u8 *block, u8 pressure_config,
 								  BaroFixedCal_t *cal);
 
-#ifdef BARO_BDT_HOST_TEST
-// 主机测试：直接装载 v4 台架拟合系数，不访问 I2C。
-void BaroFixed_TestSetV4Cal(BaroFixedCal_t *cal);
-#endif
-
 #endif /* BARO_FIXED_H */

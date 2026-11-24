@@ -6,19 +6,74 @@
  *   s = 8.5*t / (1 + 8.8*t)
  *   P = C00 + C10*x + C01*s + C20*x^2 + C02*s^2 + C30*x^3
  *       + C11*x*s + C12*x*s^2 + C21*x^2*s
- * 输出单位为 0.1 Pa，内部 Q16 + long long，避免小压力/负值截断。
+ * 中间保留 Q24 小数，最后再舍入为 0.1 Pa。
  */
 #include "BaroFixed.h"
 #include "PressSen_Lpc2623.h"
 
-#define Q16 65536
+#define Q24 16777216LL
+#define RAW_MIN (-8388608)
+#define RAW_MAX 8388607
 
-static long long mul_q16(long long a, long long b)
+static long long round_q24(long long value)
 {
-	if (a >= 0) {
-		return (a * b + (Q16 / 2)) / Q16;
+	return value >= 0 ? (value + Q24 / 2) / Q24
+					  : -((-value + Q24 / 2) / Q24);
+}
+
+// 每项只做 16 位乘法，保留完整的 32×32 位乘积。
+static unsigned long long mul_u32(u32 a, u32 b)
+{
+	u32 a_low = a & 0xFFFFu, a_high = a >> 16;
+	u32 b_low = b & 0xFFFFu, b_high = b >> 16;
+
+	return (unsigned long long)(a_low * b_low)
+		+ ((unsigned long long)(a_high * b_low) << 16)
+		+ ((unsigned long long)(a_low * b_high) << 16)
+		+ ((unsigned long long)(a_high * b_high) << 32);
+}
+
+// TC32 SDK 的 __muldi3 只有 32 位参数，不能用于本模块的宽乘法。
+static long long mul_wide(long long value, s32 factor)
+{
+	unsigned long long magnitude = (unsigned long long)(value < 0 ? -value : value);
+	u32 multiplier = (u32)(factor < 0 ? -factor : factor);
+	unsigned long long result = mul_u32((u32)magnitude, multiplier)
+		+ (mul_u32((u32)(magnitude >> 32), multiplier) << 32);
+
+	return (value < 0) != (factor < 0) ? -(long long)result : (long long)result;
+}
+
+// 先分离整数和小数部分，避免两个放大后的量直接相乘溢出。
+static long long mul_q24(long long value, s32 factor)
+{
+	return mul_wide(value / Q24, factor) + round_q24(mul_wide(value % Q24, factor));
+}
+
+// 用余数逐位求小数，TC32 不必链接 64 位除法库。
+static u8 ratio_q24(s32 numerator, s32 denominator, s32 *out)
+{
+	u32 divisor, magnitude, whole, remainder, fraction = 0;
+	u8 bit;
+
+	if (denominator == 0) return 1;
+	divisor = (u32)(denominator < 0 ? -denominator : denominator);
+	magnitude = (u32)(numerator < 0 ? -numerator : numerator);
+	whole = magnitude / divisor;
+	if (whole >= 128u) return 1;
+	remainder = magnitude - whole * divisor;
+	for (bit = 0; bit < 24; bit++) {
+		remainder <<= 1;
+		fraction <<= 1;
+		if (remainder >= divisor) {
+			remainder -= divisor;
+			fraction |= 1u;
+		}
 	}
-	return -(((-a) * b + (Q16 / 2)) / Q16);
+	magnitude = (whole << 24) + fraction + ((remainder << 1) >= divisor);
+	if (magnitude > 0x7FFFFFFFu) return 1;
+	*out = (numerator < 0) != (denominator < 0) ? -(s32)magnitude : (s32)magnitude;
+	return 0;
 }
 
 static void parse_coeff(const u8 *r, BaroFixedCal_t *c)
@@ -52,7 +107,6 @@ static void parse_coeff(const u8 *r, BaroFixedCal_t *c)
 	v = (((s32)r[18] & 0x3F) << 8) | r[19];
 	if (v & 0x2000) v -= 0x4000;
 	c->C21 = v;
-	c->valid = 1;
 }
 
 u8 BaroFixed_LoadCalibration(BaroFixedCal_t *cal)
@@ -77,91 +131,54 @@ u8 BaroFixed_LoadCalibrationBlock(const u8 *block, u8 pressure_config,
 		524288, 1572864, 3670016, 7864320,
 		253952, 516096, 1040384, 2088960
 	};
-	u8 idx;
+	u8 idx = pressure_config & 0x07;
+	u8 i, any_set = 0, any_clear = 0;
 
-	if (!cal || !block) {
-		return 1;
-	}
+	if (!cal) return 1;
 	cal->valid = 0;
-	parse_coeff(&block[6], cal);  // 0x20..0x25 不是压力系数
-	idx = pressure_config & 0x07;
+	if (!block || idx >= sizeof(scales) / sizeof(scales[0])) return 1;
+	for (i = 6; i < LPC2623_CALIB_BYTES; i++) {
+		any_set |= block[i];
+		any_clear |= (u8)~block[i];
+	}
+	if (!any_set || !any_clear) return 1;
+	parse_coeff(&block[6], cal);  // 前六字节不参与压力系数解析。
 	cal->KP = scales[idx];
-	return cal->valid ? 0 : 1;
+	cal->valid = 1;
+	return 0;
 }
 
 u8 BaroFixed_Compensate01Pa(s32 p_raw, s32 t_raw,
 							const BaroFixedCal_t *cal, s32 *out)
 {
-	long long x, t, s, num, den, v;
-	long long p;
+	s32 x, s;
+	long long p0, p1, p2, result;
 
 	if (!cal || !cal->valid || cal->KP <= 0) {
 		return BARO_FIXED_BAD_CAL;
 	}
-	if (t_raw == 0) {
+	if (t_raw == 0 || t_raw < RAW_MIN || t_raw > RAW_MAX) {
 		return BARO_FIXED_NO_TEMP;
 	}
-	{
-		s32 ts = t_raw >> 4;             // Q16；TRAW/2^20
-		s32 num32 = (17 * ts) / 2;       // 8.5*t
-		s32 den32 = Q16 + (44 * ts) / 5; // 1+8.8*t
-		u32 un, ud, us;
-
-		if (den32 == 0) {
-			return BARO_FIXED_NO_TEMP;
-		}
-		un = (u32)(num32 < 0 ? -num32 : num32);
-		ud = (u32)(den32 < 0 ? -den32 : den32);
-		us = (un << 16) / ud;
-		{
-			u32 raw_comp = 0xFFFFFFFFu - (u32)p_raw;
-			u32 x32 = raw_comp / (u32)(cal->KP / Q16);
-			x = (long long)x32;
-		}
-		s = (num32 < 0) != (den32 < 0) ? -(long long)us : (long long)us;
-		(void)t; (void)num; (void)den;
+	// 驱动为兼容旧记录保存了取反后的值，在有符号域还原。
+	if (p_raw < RAW_MIN || p_raw > RAW_MAX || ratio_q24(~p_raw, cal->KP, &x)) {
+		return BARO_FIXED_BAD_CAL;
 	}
-
-	p = (long long)cal->C00 * 10;
-	v = (long long)cal->C10 * 10;
-	p += mul_q16(v, x);
-	v = (long long)cal->C01 * 10;
-	p += mul_q16(v, s);
-	v = (long long)cal->C20 * 10;
-	p += mul_q16(mul_q16(v, x), x);
-	v = (long long)cal->C02 * 10;
-	p += mul_q16(mul_q16(v, s), s);
-	v = (long long)cal->C30 * 10;
-	p += mul_q16(mul_q16(mul_q16(v, x), x), x);
-	v = (long long)cal->C11 * 10;
-	p += mul_q16(mul_q16(v, x), s);
-	v = (long long)cal->C12 * 10;
-	p += mul_q16(mul_q16(mul_q16(v, x), s), s);
-	v = (long long)cal->C21 * 10;
-	p += mul_q16(mul_q16(mul_q16(v, x), x), s);
-
-	if (p > 2147483000LL || p < -2147483000LL) {
+	// 直接整理有理式，保留温度计数的全部位。
+	if (ratio_q24(85 * t_raw, 10 * 1048576 + 88 * t_raw, &s)) {
+		return BARO_FIXED_NO_TEMP;
+	}
+	// 按压力幂次合并同类项。系数来自规格书限定的位宽，x 和 s 均为有符号 Q24。
+	p0 = cal->C00 * Q24 + mul_q24(cal->C01 * Q24 + mul_q24(cal->C02 * Q24, s), s);
+	p1 = cal->C10 * Q24 + mul_q24(cal->C11 * Q24 + mul_q24(cal->C12 * Q24, s), s);
+	p2 = cal->C20 * Q24 + mul_q24(cal->C21 * Q24, s);
+	result = p0 + mul_q24(p1 + mul_q24(p2 + mul_q24(cal->C30 * Q24, x), x), x);
+	result = (result / Q24) * 10 + round_q24((result % Q24) * 10);
+	if (result < (-2147483647LL - 1) || result > 2147483647LL) {
 		return BARO_FIXED_BAD_CAL;
 	}
 	if (out) {
-		*out = (s32)p;
+		*out = (s32)result;
 	}
 	return BARO_FIXED_OK;
 }
-
-#ifdef BARO_BDT_HOST_TEST
-void BaroFixed_TestSetV4Cal(BaroFixedCal_t *cal)
-{
-	cal->C00 = -1348803;
-	cal->C10 = 2400222;
-	cal->C01 = 2589228;
-	cal->C20 = -1313406;
-	cal->C02 = -1251557;
-	cal->C30 = 238348;
-	cal->C11 = -3020093;
-	cal->C12 = 889654;
-	cal->C21 = 851085;
-	cal->KP = 1048576;
-	cal->valid = 1;
-}
-#endif

@@ -17,7 +17,7 @@ int main(void)
 	FILE *fp = fopen("v4_actual.bin", "rb");
 	static u8 d[4096];
 	BaroFixedCal_t cal;
-	int n, i;
+	int n, i, count = 0;
 
 	if (!fp) {
 		printf("FAIL open v4_actual.bin\n");
@@ -47,12 +47,20 @@ int main(void)
 			s32 f;
 			pr += (s32)(d[28] | (d[29] << 8) | (d[30] << 16) | (d[31] << 24));
 			tr += (s32)(d[32] | (d[33] << 8) | (d[34] << 16) | (d[35] << 24));
-			if (BaroFixed_Compensate01Pa(pr, tr, &cal, &f) == BARO_FIXED_OK) {
-				fprintf(fp, "%d,%d,%d,%d\n", i * 1000, pr, tr, f);
+			if (BaroFixed_Compensate01Pa(pr, tr, &cal, &f) != BARO_FIXED_OK) {
+				printf("FAIL invalid fixed result at slot %d\n", i);
+				fclose(fp);
+				return 1;
 			}
+			fprintf(fp, "%d,%d,%d,%d\n", i * 1000, pr, tr, f);
+			count++;
 		}
 	}
 	fclose(fp);
-	printf("PASS generated C fixed reference rows\n");
+	if (count != 147) {
+		printf("FAIL expected 147 paired rows, got %d\n", count);
+		return 1;
+	}
+	printf("PASS generated %d fixed reference rows\n", count);
 	return 0;
 }

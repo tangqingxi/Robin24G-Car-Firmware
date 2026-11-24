@@ -166,10 +166,16 @@ void Get_LPC2623_Value(void);
 // 诊断用：只检查产品 ID，不加载校准系数；返回 0 = 通过。
 u8 LPC2623_CheckId(void);
 
-// 读取 INT_STS，判断是否已有新的压力样本；1=就绪。
+#define LPC2623_PRESSURE_READY 0x10
+#define LPC2623_TEMP_READY 0x20
+
+// 读取一次 MEAS_CFG。返回 0 表示总线读取成功。
+u8 LPC2623_ReadReady(u8 *bits);
+
+// 判断 MEAS_CFG 的压力数据就绪位，1 表示就绪。
 u8 LPC2623_IsPressureReady(void);
 
-// 读取 INT/MEAS 状态，判断温度样本是否就绪；1=就绪。
+// 判断 MEAS_CFG 的温度数据就绪位，1 表示就绪。
 u8 LPC2623_IsTempReady(void);
 
 // 读取一次三字节原始压力并换算为 s32PresValue；

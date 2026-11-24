@@ -10,7 +10,7 @@ import sys
 
 MODULES = [
     "FlightLoop", "FlightSafety", "MotorMixer", "BaroBdt", "BaroTempBdt", "BaroFixedBdt", "BaroFixed", "PressSen_Lpc2623_Ready",
-    "RcInput", "AttitudeControl", "RateControl",
+    "RcInput", "AttitudeControl", "RateControl", "BaroMeasure",
 ]
 
 

@@ -11,8 +11,8 @@ $Boot = Join-Path $Root 'telink_b85m_platform_src1015\demo\vendor\Robin_24G_Boot
 $Tmp = Join-Path $env:TEMP ('robin_regression_' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $Tmp | Out-Null
 Push-Location $Tmp
-Copy-Item (Join-Path $Root 'data\logs\baro_bdt_20261124_151101.csv') `
-    (Join-Path $Tmp 'v4_baro.csv') -Force
+Copy-Item (Join-Path $Here 'fixtures\baro_real_v4_20261124.bin') `
+    (Join-Path $Tmp 'v4_actual.bin')
 
 $Gcc = (Get-Command gcc -ErrorAction SilentlyContinue).Source
 if (-not $Gcc) {
@@ -80,6 +80,12 @@ try {
         '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct',
         '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections')
 
+    Invoke-Case 'baro_temp' @(
+        (Join-Path $Here 'test_baro_temp_bdt.c'),
+        (Join-Path $Car 'BaroTempBdt.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
+        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
     Invoke-Case 'baro_fixed_diag' @(
         (Join-Path $Here 'test_baro_fixed_bdt.c'),
         (Join-Path $Car 'BaroFixedBdt.c'),
@@ -88,6 +94,17 @@ try {
         '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct',
         '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections')
 
+    Invoke-Case 'baro_fixed_actual' @(
+        (Join-Path $Here 'test_baro_fixed_v4.c'),
+        (Join-Path $Car 'BaroFixed.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
+    Invoke-Case 'baro_measure' @(
+        (Join-Path $Here 'test_baro_measure.c'),
+        (Join-Path $Car 'BaroMeasure.c'),
+        (Join-Path $Car 'BaroFixed.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
     Invoke-Case 'baro_drift' @(
         (Join-Path $Here 'test_baro_bdt.c'),
         (Join-Path $Car 'BaroBdt.c')
@@ -95,7 +112,7 @@ try {
         '-DBARO_BDT_SAMPLE_MS=500', '-DCLOCK_SYS_CLOCK_HZ=24000000',
         '-fpack-struct')
 
-    Invoke-Case 'flight_startup_ground' @(
+    $startupSources = @(
         (Join-Path $Here 'test_flight_startup.c'),
         (Join-Path $Car 'FlightLoop.c'),
         (Join-Path $Car 'RcInput.c'),
@@ -105,14 +122,21 @@ try {
         (Join-Path $Car 'RateControl.c'),
         (Join-Path $Car 'UserEuler.c'),
         (Join-Path $Car 'GroundDiag.c')
-    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
+    )
+    $startupFlags = @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000',
         '-DC_GROUND_UART_DIAG=1', '-DFLIGHT_STARTUP_TEST=1', '-fpack-struct')
+    Invoke-Case 'flight_startup_ground' $startupSources $startupFlags
+    Invoke-Case 'flight_startup_missing_baro' ($startupSources + @(
+        (Join-Path $Here 'test_baro_measure.c'),
+        (Join-Path $Car 'BaroMeasure.c'),
+        (Join-Path $Car 'BaroFixed.c')
+    )) ($startupFlags + @('-DC_FLIGHT_BARO_EN=1', '-DBARO_MEASURE_FLIGHT_REPLAY=1'))
 
 
 
 
     $env:PYTHONIOENCODING = 'utf-8'
-    foreach ($test in @('test_baro_export.py', 'test_package_bin.py')) {
+    foreach ($test in @('test_baro_export.py', 'test_baro_fixed_v4_export.py', 'test_package_bin.py')) {
         python (Join-Path $Here $test)
         if ($LASTEXITCODE -ne 0) { throw ($test + ' failed') }
     }

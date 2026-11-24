@@ -8,6 +8,9 @@
 #include "GroundDiag.h"
 #include "UserEuler.h"
 #include "my_t3488.h"
+#if C_FLIGHT_BARO_EN
+#include "BaroMeasure.h"
+#endif
 
 // 当前实飞基线：200 Hz / 5 ms 调度 FlightLoop_Process。
 // 每拍顺序：RcInput 超时 → PreSampleSafety 先清四路 PWM
@@ -51,6 +54,42 @@ typedef struct __attribute__((aligned(4))) {
 } FlightLoopState;
 
 static FlightLoopState s_fl;
+
+#if C_FLIGHT_BARO_EN
+// 仅供 BDT 从 RAM 观察，8 个小端 32 位字。控制循环持续刷新。
+static volatile struct __attribute__((aligned(4))) {
+	u32 magic;
+	u32 current_tick;
+	u32 samples;
+	u32 sample_tick;
+	s32 pressure_01pa;
+	u32 max_measurement_us;
+	u32 max_control_gap_ms;
+	u32 missed_control_ticks;
+} s_flight_baro_diag;
+
+static void flight_baro_step(void)
+{
+	u32 now = clock_time();
+	BaroMeasureSample sample;
+
+	if (BaroMeasure_Service(now, s_fl.next_tick)) {
+		u32 elapsed = (u32)(clock_time() - now) / FLIGHT_TICKS_PER_US;
+
+		if (elapsed > s_flight_baro_diag.max_measurement_us) {
+			s_flight_baro_diag.max_measurement_us = elapsed;
+		}
+		if (BaroMeasure_GetSample(now, &sample)) {
+			s_flight_baro_diag.sample_tick = sample.tick;
+			s_flight_baro_diag.pressure_01pa = sample.pressure_01pa;
+			s_flight_baro_diag.samples = sample.sequence;
+		}
+	}
+	s_flight_baro_diag.current_tick = now;
+	s_flight_baro_diag.max_control_gap_ms = s_fl.max_gap_ms;
+	s_flight_baro_diag.missed_control_ticks = s_fl.missed_ticks;
+}
+#endif
 
 // 编译期锁住指针接口的 4 字节地址；若以后增删成员导致偏移变化，构建直接失败。
 #define FLIGHT_ALIGN4(expr) ((expr) & 3u)
@@ -135,6 +174,10 @@ void FlightLoop_Init(void)
 	flight_state_reset();
 	FlightSafety_InitPwm(&s_fl.safety);
 
+#if C_FLIGHT_BARO_EN
+	BaroMeasure_Init(clock_time());
+	s_flight_baro_diag.magic = 0x31524142u;  // 小端字节为 BAR1。
+#endif
 	now = clock_time();
 	s_fl.next_tick = now + FLIGHT_PERIOD_TICKS;
 	s_fl.inited = 1;
@@ -376,6 +419,9 @@ void FlightLoop_Process(void)
 		FlightSafety_Apply(&s_fl.safety, &mix);
 	}
 
+#if C_FLIGHT_BARO_EN
+	flight_baro_step();
+#endif
 #if C_GROUND_UART_DIAG
 	{
 		unsigned short dpwm[4];
