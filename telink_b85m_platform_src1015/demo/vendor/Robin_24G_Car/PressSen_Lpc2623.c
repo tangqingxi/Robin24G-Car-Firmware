@@ -382,6 +382,25 @@ u8 LPC2623_CheckId(void)
 	return 0;
 }
 
+// 诊断用温度原始值：TMP_B2..B0，24 位二进制补码，不做取反。
+u8 LPC2623_ReadTempRaw(s32 *raw)
+{
+	u8 d[3];
+	s32 v;
+
+	if (i2c_read_regs(0x03, d, 3)) {
+		return 1;
+	}
+	v = ((s32)d[0] << 16) | ((s32)d[1] << 8) | (s32)d[2];
+	if (v & 0x800000) {
+		v |= (s32)0xFF000000;
+	}
+	if (raw) {
+		*raw = v;
+	}
+	return 0;
+}
+
 // 诊断用带返回值的读取：保留原始计数换算，I2C 失败不覆盖上一次有效值。
 u8 LPC2623_ReadRaw(s32 *raw)
 {

@@ -11,6 +11,9 @@
 #ifndef C_BARO_BDT_DIAG
 #define C_BARO_BDT_DIAG 0
 #endif
+#ifndef C_BARO_TEMP_BDT_DIAG
+#define C_BARO_TEMP_BDT_DIAG 0
+#endif
 
 // 200Hz 飞控公共常量。所有时间仍以 tick 计，毫秒超时只在边界换算。
 #define FLIGHT_LOOP_HZ             200

@@ -23,6 +23,9 @@
 #if C_BARO_BDT_DIAG
 #include "BaroBdt.h"
 #endif
+#if C_BARO_TEMP_BDT_DIAG
+#include "BaroTempBdt.h"
+#endif
 #endif
 #include "my_t3488.h"
 #include "User_IIC.h"
@@ -1661,6 +1664,10 @@ void User_main_loop_process(void)
 #if C_BARO_BDT_DIAG
 	// 气压诊断在 200Hz 控制拍之外执行；采样期间只写 RAM。
 	BaroBdt_Process();
+#endif
+#if C_BARO_TEMP_BDT_DIAG
+	// 气压+温度双通道诊断同样在控制拍之外执行。
+	BaroTempBdt_Process();
 #endif
 	d24_rx_main_loop();
 	TimeBaseGenerate();

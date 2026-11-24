@@ -71,6 +71,12 @@ try {
     ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
         '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'baro_temp' @(
+        (Join-Path $Here 'test_baro_temp_bdt.c'),
+        (Join-Path $Car 'BaroTempBdt.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
+        '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
+
     Invoke-Case 'baro_drift' @(
         (Join-Path $Here 'test_baro_bdt.c'),
         (Join-Path $Car 'BaroBdt.c')

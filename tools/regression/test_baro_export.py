@@ -13,17 +13,17 @@ import baro_bdt_export as ex
 
 
 def make_record(count=300, base=40000, corrupt=False):
-    raw = bytearray(ex.RAW_BYTES)
+    raw = bytearray(600)
     bits = bytearray(ex.BIT_BYTES)
-    for i in range(ex.SLOTS):
+    for i in range(300):
         if i < count:
             struct.pack_into("<h", raw, i * 2, i)      # base + i，均超过 32767
             bits[i // 8] |= 1 << (i % 8)
-    h = bytearray(ex.HEADER_LEN)
+    h = bytearray(40)
     h[0:4] = b"BARO"
     h[4] = 1
     struct.pack_into("<H I H H H H H", h, 6, count, 5000, 0, 0, 123, 17, 2)
-    struct.pack_into("<H H H", h, 24, ex.RAW_BYTES, 1, ex.SLOTS)
+    struct.pack_into("<H H H", h, 24, 600, 1, 300)
     struct.pack_into("<i", h, 30, base)
     crc = ex.crc16(h[:22] + b"\x00\x00" + h[24:] + raw + bits)
     if corrupt:
@@ -39,7 +39,7 @@ def main():
     assert len(samples) == 300 and stats["count"] == 300, (len(samples), stats)
     base = stats["base"]
     assert base == 40000, base
-    assert samples[0] == (0, 40000) and samples[-1] == (29900, 40299), samples[:2]
+    assert samples[0] == (0, 40000, None) and samples[-1] == (29900, 40299, None), samples[:2]
 
     for bad in (data[:100], data[:650]):
         try:
@@ -55,6 +55,23 @@ def main():
         pass
     else:
         raise AssertionError("CRC 错误未报错")
+
+    temp = Path("baro_temp_read.bin")
+    if temp.is_file():
+        frames, stats = ex.parse_record(temp.read_bytes())
+        assert len(frames) == 150 and stats["sample_ms"] == 1000, stats
+        assert stats["p_count"] == 150 and stats["t_count"] == 150, stats
+        assert frames[0][1:] == (40000, 50000), frames[0]
+        assert frames[-1][0] == 149000, frames[-1]
+        assert frames[-1][1:] == (40149, 50149), frames[-1]
+        print("PASS temp: 150 samples, 1000ms, pressure+temperature")
+
+    missing = Path("baro_temp_missing.bin")
+    if missing.is_file():
+        frames, stats = ex.parse_record(missing.read_bytes())
+        assert len(frames) == 150 and stats["t_count"] == 149, stats
+        assert sum(1 for row in frames if row[2] is None) == 1
+        print("PASS temp missing: one temperature slot blank")
 
     drift = Path("baro_read_drift.bin")
     if drift.is_file():
@@ -73,7 +90,7 @@ def main():
             continue
         frames, _ = ex.parse_record(path.read_bytes())
         assert len(frames) == expect, (name, len(frames))
-        times = {t for t, _ in frames}
+        times = {row[0] for row in frames}
         assert missing_slot * 100 not in times, (name, missing_slot)
         print(f"PASS {name}: {len(frames)} samples, slot {missing_slot} empty")
 

@@ -17,3 +17,14 @@ u8 LPC2623_IsPressureReady(void)
 	}
 	return (cfg & 0x10) ? 1 : 0;
 }
+
+// 温度数据就绪：MEAS_CFG bit5（0x20）。
+u8 LPC2623_IsTempReady(void)
+{
+	u8 cfg;
+
+	if (i2c_read_reg_s2(REG_MEAS_CFG, &cfg)) {
+		return 0;
+	}
+	return (cfg & 0x20) ? 1 : 0;
+}
