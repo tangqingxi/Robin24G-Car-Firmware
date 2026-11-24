@@ -197,6 +197,8 @@ void BaroBdt_Process(void)
 	u16 slot;
 
 	if (!s_started) {
+		// 气压计先在静置等待前启动，等待期间让转换结果稳定下来。
+		pressure_init();
 		s_started = 1;
 		s_boot_tick = BARO_BDT_CLOCK();
 		s_next_tick = s_boot_tick
@@ -219,22 +221,20 @@ void BaroBdt_Process(void)
 		if ((s32)(now - s_next_tick) < 0) {
 			return;
 		}
-		pressure_init();
 		FlightLoop_ResetDiagStats();
 		s_sample_start_tick = now;
-		s_next_tick = now;
+		s_slot = 0;
 		s_state = BARO_BDT_ST_SAMPLING;
+		return;                         // 下一轮按槽位读取
 	}
 
 	if (s_state != BARO_BDT_ST_SAMPLING) {
 		return;
 	}
 
-	if ((s32)(now - s_next_tick) < 0) {
-		if ((u32)(now - s_sample_start_tick) >=
-			(u32)BARO_BDT_DURATION_MS * FLIGHT_TICKS_PER_MS) {
-			finish();
-		}
+	if ((u32)(now - s_sample_start_tick) >=
+		(u32)BARO_BDT_DURATION_MS * FLIGHT_TICKS_PER_MS) {
+		finish();
 		return;
 	}
 
@@ -244,10 +244,20 @@ void BaroBdt_Process(void)
 		finish();
 		return;
 	}
+	if (slot < s_slot) {
+		return;                         // 该槽已处理，绝不重复写
+	}
 	if (slot > s_slot) {
-		s_dropped += (u16)(slot - s_slot);
+		s_dropped += (u16)(slot - s_slot);  // 漏掉的槽保持无效
 	}
 	s_slot = slot;
+
+	// 只有数据就绪才读取并设首样本基准；初始寄存器值不进入记录。
+	if (!LPC2623_IsPressureReady()) {
+		s_dropped++;
+		s_slot = (u16)(slot + 1u);
+		return;
+	}
 
 	read0 = BARO_BDT_CLOCK();
 	if (LPC2623_ReadRaw(&raw) == 0) {
@@ -280,7 +290,6 @@ void BaroBdt_Process(void)
 	}
 
 	s_slot = (u16)(slot + 1u);
-	s_next_tick += (u32)BARO_BDT_SAMPLE_MS * FLIGHT_TICKS_PER_MS;
 	if (s_slot >= BARO_BDT_SLOTS) {
 		finish();
 	}

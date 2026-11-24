@@ -56,6 +56,18 @@ def main():
     else:
         raise AssertionError("CRC 错误未报错")
 
+    for name, expect, missing_slot in (
+            ("baro_read_initial.bin", 299, 0),
+            ("baro_read_miss.bin", 299, 1)):
+        path = Path(name)
+        if not path.is_file():
+            continue
+        frames, _ = ex.parse_record(path.read_bytes())
+        assert len(frames) == expect, (name, len(frames))
+        times = {t for t, _ in frames}
+        assert missing_slot * 100 not in times, (name, missing_slot)
+        print(f"PASS {name}: {len(frames)} samples, slot {missing_slot} empty")
+
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "Read.bin"
         out = Path(td) / "baro.csv"

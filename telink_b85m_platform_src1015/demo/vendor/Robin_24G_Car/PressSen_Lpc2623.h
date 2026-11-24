@@ -165,6 +165,9 @@ void Get_LPC2623_Value(void);
 // 诊断用：只检查产品 ID，不加载校准系数；返回 0 = 通过。
 u8 LPC2623_CheckId(void);
 
+// 读取 INT_STS，判断是否已有新的压力样本；1=就绪。
+u8 LPC2623_IsPressureReady(void);
+
 // 读取一次三字节原始压力并换算为 s32PresValue；
 // 返回 0 = 成功，非 0 = I2C 读取失败（不更新原始值）。
 u8 LPC2623_ReadRaw(s32 *raw);
