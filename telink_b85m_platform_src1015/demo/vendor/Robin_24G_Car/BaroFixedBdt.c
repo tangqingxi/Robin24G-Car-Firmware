@@ -144,14 +144,13 @@ static u8 pressure_init(void)
 		s_i2c_fail++;
 		return 1;
 	}
-#ifndef BARO_BDT_HOST_TEST
-	if (BaroFixed_LoadCalibration(&s_cal)) {
-		s_init_failed = 1;
-	}
-#endif
 	LPC2623_rateset(PRESSURE_SENSOR, 1, 8);
 	LPC2623_rateset(TEMPERATURE_SENSOR, 1, 1);
 	LPC2623_start_continuous(CONTINUOUS_P_AND_T);
+	// 先完成气压配置和连续测量，再读 PSR_CFG/出厂系数。
+	if (BaroFixed_LoadCalibration(&s_cal)) {
+		s_init_failed = 1;
+	}
 	return 0;
 }
 
@@ -207,7 +206,7 @@ static void finish(void)
 
 void BaroFixedBdt_Process(void)
 {
-	u32 now, read0, read1, comp0, comp1;
+	u32 now, read0, read_ticks, comp0, comp_ticks = 0;
 	s32 p_raw, t_raw, f01;
 	u8 armed = 0;
 	u16 pwm[4] = {0, 0, 0, 0};
@@ -232,8 +231,13 @@ void BaroFixedBdt_Process(void)
 
 	if (s_state == BARO_FIXED_ST_WAIT) {
 		if ((s32)(now - s_next_tick) < 0) return;
+		// 传感器已配置并静置，读取实际过采样档和出厂校准。
+		if (!s_init_failed && BaroFixed_LoadCalibration(&s_cal)) {
+			s_init_failed = 1;
+			s_i2c_fail++;
+		}
 		FlightLoop_ResetDiagStats();
-		s_sample_start_tick = now;
+		s_sample_start_tick = BF_CLOCK();
 		s_slot = 0;
 		s_state = BARO_FIXED_ST_SAMPLING;
 		return;
@@ -280,21 +284,21 @@ void BaroFixedBdt_Process(void)
 			if (s_have_temp
 				&& (u32)(now - s_last_temp_tick) / FLIGHT_TICKS_PER_MS
 				   <= BARO_FIXED_TEMP_TIMEOUT_MS) {
+				u8 status;
+				u32 us;
+
 				comp0 = BF_CLOCK();
-				if (BaroFixed_Compensate01Pa(p_raw, s_last_temp, &s_cal,
-											&f01) == BARO_FIXED_OK) {
+				status = BaroFixed_Compensate01Pa(p_raw, s_last_temp, &s_cal, &f01);
+				comp_ticks = (u32)(BF_CLOCK() - comp0);
+				us = comp_ticks / FLIGHT_TICKS_PER_US;
+				if (us > s_max_comp_us) s_max_comp_us = (u16)(us > 60000u ? 60000u : us);
+				if (status == BARO_FIXED_OK) {
 					if (!s_have_fbase) { s_fbase = f01; s_have_fbase = 1; }
 					if (f01 - s_fbase >= -32768 && f01 - s_fbase <= 32767) {
 						s_f_delta[slot] = (s16)(f01 - s_fbase);
 						s_f_valid[slot / 8u] |= (u8)(1u << (slot % 8u));
 						s_f_count++;
 					}
-				}
-				comp1 = BF_CLOCK();
-				if ((u32)(comp1 - comp0) / FLIGHT_TICKS_PER_US
-					> s_max_comp_us) {
-					u16 us = (u16)((u32)(comp1 - comp0) / FLIGHT_TICKS_PER_US);
-					s_max_comp_us = us;
 				}
 				temp_used = 1;
 			}
@@ -312,11 +316,12 @@ void BaroFixedBdt_Process(void)
 		}
 	}
 
-	read1 = BF_CLOCK();
-	if ((u32)(read1 - read0) / FLIGHT_TICKS_PER_US > 60000u) {
+	// 读取及样本整理耗时扣除上面单独统计的温补耗时。
+	read_ticks = (u32)(BF_CLOCK() - read0) - comp_ticks;
+	if (read_ticks / FLIGHT_TICKS_PER_US > 60000u) {
 		s_max_read_us = 60000u;
 	} else {
-		u16 us = (u16)((u32)(read1 - read0) / FLIGHT_TICKS_PER_US);
+		u16 us = (u16)(read_ticks / FLIGHT_TICKS_PER_US);
 		if (us > s_max_read_us) s_max_read_us = us;
 	}
 
@@ -340,15 +345,12 @@ void BaroFixedBdt_TestReset(void)
 	s_i2c_fail = 0; s_dropped = 0; s_max_read_us = 0; s_max_comp_us = 0;
 	s_max_gap_ms = 0; s_missed_ticks = 0; s_slot = 0; s_boot_tick = 0;
 	s_next_tick = 0; s_sample_start_tick = 0;
+	s_cal.valid = 0;
 	for (i = 0; i < BF_SLOTS; i++) {
 		s_p_delta[i] = 0; s_t_delta[i] = 0; s_f_delta[i] = 0;
 	}
 	for (i = 0; i < BF_BITS; i++) {
 		s_p_valid[i] = 0; s_t_valid[i] = 0; s_f_valid[i] = 0;
 	}
-}
-void BaroFixedBdt_TestCal(BaroFixedCal_t *cal)
-{
-	s_cal = *cal;
 }
 #endif
