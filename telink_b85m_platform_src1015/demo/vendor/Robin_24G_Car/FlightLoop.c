@@ -34,7 +34,6 @@ typedef struct __attribute__((aligned(4))) {
 	s32 still_sum[3] __attribute__((aligned(4)));
 	u32 still_ticks __attribute__((aligned(4)));
 	u32 still_n __attribute__((aligned(4)));
-	u32 last_ts __attribute__((aligned(4)));
 	u32 dt_rem __attribute__((aligned(4)));
 	u32 next_tick __attribute__((aligned(4)));
 	u32 retry_tick __attribute__((aligned(4)));
@@ -42,7 +41,6 @@ typedef struct __attribute__((aligned(4))) {
 	u16 max_gap_ms;
 	u16 missed_ticks;
 	u8 stats_init;
-	u8 have_ts;
 	u8 still_prev_ok;
 	u8 inited;
 } FlightLoopState;
@@ -123,8 +121,6 @@ static void flight_state_reset(void)
 	FlightSafety_Init(&s_fl.safety);
 
 	Euler_Reset(&s_fl.att);
-	s_fl.have_ts = 0;
-	s_fl.last_ts = 0;
 	s_fl.dt_rem = 0;
 	s_fl.stats_init = 0;
 	s_fl.max_gap_ms = 0;
