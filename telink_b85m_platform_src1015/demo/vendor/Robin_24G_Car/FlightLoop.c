@@ -445,3 +445,16 @@ void FlightLoop_OrderTestSetRc(unsigned char link, unsigned char cmd_ok)
 	s_fl.rc.cmd_ok = cmd_ok;
 }
 #endif
+
+#ifdef FLIGHT_STARTUP_TEST
+unsigned char FlightLoop_StartupTestLockReason(void) { return s_fl.safety.reason; }
+void FlightLoop_StartupTestGyro(int out[3])
+{
+	out[0] = s_fl.rate[0]; out[1] = s_fl.rate[1]; out[2] = s_fl.rate[2];
+}
+void FlightLoop_StartupTestQ(int out[4])
+{
+	out[0] = s_fl.att.q[0]; out[1] = s_fl.att.q[1];
+	out[2] = s_fl.att.q[2]; out[3] = s_fl.att.q[3];
+}
+#endif
