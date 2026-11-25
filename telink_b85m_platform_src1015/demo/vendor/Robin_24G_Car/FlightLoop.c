@@ -10,6 +10,7 @@
 #include "UserEuler.h"
 #include "my_t3488.h"
 #include "ImuMeasure.h"
+#include "AttitudeEstimate.h"
 #ifdef FLIGHT_STARTUP_TEST
 static u8 s_replay_att_updated;
 #endif
@@ -31,21 +32,15 @@ typedef struct __attribute__((aligned(4))) {
 	RateControl ratec __attribute__((aligned(4)));
 	FlightSafety safety __attribute__((aligned(4)));
 
-	euler_q_t att __attribute__((aligned(4)));
+	AttitudeEstimate attitude __attribute__((aligned(4)));
 	ImuMeasure imu __attribute__((aligned(4)));
 	s32 rate[3] __attribute__((aligned(4)));
-	s32 prev_acc[3] __attribute__((aligned(4)));
-	s32 still_sum[3] __attribute__((aligned(4)));
-	u32 still_ticks __attribute__((aligned(4)));
-	u32 still_n __attribute__((aligned(4)));
-	u32 dt_rem __attribute__((aligned(4)));
 	u32 next_tick __attribute__((aligned(4)));
 	u32 retry_tick __attribute__((aligned(4)));
 	u32 last_actual __attribute__((aligned(4)));
 	u16 max_gap_ms;
 	u16 missed_ticks;
 	u8 stats_init;
-	u8 still_prev_ok;
 	u8 inited;
 } FlightLoopState;
 
@@ -96,11 +91,9 @@ static void flight_baro_step(void)
 typedef char flight_align_rc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, rc)) ? -1 : 1];
 typedef char flight_align_attc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, attc)) ? -1 : 1];
 typedef char flight_align_ratec[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, ratec)) ? -1 : 1];
-typedef char flight_align_att[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, att)) ? -1 : 1];
+typedef char flight_align_attitude[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, attitude)) ? -1 : 1];
 typedef char flight_align_imu[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, imu)) ? -1 : 1];
 typedef char flight_align_rate[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, rate)) ? -1 : 1];
-typedef char flight_align_prev_acc[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, prev_acc)) ? -1 : 1];
-typedef char flight_align_still_sum[FLIGHT_ALIGN4(__builtin_offsetof(FlightLoopState, still_sum)) ? -1 : 1];
 typedef char flight_align_rc_cmd[FLIGHT_ALIGN4(__builtin_offsetof(RcInput, cmd)) ? -1 : 1];
 typedef char flight_align_rc_pkt[FLIGHT_ALIGN4(__builtin_offsetof(RcInput, pkt_tick)) ? -1 : 1];
 typedef char flight_align_event_cmd[FLIGHT_ALIGN4(__builtin_offsetof(RcInputEvent, cmd)) ? -1 : 1];
@@ -110,14 +103,7 @@ typedef char flight_align_att_tgt[FLIGHT_ALIGN4(__builtin_offsetof(AttitudeContr
 typedef char flight_align_rate_corr[FLIGHT_ALIGN4(__builtin_offsetof(RateControl, corr)) ? -1 : 1];
 typedef char flight_align_mix_front[(__builtin_offsetof(MotorMixerOutput, front) & 1u) ? -1 : 1];
 
-static void flight_still_reset(void)
-{
-	s_fl.still_ticks = 0;
-	s_fl.still_n = 0;
-	s_fl.still_sum[0] = 0;
-	s_fl.still_sum[1] = 0;
-	s_fl.still_sum[2] = 0;
-}
+
 
 static void flight_state_reset(void)
 {
@@ -128,19 +114,15 @@ static void flight_state_reset(void)
 	RateControl_Init(&s_fl.ratec);
 	FlightSafety_Init(&s_fl.safety);
 
-	Euler_Reset(&s_fl.att);
-	s_fl.dt_rem = 0;
+	AttitudeEstimate_Init(&s_fl.attitude);
 	s_fl.stats_init = 0;
 	s_fl.max_gap_ms = 0;
 	s_fl.missed_ticks = 0;
 	s_fl.last_actual = 0;
-	s_fl.still_prev_ok = 0;
 	ImuMeasure_Init(&s_fl.imu);
 	for (i = 0; i < 3; i++) {
 		s_fl.rate[i] = 0;
-		s_fl.prev_acc[i] = 0;
 	}
-	flight_still_reset();
 }
 
 // 传感器初始化成功后一次性建立模块状态；失败 1s 后重试。
@@ -179,41 +161,6 @@ void FlightLoop_Init(void)
 	s_fl.inited = 1;
 }
 
-// 启动阶段：连续静止 500ms 后取平均加速度定姿；移动/间断就重开窗口。
-static void flight_startup(const s32 acc_mg[3], const s32 gyr_q10[3],
-						   u32 dt_ticks, u32 ts)
-{
-	u8 still = Euler_IsStill(acc_mg, gyr_q10, s_fl.prev_acc, s_fl.still_prev_ok);
-	int i;
-
-	if (!still) {
-		flight_still_reset();
-	} else {
-		s_fl.still_sum[0] += acc_mg[0];
-		s_fl.still_sum[1] += acc_mg[1];
-		s_fl.still_sum[2] += acc_mg[2];
-		s_fl.still_n++;
-		s_fl.still_ticks += dt_ticks;
-
-		if (s_fl.still_ticks >= FLIGHT_INIT_STILL_TICKS && s_fl.still_n > 0) {
-			s32 avg[3];
-
-			// 静置和必须有符号；先把样本计数转 s32 再除，避免负数被当无符号。
-			avg[0] = s_fl.still_sum[0] / (s32)s_fl.still_n;
-			avg[1] = s_fl.still_sum[1] / (s32)s_fl.still_n;
-			avg[2] = s_fl.still_sum[2] / (s32)s_fl.still_n;
-			if (!Euler_InitFromAccel(&s_fl.att, avg,
-									 ts / FLIGHT_TICKS_PER_MS)) {
-				flight_still_reset();
-			}
-		}
-	}
-	for (i = 0; i < 3; i++) {
-		s_fl.prev_acc[i] = acc_mg[i];
-	}
-	s_fl.still_prev_ok = 1;
-}
-
 // 收包路径：先消费 0001/0002，再更新同包目标；0001 在本包立即清四路。
 void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 						   unsigned short fb, unsigned short lr,
@@ -236,7 +183,7 @@ void FlightLoop_OnRcPacket(unsigned short thr, unsigned short rot,
 			  && ev.cmd[3] >= -MOTOR_ARM_STICK_MAX
 			  && ev.cmd[3] <= MOTOR_ARM_STICK_MAX) ? 1 : 0;
 	stop = FlightSafety_OnKey(&s_fl.safety, ev.key, ev.packet_valid,
-							  thr_low, center, s_fl.att.ready,
+							  thr_low, center, AttitudeEstimate_IsReady(&s_fl.attitude),
 							  s_fl.rc.link);
 	if (stop) {
 		// 急停优先：先锁存并写四路 0 PWM，不再做同包目标换算。
@@ -266,8 +213,6 @@ void FlightLoop_Process(void)
 {
 	short raw_a[3];
 	u32 now, planned;
-	u32 dt_ticks = 0;
-	s32 dt_100us = 0;
 	u8 att_updated = 0;
 #ifdef FLIGHT_STARTUP_TEST
 	s_replay_att_updated = 0;
@@ -332,40 +277,19 @@ void FlightLoop_Process(void)
 			RateControl_ClearOutputs(&s_fl.ratec);
 			FlightSafety_Lock(&s_fl.safety, FLIGHT_LOCK_ATT);
 		} else {
-			u32 t_read1 = imu.tick;
-
-			dt_ticks = imu.dt_ticks;
 			for (i = 0; i < 3; i++) {
 				s_fl.rate[i] = imu.gyro_q10[i];
 			}
-
-			if (dt_ticks > (u32)C_ATT_MAX_GAP_100US * FLIGHT_TICKS_PER_100US) {
-				s_fl.dt_rem = 0;
-				s_fl.att.have_prev = 0;
-				flight_still_reset();
-				dt_ticks = 0;
-			}
-			if (dt_ticks) {
-				s_fl.dt_rem += dt_ticks;
-				dt_100us = (s32)(s_fl.dt_rem / FLIGHT_TICKS_PER_100US);
-				s_fl.dt_rem -= (u32)dt_100us * FLIGHT_TICKS_PER_100US;
-			}
+			att_updated = AttitudeEstimate_Update(&s_fl.attitude,
+				imu.acc_mg, imu.gyro_q10, imu.tick, imu.dt_ticks);
 #if C_FLIGHT_TIMING_DIAG
 			FlightTiming_ImuEnd((FlightTiming *)&g_flight_timing);
 #endif
-
-			if (!s_fl.att.ready) {
-				flight_startup(imu.acc_mg, imu.gyro_q10, dt_ticks, t_read1);
-			} else if (dt_100us > 0) {
-				if (Euler_Update(&s_fl.att, imu.acc_mg, imu.gyro_q10,
-								 dt_100us,
-								 t_read1 / FLIGHT_TICKS_PER_MS)) {
-					FlightSafety_NoteAttitude(&s_fl.safety);
-					att_updated = 1;
+			if (att_updated) {
+				FlightSafety_NoteAttitude(&s_fl.safety);
 #ifdef FLIGHT_STARTUP_TEST
-					s_replay_att_updated = 1;
+				s_replay_att_updated = 1;
 #endif
-				}
 			}
 		}
 	}
@@ -373,7 +297,7 @@ void FlightLoop_Process(void)
 	s_replay_att_updated = att_updated;
 #endif
 	if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {
-		AttitudeControl_Update(&s_fl.attc, &s_fl.att);
+		AttitudeControl_Update(&s_fl.attc, AttitudeEstimate_GetState(&s_fl.attitude));
 		RateControl_Update(&s_fl.ratec, s_fl.attc.tgt_rate, s_fl.rate);
 		ctrl_ok = 1;
 	} else {
@@ -408,7 +332,7 @@ void FlightLoop_Process(void)
 		GroundDiag_OnControl(s_fl.rc.cmd[0], s_fl.rc.cmd[1],
 							 s_fl.attc.tgt_rate,
 							 s_fl.rate, s_fl.ratec.corr, dpwm,
-							 raw_a, s_fl.att.q, imu_ok,
+							 raw_a, AttitudeEstimate_GetState(&s_fl.attitude)->q, imu_ok,
 							 s_fl.safety.armed, mixer_limited);
 	}
 #endif
@@ -443,7 +367,7 @@ void FlightLoop_GetDiagStatus(u8 *armed, u16 pwm[4], u16 *max_gap_ms,
 // 仅主机启动路径回归：读取真实 FlightLoop 内部状态。
 unsigned char FlightLoop_StartupTestReady(void)
 {
-	return s_fl.att.ready;
+	return AttitudeEstimate_IsReady(&s_fl.attitude);
 }
 
 unsigned char FlightLoop_StartupTestArmed(void)
@@ -451,8 +375,8 @@ unsigned char FlightLoop_StartupTestArmed(void)
 	return s_fl.safety.armed;
 }
 
-unsigned int FlightLoop_StartupTestStillN(void) { return s_fl.still_n; }
-unsigned int FlightLoop_StartupTestStillTicks(void) { return s_fl.still_ticks; }
+unsigned int FlightLoop_StartupTestStillN(void) { return AttitudeEstimate_GetStillN(&s_fl.attitude); }
+unsigned int FlightLoop_StartupTestStillTicks(void) { return AttitudeEstimate_GetStillTicks(&s_fl.attitude); }
 int FlightLoop_StartupTestLpf(int i) { return s_fl.imu.lpf[i]; }
 void FlightLoop_StartupTestPwm(unsigned short out[4])
 {
@@ -469,7 +393,7 @@ void FlightLoop_OrderTestReset(void)
 	RateControl_Init(&s_fl.ratec);
 	FlightSafety_Init(&s_fl.safety);
 	FlightSafety_InitPwm(&s_fl.safety);
-	s_fl.att.ready = 1;
+	s_fl.attitude.att.ready = 1;
 	s_fl.rc.link = 1;
 	s_fl.rc.cmd_ok = 1;
 	s_fl.inited = 1;
@@ -491,7 +415,8 @@ void FlightLoop_StartupTestGyro(int out[3])
 }
 void FlightLoop_StartupTestQ(int out[4])
 {
-	out[0] = s_fl.att.q[0]; out[1] = s_fl.att.q[1];
-	out[2] = s_fl.att.q[2]; out[3] = s_fl.att.q[3];
+	const euler_q_t *q = AttitudeEstimate_GetState(&s_fl.attitude);
+	out[0] = q->q[0]; out[1] = q->q[1];
+	out[2] = q->q[2]; out[3] = q->q[3];
 }
 #endif
