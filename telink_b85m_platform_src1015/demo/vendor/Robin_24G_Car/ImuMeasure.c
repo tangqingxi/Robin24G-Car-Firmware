@@ -76,6 +76,9 @@ u8 ImuMeasure_Update(ImuMeasure *m, ImuSample *out)
 		m->lpf[1] = acc_mg[1];
 		m->lpf[2] = acc_mg[2];
 		m->lpf_ok = 1;
+	} else if (C_ACC_LPF_EN
+			   && dt_ticks > (u32)C_ATT_MAX_GAP_100US * FLIGHT_TICKS_PER_100US) {
+		// 超过 100 ms 的有效样本不更新低通，保留上一拍滤波值。
 	} else if (C_ACC_LPF_EN && dt_ticks > 0) {
 		u32 dt_us = (dt_ticks + FLIGHT_TICKS_PER_US / 2)
 					/ FLIGHT_TICKS_PER_US;
