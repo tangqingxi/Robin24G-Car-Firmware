@@ -4,8 +4,8 @@
 
 | 用途 | 镜像 | 源码基准 | 字节 | SHA256 |
 |---|---|---|---:|---|
-| 拆分前计时 | `Robin_24G_Car_timing_before_a76d5b6.bin` | `a76d5b6` | 24660 | `3F3A26A675847AB8D86EC15F83F00430FF350815BBFFED12A2274805463208C8` |
-| 拆分后计时 | `Robin_24G_Car_timing_after_e6905f0.bin` | `e6905f0` | 24788 | `5087AF437E9BCE32043FF69773F4B354C02E5C56D80C7795309544EEE5E8E7D5` |
+| 拆分前计时 | `Robin_24G_Car_timing_before_a76d5b6.bin` | `a76d5b6` | 24660 | `8863645DCC86ACB3B8CEE8AC06426215C8D95ED348E5AC02B0DB78C948F3EE1E` |
+| 拆分后计时 | `Robin_24G_Car_timing_after_e6905f0.bin` | `e6905f0` | 24804 | `A124973E3C89CF6153818D88E5D3F8AF9E4A94DC0908E20BEAB85E8D8945274B` |
 
 两版均：
 
@@ -20,8 +20,11 @@
 
 - `imu_sum_ticks / imu_count`：IMU 平均耗时，24 MHz tick。
 - `imu_max_ticks`：IMU 最大耗时。
-- 拆分前：`t3488_read_6axis` 调用前到加速度低通结束。
-- 拆分后：`ImuMeasure_Update` 调用前到返回。
+- 两版都从 IMU 读取前开始计时。
+- 成功时计到预处理和积分步长换算都完成、即将进入姿态估计的位置。
+- 读失败时在进入保护处理前结束，并计入该次尝试。
+- 拆分前：六轴读取前到加速度低通和积分步长换算结束。
+- 拆分后：`ImuMeasure_Update` 前到其返回并完成积分步长换算。
 - `ctrl_max_ticks`：控制拍入口到 `FlightSafety_Apply` 写完 PWM 的最大耗时。
 - `remain_min_ticks`：写完 PWM 后距 `next_tick` 的最小剩余时间，负值按 0 记录。
 - `missed_ticks`：控制循环漏拍累计。
@@ -33,7 +36,7 @@
 us = ticks / 24
 ```
 
-`u32` 的 `imu_sum_ticks` 在累计 IMU 时间约 179 秒后回绕；单次无桨测试请控制在 2 分钟内。
+`u32` 的 `imu_sum_ticks` 在累计 IMU 用时约 179 秒后回绕；这是累计 IMU 用时，不是测试总时长。单次无桨测试建议控制在 2 分钟内。
 
 ## RAM 字段
 
@@ -59,20 +62,40 @@ us = ticks / 24
 | `+0x20` | `imu_start` | 最近一次 IMU 起点 |
 | `+0x24` | `ctrl_start` | 最近一次控制起点 |
 
-读取方式：
+## 读取方式
 
-1. BDT 连接后读取上述 RAM 地址；
-2. 先确认 `magic == 0x54494D47`；
-3. 采样前后读取同一组字段，按差值计算本次测试；
+1. BDT 连接后先确认 `magic == 0x54494D47`。
+2. 采样前后取差值的字段是：
+   - `imu_sum_ticks`
+   - `imu_count`
+   - `seq`
+   - `missed_ticks`
+3. `imu_max_ticks`、`ctrl_max_ticks`、`remain_min_ticks` 是本次上电以来的极值，直接读结束值，不做差值。
 4. 断电重启会清零。
+5. 两版分别重启，按相同时长和相同动作采集。
 
-本镜像未启用 GPIO 翻转；如需要硬件测点，可在 `FlightTiming_ImuBegin/End` 和 `CtrlBegin/End` 处接测试 GPIO，比较同一段代码的脉冲宽度。
+平均耗时：
+
+```text
+imu_avg_us = (imu_sum_ticks_end - imu_sum_ticks_begin)
+            / (imu_count_end - imu_count_begin) / 24
+```
+
+## GPIO
+
+本镜像未启用 GPIO 翻转；RAM 字段为主读数。若需要硬件测点，可在 `FlightTiming_ImuBegin/End` 和 `FlightTiming_CtrlBegin/End` 处接测试 GPIO，比较同一段代码的脉冲宽度。
+
+对应源码：
+
+```text
+telink_b85m_platform_src1015\demo\vendor\Robin_24G_Car\FlightTiming.h
+```
 
 ## 台架步骤
 
-1. 不装桨，烧录两份镜像分别测试。
+1. 不装桨，分别烧录两份镜像。
 2. 两版使用相同遥控输入和相同控制时序。
-3. 静止启动，确认解锁后四路 PWM 能正常输出。
+3. 静止启动，确认解锁后四路 PWM 正常输出。
 4. 做一次急停，确认 PWM 清零。
 5. 断开遥控，确认失联保护。
 6. 在相同时间窗口读取 RAM 统计。

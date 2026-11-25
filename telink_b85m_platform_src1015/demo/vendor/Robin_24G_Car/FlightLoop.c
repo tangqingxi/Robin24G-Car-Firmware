@@ -319,14 +319,14 @@ void FlightLoop_Process(void)
 		FlightTiming_ImuBegin((FlightTiming *)&g_flight_timing);
 #endif
 		u8 read_fail = ImuMeasure_Update(&s_fl.imu, &imu);
-#if C_FLIGHT_TIMING_DIAG
-		FlightTiming_ImuEnd((FlightTiming *)&g_flight_timing);
-#endif
 
 		for (i = 0; i < 3; i++) {
 			raw_a[i] = imu.raw_acc[i];
 		}
 		if (read_fail) {
+#if C_FLIGHT_TIMING_DIAG
+			FlightTiming_ImuEnd((FlightTiming *)&g_flight_timing);
+#endif
 			imu_ok = 0;
 			AttitudeControl_ClearOutputs(&s_fl.attc);
 			RateControl_ClearOutputs(&s_fl.ratec);
@@ -350,6 +350,9 @@ void FlightLoop_Process(void)
 				dt_100us = (s32)(s_fl.dt_rem / FLIGHT_TICKS_PER_100US);
 				s_fl.dt_rem -= (u32)dt_100us * FLIGHT_TICKS_PER_100US;
 			}
+#if C_FLIGHT_TIMING_DIAG
+			FlightTiming_ImuEnd((FlightTiming *)&g_flight_timing);
+#endif
 
 			if (!s_fl.att.ready) {
 				flight_startup(imu.acc_mg, imu.gyro_q10, dt_ticks, t_read1);
