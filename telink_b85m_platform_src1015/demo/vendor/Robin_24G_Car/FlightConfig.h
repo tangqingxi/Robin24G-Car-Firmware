@@ -19,6 +19,10 @@
 #endif
 
 // 正常飞行的气压测量候选开关，独立于写 Flash 的地面诊断。
+#ifndef C_FLIGHT_TIMING_DIAG
+#define C_FLIGHT_TIMING_DIAG 0
+#endif
+
 #ifndef C_FLIGHT_BARO_EN
 #define C_FLIGHT_BARO_EN 0
 #endif

@@ -1,5 +1,6 @@
 #include "FlightLoop.h"
 #include "FlightConfig.h"
+#include "FlightTiming.h"
 #include "RcInput.h"
 #include "AttitudeControl.h"
 #include "RateControl.h"
@@ -49,6 +50,10 @@ typedef struct __attribute__((aligned(4))) {
 } FlightLoopState;
 
 static FlightLoopState s_fl;
+
+#if C_FLIGHT_TIMING_DIAG
+volatile FlightTiming g_flight_timing;
+#endif
 
 #if C_FLIGHT_BARO_EN
 // 仅供 BDT 从 RAM 观察，8 个小端 32 位字。控制循环持续刷新。
@@ -145,6 +150,9 @@ void FlightLoop_Init(void)
 	u8 rb = 0;
 	u8 st;
 
+#if C_FLIGHT_TIMING_DIAG
+	FlightTiming_Init((FlightTiming *)&g_flight_timing);
+#endif
 	if (s_fl.inited) {
 		return;
 	}
@@ -281,6 +289,9 @@ void FlightLoop_Process(void)
 
 	planned = s_fl.next_tick;
 	s_fl.next_tick = planned + FLIGHT_PERIOD_TICKS;
+#if C_FLIGHT_TIMING_DIAG
+	FlightTiming_CtrlBegin((FlightTiming *)&g_flight_timing, now);
+#endif
 	if (s_fl.stats_init) {
 		u32 gap = now - s_fl.last_actual;
 		u16 gap_ms = (u16)((gap + FLIGHT_TICKS_PER_MS / 2)
@@ -304,7 +315,13 @@ void FlightLoop_Process(void)
 
 		{
 		ImuSample imu;
+#if C_FLIGHT_TIMING_DIAG
+		FlightTiming_ImuBegin((FlightTiming *)&g_flight_timing);
+#endif
 		u8 read_fail = ImuMeasure_Update(&s_fl.imu, &imu);
+#if C_FLIGHT_TIMING_DIAG
+		FlightTiming_ImuEnd((FlightTiming *)&g_flight_timing);
+#endif
 
 		for (i = 0; i < 3; i++) {
 			raw_a[i] = imu.raw_acc[i];
@@ -372,6 +389,10 @@ void FlightLoop_Process(void)
 		mixer_limited = mix.limited;
 		FlightSafety_Apply(&s_fl.safety, &mix);
 	}
+#if C_FLIGHT_TIMING_DIAG
+	FlightTiming_CtrlEnd((FlightTiming *)&g_flight_timing, s_fl.next_tick);
+	g_flight_timing.missed_ticks = s_fl.missed_ticks;
+#endif
 
 #if C_FLIGHT_BARO_EN
 	flight_baro_step();
