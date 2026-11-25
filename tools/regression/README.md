@@ -1,24 +1,22 @@
-# 閸ョ偛缍婇惄顔肩秿
-
-閸樼喐娼甸惃?`tools/test_*.c`閵嗕梗test_*.py` 閸?`flight_log_stub.c` 瀹告煡娉︽稉顓炲煂鏉╂瑩鍣烽敍娑氭暏閹村嘲鍙嗛崣?`uart_sensor_monitor.py`閵嗕梗flight_log_export.py` 閸滃本鐗庨崙鍡氬壖閺堫兛绮涢悾娆忔躬 `tools/` 閺嶅湱娲拌ぐ鏇樷偓?
-鏉╂劘顢戦崗鎶芥暛閸ョ偛缍婇敍?
+# 闁搞儳鍋涚紞濠囨儎椤旇偐绉?
+闁告鍠愬鐢告儍?`tools/test_*.c`闁靛棔姊梩est_*.py` 闁?`flight_log_stub.c` 鐎瑰憡鐓″▔锔界▔椤撶偛鐓傞弶鈺傜懇閸ｇ兘鏁嶅☉姘殢闁规潙鍢查崣鍡涘矗?`uart_sensor_monitor.py`闁靛棔姊梖light_log_export.py` 闁告粌鏈悧搴ㄥ礄閸℃艾澹栭柡鍫厸缁盯鎮惧▎蹇旇含 `tools/` 闁哄秴婀卞ú鎷屻亹閺囨ǚ鍋?
+閺夆晜鍔橀、鎴﹀礂閹惰姤鏆涢柛銉у仜缂嶅﹪鏁?
 ```powershell
-Set-Location "E:\濞夆剝鎼忕痪鎼侇棧閺堢code"
+Set-Location "E:\婵炲鍓濋幖蹇曠棯閹间緡妫ч柡鍫㈩嚔code"
 powershell -ExecutionPolicy Bypass -File tools\regression\run_key_regression.ps1
 ```
 
-鐟曞棛娲婇敍?
-- Flash CRC / boot 閺嶏繝鐛欓敍?- 閺冦儱绻旂€瑰本鏆ｉ妴浣逛划婢跺秲鈧甫3 閸氼垰缍嶉妴浣规暪鐏忔拝绱?- 閻喎鐤?FlightLoop 閻樿埖鈧緤绱?- 鐟欙綁鏀?GUI閵嗕俯400 缁愭褰涢崪灞惧ⅵ閸栧懎鏄傜€甸潻绱?- Python 瀹搞儱鍙块崶鐐茬秺閵?
-閸樺棗褰?v1 鐎电厧鍤径鐟板徔閿?
+閻熸洖妫涘ú濠囨晬?
+- Flash CRC / boot 闁哄稄绻濋悰娆撴晬?- 闁哄啨鍎辩换鏃傗偓鐟版湰閺嗭綁濡存担閫涘垝濠㈣泛绉查埀顑跨敨3 闁告凹鍨扮紞宥夊Υ娴ｈ鏆悘蹇旀嫕缁?- 闁活亞鍠庨悿?FlightLoop 闁绘鍩栭埀顑跨筏缁?- 閻熸瑱缍侀弨?GUI闁靛棔淇?00 缂佹劖顨呰ぐ娑㈠椽鐏炴儳鈪甸柛鏍ф噹閺勫倻鈧敻娼荤槐?- Python 鐎规悶鍎遍崣鍧楀炊閻愯尙绉洪柕?
+闁告ê妫楄ぐ?v1 閻庣數鍘ч崵顓熷緞閻熸澘寰旈柨?
 ```text
 fixtures/flight_log_v1_history.bin
 ```
 
-閻?`data/logs/flight_log_k3_01.csv` 闁插秴缂撻敍灞肩矌閻劋绨宀冪槈閺冄呭鐎电厧鍤捄顖氱窞閿涘奔绗夐弰顖氱杽妞嬬偛甯慨?dump閵?
-## 整链 IMU 回放
+闁?`data/logs/flight_log_k3_01.csv` 闂佹彃绉寸紓鎾绘晬鐏炶偐鐭岄柣顫妺缁剚顨ュ畝鍐闁哄唲鍛暭閻庣數鍘ч崵顓犳崉椤栨氨绐為柨娑樺缁楀寮伴姘辨澖濡炲鍋涚敮顐ｆ叏?dump闁?
+## 鏁撮摼 IMU 鍥炴斁
 
-回放源：`replay_imu_chain.c`。同一输入分别对 `a76d5b6` 与 `b914f7c` 编译：
-
+鍥炴斁婧愶細`replay_imu_chain.c`銆傚悓涓€杈撳叆鍒嗗埆瀵?`a76d5b6` 涓?`b914f7c` 缂栬瘧锛?
 ```powershell
 gcc -std=c99 -O2 -fno-builtin -DFLIGHT_HOST_TEST=1 -DFLIGHT_STARTUP_TEST=1 ^
   -DCLOCK_SYS_CLOCK_HZ=24000000 -DC_GROUND_UART_DIAG=1 -fpack-struct ^
@@ -31,4 +29,11 @@ gcc -std=c99 -O2 -fno-builtin -DFLIGHT_HOST_TEST=1 -DFLIGHT_STARTUP_TEST=1 ^
   -o replay.exe
 ```
 
-输出逐拍 CSV，比较两份输出应为 `diff=0`；脚本内断言包括静止就绪、解锁非零 PWM、急停、失联、读失败恢复和 100/105 ms。
+杈撳嚭閫愭媿 CSV锛屾瘮杈冧袱浠借緭鍑哄簲涓?`diff=0`锛涜剼鏈唴鏂█鍖呮嫭闈欐灏辩华銆佽В閿侀潪闆?PWM銆佹€ュ仠銆佸け鑱斻€佽澶辫触鎭㈠鍜?100/105 ms銆?
+### 一条 PowerShell 对比命令
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\regression\run_imu_chain_compare.ps1
+```
+
+脚本用同一份 `replay_imu_chain.c` 编译 `a76d5b6` 对照副本和当前源码，逐拍输出 CSV 并比较；`-Werror=format` 已加入编译参数。基线对照副本只额外包含 `FLIGHT_STARTUP_TEST` 下的观测接口。

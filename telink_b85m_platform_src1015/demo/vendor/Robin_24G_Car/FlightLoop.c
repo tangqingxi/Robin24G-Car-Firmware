@@ -9,6 +9,9 @@
 #include "UserEuler.h"
 #include "my_t3488.h"
 #include "ImuMeasure.h"
+#ifdef FLIGHT_STARTUP_TEST
+static u8 s_replay_att_updated;
+#endif
 #if C_FLIGHT_BARO_EN
 #include "BaroMeasure.h"
 #endif
@@ -258,6 +261,9 @@ void FlightLoop_Process(void)
 	u32 dt_ticks = 0;
 	s32 dt_100us = 0;
 	u8 att_updated = 0;
+#ifdef FLIGHT_STARTUP_TEST
+	s_replay_att_updated = 0;
+#endif
 	u8 ctrl_ok = 0;
 	u8 imu_ok = 1;
 	u8 mixer_limited = 0;
@@ -336,11 +342,17 @@ void FlightLoop_Process(void)
 								 t_read1 / FLIGHT_TICKS_PER_MS)) {
 					FlightSafety_NoteAttitude(&s_fl.safety);
 					att_updated = 1;
+#ifdef FLIGHT_STARTUP_TEST
+					s_replay_att_updated = 1;
+#endif
 				}
 			}
 		}
 	}
-if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {
+#ifdef FLIGHT_STARTUP_TEST
+	s_replay_att_updated = att_updated;
+#endif
+	if (att_updated && s_fl.rc.link && s_fl.rc.cmd_ok) {
 		AttitudeControl_Update(&s_fl.attc, &s_fl.att);
 		RateControl_Update(&s_fl.ratec, s_fl.attc.tgt_rate, s_fl.rate);
 		ctrl_ok = 1;
@@ -447,6 +459,7 @@ void FlightLoop_OrderTestSetRc(unsigned char link, unsigned char cmd_ok)
 #endif
 
 #ifdef FLIGHT_STARTUP_TEST
+unsigned char FlightLoop_StartupTestAttUpdated(void) { return s_replay_att_updated; }
 unsigned char FlightLoop_StartupTestLockReason(void) { return s_fl.safety.reason; }
 void FlightLoop_StartupTestGyro(int out[3])
 {
