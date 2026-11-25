@@ -74,6 +74,11 @@ try {
     ) @('-DFLIGHT_HOST_TEST=1', '-DBARO_BDT_HOST_TEST=1',
         '-DCLOCK_SYS_CLOCK_HZ=24000000', '-fpack-struct')
 
+    Invoke-Case 'imu_measure' @(
+        (Join-Path $Here 'test_imu_measure.c'),
+        (Join-Path $Car 'ImuMeasure.c')
+    ) @('-DFLIGHT_HOST_TEST=1', '-DCLOCK_SYS_CLOCK_HZ=24000000')
+
     Invoke-Case 'baro_fixed' @(
         (Join-Path $Here 'test_baro_fixed.c'),
         (Join-Path $Car 'BaroFixed.c')
